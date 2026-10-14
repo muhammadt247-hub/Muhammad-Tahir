@@ -14,7 +14,7 @@ export function FlagChips({ flags, flagReasons = [] }: FlagChipsProps) {
 
   const tooltipText = "AI detection is not perfect. You decide before uploading.";
 
-  const activeChips: { label: string; icon: React.ReactNode; reasonKey: string }[] = [];
+  const activeChips: { label: string; icon: React.ReactNode; reasonKey: string; reasonDetail?: string }[] = [];
 
   if (flags.identifiablePerson) {
     activeChips.push({
@@ -32,19 +32,15 @@ export function FlagChips({ flags, flagReasons = [] }: FlagChipsProps) {
     });
   }
 
-  if (flags.visibleLogoOrBrand) {
+  if (flags.visibleTextOrLogo || flags.visibleLogoOrBrand || flags.visibleText) {
+    const textOrLogoReason = flagReasons.find((r) =>
+      /text|logo|brand|sign|letter|word|trademark/i.test(r)
+    );
     activeChips.push({
-      label: 'Logo or brand visible. Review before upload',
+      label: 'Text or logo visible. Review before upload.',
       icon: <Tag className="h-3 w-3" />,
-      reasonKey: 'logo',
-    });
-  }
-
-  if (flags.visibleText) {
-    activeChips.push({
-      label: 'Text visible in image',
-      icon: <Type className="h-3 w-3" />,
-      reasonKey: 'text',
+      reasonKey: 'text_or_logo',
+      reasonDetail: textOrLogoReason,
     });
   }
 

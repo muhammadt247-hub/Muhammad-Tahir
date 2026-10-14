@@ -73,22 +73,25 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
       URL.revokeObjectURL(objectUrl);
 
       const maxDim = 1024;
-      let width = img.naturalWidth || 800;
-      let height = img.naturalHeight || 600;
+      const naturalWidth = img.naturalWidth || 800;
+      const naturalHeight = img.naturalHeight || 600;
 
-      if (width > maxDim || height > maxDim) {
-        if (width >= height) {
-          height = Math.round((height / width) * maxDim);
-          width = maxDim;
+      let canvasWidth = naturalWidth;
+      let canvasHeight = naturalHeight;
+
+      if (canvasWidth > maxDim || canvasHeight > maxDim) {
+        if (canvasWidth >= canvasHeight) {
+          canvasHeight = Math.round((canvasHeight / canvasWidth) * maxDim);
+          canvasWidth = maxDim;
         } else {
-          width = Math.round((width / height) * maxDim);
-          height = maxDim;
+          canvasWidth = Math.round((canvasWidth / canvasHeight) * maxDim);
+          canvasHeight = maxDim;
         }
       }
 
       const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = canvasWidth;
+      canvas.height = canvasHeight;
 
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) {
@@ -99,16 +102,16 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
 
       if (isPng) {
         // Draw first to check alpha
-        ctx.drawImage(img, 0, 0, width, height);
-        hasAlpha = detectImageAlpha(ctx, width, height);
+        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+        hasAlpha = detectImageAlpha(ctx, canvasWidth, canvasHeight);
 
         // If it has alpha or for AI request, draw on white background
-        ctx.clearRect(0, 0, width, height);
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
       } else {
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
       }
 
       // 1024px JPEG quality 0.8 for AI
@@ -117,9 +120,9 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
 
       // Create a 160px thumbnail for clean preview
       const thumbCanvas = document.createElement('canvas');
-      const thumbScale = Math.min(160 / width, 160 / height, 1);
-      thumbCanvas.width = Math.max(1, Math.round(width * thumbScale));
-      thumbCanvas.height = Math.max(1, Math.round(height * thumbScale));
+      const thumbScale = Math.min(160 / canvasWidth, 160 / canvasHeight, 1);
+      thumbCanvas.width = Math.max(1, Math.round(canvasWidth * thumbScale));
+      thumbCanvas.height = Math.max(1, Math.round(canvasHeight * thumbScale));
 
       const thumbCtx = thumbCanvas.getContext('2d');
       let previewUrl = aiDataUrl;
@@ -138,8 +141,8 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
         previewUrl,
         aiDataUrl,
         hasAlphaChannel: hasAlpha,
-        width,
-        height,
+        width: naturalWidth,
+        height: naturalHeight,
       });
     };
 

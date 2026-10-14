@@ -141,6 +141,14 @@ export function ResultCard({
   const hardBlockedTerms = (item.blockedTermsFound || []).filter((b) => !b.isAmbiguous);
   const ambiguousTerms = (item.blockedTermsFound || []).filter((b) => b.isAmbiguous);
 
+  // Resolution & Adobe Limits Check
+  const width = item.fileData.width || 0;
+  const height = item.fileData.height || 0;
+  const megapixels = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
+  const isUnder4Mp = width > 0 && height > 0 && megapixels < 4.0;
+  const isOver100Mp = megapixels > 100;
+  const isOver45Mb = (item.fileData.originalSize || 0) > 45 * 1024 * 1024;
+
   // Highest similarity match for score display
   const topSimilarPair = item.similarPairDetails?.[0];
   const q = item.fingerprint?.quality;
@@ -150,23 +158,23 @@ export function ResultCard({
       id={`result-card-${item.id}`}
       className={cn(
         'flex flex-col md:flex-row rounded-2xl bg-card shadow-xl overflow-hidden border transition-all duration-300 relative',
-        isExcluded
+        isExcluded || isUnder4Mp
           ? 'border-destructive/40 bg-muted/20 opacity-80'
           : isKeptBest
           ? 'border-emerald-500/50 shadow-emerald-500/5'
-          : hardBlockedTerms.length > 0
+          : hardBlockedTerms.length > 0 || isOver100Mp || isOver45Mb
           ? 'border-destructive/60 hover:border-destructive shadow-destructive/5'
           : 'border-border/50 hover:border-border'
       )}
     >
       {/* Top Banner on Card */}
-      {isExcluded && (
+      {(isExcluded || isUnder4Mp) && (
         <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold shadow-xs">
-          Excluded from Export
+          {isUnder4Mp ? '< 4 MP (Excluded)' : 'Excluded from Export'}
         </div>
       )}
 
-      {isKeptBest && !isExcluded && (
+      {isKeptBest && !isExcluded && !isUnder4Mp && (
         <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
           <Check className="h-3 w-3" />
           <span>Kept (Best in Group)</span>
@@ -206,12 +214,26 @@ export function ResultCard({
             >
               {item.fileData.originalName}
             </p>
-            {/* Size Comparison Line */}
-            <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
-              {formatBytes(item.fileData.originalSize)} ➔{' '}
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                {formatBytes(item.fileData.compressedSize)}
+            {/* Dimensions & Megapixels */}
+            <div className="text-[11px] font-mono mt-1 flex flex-wrap items-center gap-1.5">
+              {width > 0 && height > 0 ? (
+                <span
+                  className={cn(
+                    'font-medium',
+                    isUnder4Mp || isOver100Mp ? 'text-destructive font-bold' : 'text-foreground'
+                  )}
+                >
+                  {width} × {height} ({megapixels.toFixed(1)} MP)
+                </span>
+              ) : null}
+              <span className="text-muted-foreground/60">·</span>
+              <span className={cn(isOver45Mb ? 'text-destructive font-bold' : 'text-muted-foreground')}>
+                {formatBytes(item.fileData.originalSize)}
               </span>
+            </div>
+            {/* Compressed AI Payload */}
+            <p className="text-[10px] font-mono text-muted-foreground/75 mt-0.5">
+              AI preview: {formatBytes(item.fileData.compressedSize)}
             </p>
           </div>
         </div>
@@ -331,6 +353,37 @@ export function ResultCard({
             {/* Visual Release & Copyright Advisories */}
             {mode === 'metadata' && (
               <FlagChips flags={item.flags} flagReasons={item.flagReasons} />
+            )}
+
+            {/* Resolution Check Red Alerts */}
+            {isUnder4Mp && (
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+                <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
+                  <span className="font-semibold">
+                    Below Adobe&apos;s 4 MP minimum, likely refused ({width} × {height} = {megapixels.toFixed(1)} MP)
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive text-destructive-foreground uppercase tracking-wider shrink-0">
+                  Excluded
+                </span>
+              </div>
+            )}
+
+            {(isOver100Mp || isOver45Mb) && (
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+                <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span className="font-semibold">
+                    {isOver100Mp
+                      ? `Over Adobe's 100 MP maximum limit (${megapixels.toFixed(1)} MP)`
+                      : `Over Adobe's 45 MB file size limit (${formatBytes(item.fileData.originalSize)})`}
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive text-destructive-foreground uppercase tracking-wider shrink-0">
+                  Refused
+                </span>
+              </div>
             )}
 
             {/* Blocked Term Red Alert */}

@@ -164,7 +164,8 @@ export async function exportGeneratorBatch(
     const p = platforms[0];
     const csvContent = buildPlatformCsvString(p, items);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    downloadBlob(blob, `${p}_metadata_${dateStr}.csv`);
+    const filename = p === 'adobe' ? 'doctorx_adobe-stock_export.csv' : `${p}_metadata_${dateStr}.csv`;
+    downloadBlob(blob, filename);
     return;
   }
 
@@ -172,7 +173,8 @@ export async function exportGeneratorBatch(
   const zip = new JSZip();
   for (const p of platforms) {
     const csvContent = buildPlatformCsvString(p, items);
-    zip.file(`${p}_metadata_${dateStr}.csv`, csvContent);
+    const filename = p === 'adobe' ? 'doctorx_adobe-stock_export.csv' : `${p}_metadata_${dateStr}.csv`;
+    zip.file(filename, csvContent);
   }
 
   const content = await zip.generateAsync({ type: 'blob' });

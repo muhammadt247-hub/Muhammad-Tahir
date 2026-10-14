@@ -63,6 +63,30 @@ const MetadataResponseSchema = {
             description: 'Keywords ordered by relevance, single words and short phrases, no duplicates',
             items: { type: Type.STRING },
           },
+          flags: {
+            type: Type.OBJECT,
+            description: 'Visual advisories and features detected in the image',
+            properties: {
+              identifiablePerson: { type: Type.BOOLEAN },
+              privateProperty: { type: Type.BOOLEAN },
+              visibleLogoOrBrand: { type: Type.BOOLEAN },
+              visibleText: { type: Type.BOOLEAN },
+              visibleTextOrLogo: {
+                type: Type.BOOLEAN,
+                description: 'True if visible text, numbers, logo, watermark, or brand name is present in the image',
+              },
+              possibleEditorial: { type: Type.BOOLEAN },
+              showsAiConcept: {
+                type: Type.BOOLEAN,
+                description: 'True ONLY if the visual image is directly about robots, cyborgs, or artificial intelligence concept',
+              },
+            },
+          },
+          flagReasons: {
+            type: Type.ARRAY,
+            description: 'Short reason for any triggered flag, e.g. "Text visible on sign", "Brand logo on shoe"',
+            items: { type: Type.STRING },
+          },
         },
         required: ['title', 'keywords'],
       },
@@ -99,6 +123,27 @@ const ZodMetadataOutput = z.object({
       title: z.string().default(''),
       description: z.string().optional().default(''),
       keywords: z.array(z.string()).default([]),
+      flags: z
+        .object({
+          identifiablePerson: z.boolean().default(false),
+          privateProperty: z.boolean().default(false),
+          visibleLogoOrBrand: z.boolean().default(false),
+          visibleText: z.boolean().default(false),
+          visibleTextOrLogo: z.boolean().default(false),
+          possibleEditorial: z.boolean().default(false),
+          showsAiConcept: z.boolean().default(false),
+        })
+        .optional()
+        .default({
+          identifiablePerson: false,
+          privateProperty: false,
+          visibleLogoOrBrand: false,
+          visibleText: false,
+          visibleTextOrLogo: false,
+          possibleEditorial: false,
+          showsAiConcept: false,
+        }),
+      flagReasons: z.array(z.string()).optional().default([]),
     })
   ),
 });
@@ -209,7 +254,17 @@ CRITICAL RULES:
 5. NEVER use these banned title words: "${negativeTitleWords || ''}".
 6. NEVER use these banned keywords: "${negativeKeywords || ''}".
 7. Description: A concise, single factual sentence around ${descriptionLength} characters describing the subject and commercial context.
-8. Output exactly one metadata set for each provided image in the exact same order.`;
+8. Keyword Relevance for AI: Do NOT include "ai" or "artificial intelligence" in keywords unless the image clearly depicts a robot, cyborg, neural network, or AI concept. If not about AI, omit all AI keywords.
+9. Visual Compliance Audit (flags):
+   - identifiablePerson: true if recognizable face or person is present.
+   - privateProperty: true if recognizable private building, property, or artwork.
+   - visibleLogoOrBrand: true if recognizable company trademark or brand logo is visible.
+   - visibleText: true if visible written words, letters, or numbers appear.
+   - visibleTextOrLogo: true if any visible text, watermark, numbers, brand name, or logo is present.
+   - possibleEditorial: true if news event, editorial landmark, or unreleased public gathering.
+   - showsAiConcept: true ONLY if the subject is explicitly robots, cyborgs, or artificial intelligence concept.
+   - flagReasons: short specific reason for any positive flag (e.g. "Text visible on sign", "Logo on clothing").
+10. Output exactly one metadata set for each provided image in the exact same order.`;
 
       userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). Ensure titles are under ${maxTitle} chars and keywords are ordered by relevance.`;
       responseSchema = MetadataResponseSchema;

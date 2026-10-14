@@ -11,7 +11,9 @@ export interface AiVisualFlags {
   privateProperty: boolean;
   visibleLogoOrBrand: boolean;
   visibleText: boolean;
+  visibleTextOrLogo?: boolean;
   possibleEditorial: boolean;
+  showsAiConcept?: boolean;
 }
 
 export interface BlockedTermMatch {
@@ -270,6 +272,26 @@ export class GeneratorQueue {
             item.flagReasons = result.flagReasons;
             item.status = 'done';
 
+            // Keyword relevance check (Requirement 3):
+            // Remove "ai" and "artificial intelligence" unless the image clearly shows the concept
+            const showsAi =
+              Boolean(item.flags?.showsAiConcept) ||
+              /\b(robot|robotics|cyborg|humanoid|android|neural network|machine learning|deep learning|cybernetic|synthetic intelligence|digital brain)\b/i.test(
+                `${item.title} ${item.description}`
+              );
+            if (!showsAi && item.keywords) {
+              const aiTerms = new Set(['ai', 'artificial intelligence', 'a.i.', 'artificial-intelligence']);
+              item.keywords = item.keywords.filter((k) => !aiTerms.has(k.toLowerCase().trim()));
+            }
+
+            // Resolution check (Requirement 1):
+            // Exclude under 4 MP by default
+            const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
+            if (item.fileData.width > 0 && item.fileData.height > 0 && mp < 4.0) {
+              item.isExcluded = true;
+              item.excludedReason = "Below Adobe's 4 MP minimum, likely refused";
+            }
+
             // Run compliance scan
             if (this.settings.complianceGuard) {
               const comp = scanItemCompliance(
@@ -437,6 +459,24 @@ export class GeneratorQueue {
               item.flags = resItem.flags;
               item.flagReasons = resItem.flagReasons;
               item.status = 'done';
+
+              // Keyword relevance check (Requirement 3):
+              const showsAi =
+                Boolean(item.flags?.showsAiConcept) ||
+                /\b(robot|robotics|cyborg|humanoid|android|neural network|machine learning|deep learning|cybernetic|synthetic intelligence|digital brain)\b/i.test(
+                  `${item.title} ${item.description}`
+                );
+              if (!showsAi && item.keywords) {
+                const aiTerms = new Set(['ai', 'artificial intelligence', 'a.i.', 'artificial-intelligence']);
+                item.keywords = item.keywords.filter((k) => !aiTerms.has(k.toLowerCase().trim()));
+              }
+
+              // Resolution check (Requirement 1):
+              const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
+              if (item.fileData.width > 0 && item.fileData.height > 0 && mp < 4.0) {
+                item.isExcluded = true;
+                item.excludedReason = "Below Adobe's 4 MP minimum, likely refused";
+              }
 
               if (this.settings.complianceGuard) {
                 const comp = scanItemCompliance(

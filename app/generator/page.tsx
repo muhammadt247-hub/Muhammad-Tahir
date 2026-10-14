@@ -206,6 +206,9 @@ export default function GeneratorPage() {
     for (const file of filesToProcess) {
       try {
         const fileData = await processFileForGenerator(file);
+        const mp = fileData.width > 0 && fileData.height > 0 ? (fileData.width * fileData.height) / 1_000_000 : 0;
+        const isUnder4Mp = fileData.width > 0 && fileData.height > 0 && mp < 4.0;
+
         newItems.push({
           id: fileData.id,
           fileData,
@@ -215,6 +218,8 @@ export default function GeneratorPage() {
           keywords: [],
           prompt: '',
           retryCount: 0,
+          isExcluded: isUnder4Mp,
+          excludedReason: isUnder4Mp ? "Below Adobe's 4 MP minimum, likely refused" : undefined,
         });
       } catch (err) {
         console.error(`Failed to process ${file.name}:`, err);
@@ -306,15 +311,24 @@ export default function GeneratorPage() {
     return buildPreExportReport(items);
   }, [items]);
 
-  // Execute CSV Export (strictly excludes similar and hard-blocked items)
+  // Execute CSV Export (strictly excludes similar, resolution-refused, and hard-blocked items)
   const executeActualCsvExport = useCallback(() => {
-    const doneItems = items.filter((i) => i.status === 'done' && !i.isExcluded);
+    const doneItems = items.filter((i) => {
+      if (i.status !== 'done' || i.isExcluded) return false;
+      const mp = (i.fileData.width * i.fileData.height) / 1_000_000;
+      // Exclude under 4 MP by default
+      if (i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
+      // Exclude over 100 MP or over 45 MB
+      if (mp > 100 || (i.fileData.originalSize || 0) > 45 * 1024 * 1024) return false;
+      return true;
+    });
+
     const validItems = doneItems.filter(
       (i) => !i.blockedTermsFound?.some((b) => !b.isAmbiguous)
     );
 
     if (validItems.length === 0) {
-      toast.error('No compliant items available for export. Resolve blocked terms first.');
+      toast.error('No compliant items available for export. Resolve blocked terms or resolution issues first.');
       return;
     }
 
@@ -336,7 +350,11 @@ export default function GeneratorPage() {
     } else {
       const csvContent = generateMarketplaceCsv(exportData, settings.platform);
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      downloadBlob(blob, `${settings.platform}_metadata_${dateStr}.csv`);
+      const exportFilename =
+        settings.platform === 'adobe-stock'
+          ? 'doctorx_adobe-stock_export.csv'
+          : `${settings.platform}_metadata_${dateStr}.csv`;
+      downloadBlob(blob, exportFilename);
       toast.success(`Exported ${validItems.length} metadata rows for ${settings.platform}`);
     }
 
@@ -358,11 +376,13 @@ export default function GeneratorPage() {
     }
   }, [items, settings]);
 
+
+
   // Trigger export or show report dialog if hard issues exist
   const handleExportCsv = useCallback(() => {
     if (currentReport.blockedItemsCount > 0) {
       setReportDialogOpen(true);
-      toast.error('Cannot export: Fix blocked trademark terms first.');
+      toast.error('Cannot export: Fix compliance or resolution issues first.');
       return;
     }
     executeActualCsvExport();
@@ -526,55 +546,122 @@ export default function GeneratorPage() {
     [items, settings, handleUpdateItem]
   );
 
-  // Fix all flagged similar titles
+  // Fix all flagged similar titles & rewrite repetitive title openings (>3 in batch)
   const handleFixSimilarTitles = useCallback(async () => {
-    const flaggedItems = items.filter(
-      (it) => it.status === 'done' && it.similarTo && it.similarTo.length > 0
-    );
-    if (flaggedItems.length === 0) return;
-
-    toast.info(`Rewriting ${flaggedItems.length} similar title${flaggedItems.length === 1 ? '' : 's'}...`);
-
-    for (const item of flaggedItems) {
-      try {
-        const avoidList = (item.similarTo || [])
-          .map((s) => s.otherFilename)
-          .filter(Boolean);
-
-        const keyInfo = await keyRotator.getNextKey();
-        const res = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mode: 'retitle',
-            images: [item.fileData.aiDataUrl],
-            currentTitle: item.title,
-            reason: 'Rewrite with a distinct opening and perspective to eliminate batch similarity',
-            avoidTitles: avoidList,
-            platform: settings.platform,
-            titleMaxLength: settings.titleLength,
-            contributorLanguage: settings.contributorLanguage || 'en',
-            isAiBatch: settings.isAiBatch || false,
-            customBlockedWords: settings.customBlockedWords || [],
-            apiKey: keyInfo?.apiKey,
-            model: settings.selectedModel,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const newTitle = data.metadataSets?.[0]?.title || data.title;
-          if (newTitle) {
-            handleUpdateItem(item.id, { title: newTitle, similarTo: [] });
-          }
-        }
-      } catch (e) {
-        console.error('Error fixing similar title:', e);
+    // 1. Identify repetitive first words (> 3 titles)
+    const firstWordMap = new Map<string, string[]>();
+    for (const item of items) {
+      if (!item.title?.trim()) continue;
+      const cleanFirst = item.title
+        .trim()
+        .replace(/^[^a-zA-Z0-9]+/, '')
+        .split(/\s+/)[0]
+        ?.toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+      if (cleanFirst && cleanFirst.length > 1) {
+        const ids = firstWordMap.get(cleanFirst) || [];
+        ids.push(item.id);
+        firstWordMap.set(cleanFirst, ids);
       }
-      await new Promise((r) => setTimeout(r, 200));
     }
 
-    toast.success('Finished adjusting similar titles!');
+    const synonyms: Record<string, string[]> = {
+      modern: ['Contemporary', 'Sleek', 'Stylish', 'Clean', 'Minimalist', 'Sophisticated'],
+      closeup: ['Detailed view of', 'Macro perspective of', 'Close focal view of', 'Sharp focus on'],
+      'close-up': ['Detailed view of', 'Macro perspective of', 'Close focal view of', 'Sharp focus on'],
+      portrait: ['Studio portrait of', 'Candid portrait of', 'Expressive headshot of', 'Artistic portrait of'],
+      young: ['Youthful', 'Smiling', 'Energetic', 'Active', 'Dynamic'],
+      beautiful: ['Scenic', 'Picturesque', 'Stunning', 'Charming', 'Serene', 'Vibrant'],
+      abstract: ['Conceptual', 'Geometric', 'Artistic', 'Dynamic', 'Textured', 'Minimalist'],
+      business: ['Corporate', 'Professional', 'Commercial', 'Executive', 'Enterprise'],
+      vintage: ['Retro', 'Classic', 'Nostalgic', 'Antique', 'Timeless'],
+      aerial: ['Top-down view of', 'Elevated view of', 'High-angle perspective on', 'Panoramic view of'],
+      happy: ['Joyful', 'Cheerful', 'Smiling', 'Radiant', 'Delighted'],
+      cozy: ['Warm', 'Inviting', 'Comfortable', 'Homely', 'Intimate'],
+    };
+
+    let openingFixedCount = 0;
+    const modifiedItems = items.map((item) => {
+      if (!item.title?.trim()) return item;
+      const words = item.title.trim().split(/\s+/);
+      const firstWord = words[0]?.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const groupIds = firstWord ? firstWordMap.get(firstWord) : null;
+
+      if (groupIds && groupIds.length > 3) {
+        const indexInGroup = groupIds.indexOf(item.id);
+        if (indexInGroup > 0) {
+          const synList = synonyms[firstWord] || [
+            'Distinctive',
+            'Authentic',
+            'Selected',
+            'Highlighted',
+            'Featured',
+            'Vibrant',
+          ];
+          const replacement = synList[(indexInGroup - 1) % synList.length];
+          const newTitle = `${replacement} ${words.slice(1).join(' ')}`.trim();
+          openingFixedCount++;
+          return { ...item, title: newTitle, similarTo: [] };
+        }
+      }
+      return item;
+    });
+
+    if (openingFixedCount > 0) {
+      setItems(modifiedItems);
+      toast.success(`Rewrote opening words for ${openingFixedCount} titles`);
+    }
+
+    // 2. Also rewrite any remaining flagged pairwise similar titles via AI
+    const remainingFlagged = modifiedItems.filter(
+      (it) => it.status === 'done' && it.similarTo && it.similarTo.length > 0
+    );
+
+    if (remainingFlagged.length > 0) {
+      toast.info(`Refining ${remainingFlagged.length} similar title${remainingFlagged.length === 1 ? '' : 's'} with AI...`);
+
+      for (const item of remainingFlagged) {
+        try {
+          const avoidList = (item.similarTo || [])
+            .map((s) => s.otherFilename)
+            .filter(Boolean);
+
+          const keyInfo = await keyRotator.getNextKey();
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'retitle',
+              images: [item.fileData.aiDataUrl],
+              currentTitle: item.title,
+              reason: 'Rewrite with a distinct opening and perspective to eliminate batch similarity',
+              avoidTitles: avoidList,
+              platform: settings.platform,
+              titleMaxLength: settings.titleLength,
+              contributorLanguage: settings.contributorLanguage || 'en',
+              isAiBatch: settings.isAiBatch || false,
+              customBlockedWords: settings.customBlockedWords || [],
+              apiKey: keyInfo?.apiKey,
+              model: settings.selectedModel,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const newTitle = data.metadataSets?.[0]?.title || data.title;
+            if (newTitle) {
+              handleUpdateItem(item.id, { title: newTitle, similarTo: [] });
+            }
+          }
+        } catch (e) {
+          console.error('Error fixing similar title:', e);
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      toast.success('Finished adjusting similar titles!');
+    } else if (openingFixedCount === 0) {
+      toast.info('No repeated opening words or similar titles found to adjust');
+    }
   }, [items, settings, handleUpdateItem]);
 
   // Approve ambiguous term (e.g. apple fruit, amazon rainforest)
@@ -900,6 +987,7 @@ export default function GeneratorPage() {
         onProceedExport={executeActualCsvExport}
         onFixTitle={handleFixTitle}
         onApproveAmbiguous={handleApproveIssue}
+        onFixSimilarTitles={handleFixSimilarTitles}
       />
     </div>
   );

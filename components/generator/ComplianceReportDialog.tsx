@@ -17,11 +17,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  FileText,
   UserCheck,
   Layers,
   ArrowRight,
-  Info,
+  Maximize2,
+  Wand2,
+  FileSpreadsheet,
+  AlertCircle,
+  Tag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +35,7 @@ interface ComplianceReportDialogProps {
   onProceedExport: () => void;
   onFixTitle: (itemId: string) => void;
   onApproveAmbiguous: (itemId: string, term: string) => void;
+  onFixSimilarTitles?: () => void;
 }
 
 export function ComplianceReportDialog({
@@ -41,6 +45,7 @@ export function ComplianceReportDialog({
   onProceedExport,
   onFixTitle,
   onApproveAmbiguous,
+  onFixSimilarTitles,
 }: ComplianceReportDialogProps) {
   const {
     totalItems,
@@ -52,8 +57,13 @@ export function ComplianceReportDialog({
     ambiguousTermIssues,
     visualFlagIssues,
     similarTitleIssues,
+    resolutionIssues,
+    varietyIssues,
+    rowFileMatch,
     canExportSafely,
   } = report;
+
+  const redResolutionIssues = resolutionIssues.filter((r) => r.isRed);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,12 +103,12 @@ export function ComplianceReportDialog({
           </div>
 
           <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
-            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-semibold">Ready</p>
+            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-semibold">Export Rows</p>
             <p className="text-base font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{readyItems}</p>
           </div>
 
           <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20 text-center">
-            <p className="text-[10px] text-destructive uppercase tracking-wider font-semibold">Blocked</p>
+            <p className="text-[10px] text-destructive uppercase tracking-wider font-semibold">Blocked / Refused</p>
             <p className="text-base font-bold text-destructive mt-0.5">{blockedItemsCount}</p>
           </div>
 
@@ -110,12 +120,43 @@ export function ComplianceReportDialog({
 
         {/* Scrollable Issues List */}
         <div className="flex-1 overflow-y-auto space-y-4 pt-2 pr-1">
+          {/* Resolution Check Red Errors */}
+          {redResolutionIssues.length > 0 && (
+            <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/5 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-destructive">
+                <Maximize2 className="h-4 w-4" />
+                <span>Resolution & Dimension Issues ({redResolutionIssues.length})</span>
+              </div>
+              <p className="text-[10px] text-destructive/90">
+                Adobe Stock requires images to be at least 4 MP, under 100 MP, and under 45 MB. Files under 4 MP are excluded from export by default.
+              </p>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                {redResolutionIssues.map((issue, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 rounded-lg bg-card border border-destructive/20 text-xs"
+                  >
+                    <div className="min-w-0 pr-2">
+                      <p className="font-semibold text-foreground truncate">{issue.filename}</p>
+                      <p className="text-[11px] text-destructive font-medium">
+                        {issue.message} ({issue.width} × {issue.height} = {issue.megapixels} MP)
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/15 text-destructive shrink-0">
+                      Excluded from CSV
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Hard Blocked Errors */}
           {blockedTermIssues.length > 0 && (
             <div className="p-3.5 rounded-xl border border-destructive/30 bg-destructive/5 space-y-2">
               <div className="flex items-center gap-1.5 text-xs font-bold text-destructive">
                 <XCircle className="h-4 w-4" />
-                <span>Blocked Terms (Must fix or exclude before export)</span>
+                <span>Blocked Trademark Terms (Must fix or exclude before export)</span>
               </div>
               <div className="space-y-2">
                 {blockedTermIssues.map((issue) => (
@@ -142,6 +183,131 @@ export function ComplianceReportDialog({
               </div>
             </div>
           )}
+
+          {/* Variety Warnings: Repetitive Openings & Overused Keywords */}
+          {(varietyIssues.repetitiveFirstWords.length > 0 || varietyIssues.overusedKeywords.length > 0) && (
+            <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <span>Variety & Repetition Warnings</span>
+                </div>
+                {varietyIssues.repetitiveFirstWords.length > 0 && onFixSimilarTitles && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onFixSimilarTitles}
+                    className="h-7 text-xs font-semibold gap-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-500/30"
+                  >
+                    <Wand2 className="h-3 w-3" />
+                    <span>Fix similar titles</span>
+                  </Button>
+                )}
+              </div>
+
+              {/* Repetitive Openings */}
+              {varietyIssues.repetitiveFirstWords.map((issue, idx) => (
+                <div
+                  key={idx}
+                  className="p-2 rounded-lg bg-card border border-amber-500/25 text-xs flex items-center justify-between"
+                >
+                  <div className="min-w-0 pr-2">
+                    <p className="font-semibold text-foreground">
+                      Opening word repetition: <span className="text-amber-700 dark:text-amber-400 font-bold">&quot;{issue.word}&quot;</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      More than 3 titles in this batch ({issue.count} titles) start with the same first word.
+                    </p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Overused Keywords (> 40%) */}
+              {varietyIssues.overusedKeywords.map((issue, idx) => (
+                <div
+                  key={idx}
+                  className="p-2 rounded-lg bg-card border border-amber-500/25 text-xs flex items-center justify-between"
+                >
+                  <div className="min-w-0 pr-2">
+                    <p className="font-semibold text-foreground">
+                      Shared keyword spam risk: <span className="text-amber-700 dark:text-amber-400 font-bold">&quot;{issue.keyword}&quot;</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Shared by {issue.percentage}% of files in batch ({issue.count} files). Stock agencies penalize over-indexing on identical keywords.
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-800 dark:text-amber-300 shrink-0">
+                    {issue.percentage}% share
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Row / File Match Check */}
+          <div className="p-3.5 rounded-xl border border-border/60 bg-accent/10 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+              <FileSpreadsheet className="h-4 w-4 text-primary" />
+              <span>Row / File Match Verification</span>
+            </div>
+
+            {rowFileMatch.isPerfectMatch ? (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span>100% 1:1 Match: Every uploaded image has a ready CSV row, and every row matches an image.</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {/* Files that have no row */}
+                {rowFileMatch.filesWithoutRow.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold text-muted-foreground">
+                      Files with no export row ({rowFileMatch.filesWithoutRow.length}):
+                    </p>
+                    <div className="space-y-1 max-h-28 overflow-y-auto">
+                      {rowFileMatch.filesWithoutRow.map((f) => (
+                        <div
+                          key={f.itemId}
+                          className="flex items-center justify-between p-1.5 rounded-md bg-card border border-border/40 text-[11px]"
+                        >
+                          <span className="font-medium text-foreground truncate max-w-[240px]">
+                            {f.filename}
+                          </span>
+                          <span className="text-muted-foreground text-[10px]">
+                            {f.reason}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Rows that have no file */}
+                {rowFileMatch.rowsWithoutFile.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    <p className="text-[11px] font-semibold text-destructive">
+                      Rows with no uploaded file ({rowFileMatch.rowsWithoutFile.length}):
+                    </p>
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                      {rowFileMatch.rowsWithoutFile.map((r, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center justify-between p-1.5 rounded-md bg-card border border-destructive/20 text-[11px]"
+                        >
+                          <span className="font-medium text-destructive truncate max-w-[240px]">
+                            {r.filename}
+                          </span>
+                          <span className="text-muted-foreground text-[10px]">
+                            {r.reason}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Ambiguous Term Warnings */}
           {ambiguousTermIssues.length > 0 && (

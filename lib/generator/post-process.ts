@@ -28,10 +28,24 @@ export interface PostProcessMetadataOptions {
   additionalKeywords?: string[];
 }
 
-export function postProcessMetadata(
-  item: { title: string; description?: string; keywords: string[] },
+export function postProcessMetadata<
+  T extends {
+    title: string;
+    description?: string;
+    keywords: string[];
+    flags?: Record<string, unknown>;
+    flagReasons?: string[];
+  }
+>(
+  item: T,
   options: PostProcessMetadataOptions
-): { title: string; description?: string; keywords: string[] } {
+): T & {
+  title: string;
+  description?: string;
+  keywords: string[];
+  flags: Record<string, unknown>;
+  flagReasons: string[];
+} {
   let title = item.title || '';
 
   // 1. Filter negative title words
@@ -111,13 +125,46 @@ export function postProcessMetadata(
     }
   }
 
+  // Keyword relevance check (Requirement 3):
+  // Remove "ai" and "artificial intelligence" unless the image clearly shows the concept, using AI flags
+  const flags = (item as { flags?: Record<string, unknown> }).flags || {};
+  const aiKeywords = new Set(['ai', 'artificial intelligence', 'a.i.', 'artificial-intelligence']);
+  const textToCheck = `${title} ${item.description || ''}`.toLowerCase();
+  const visualShowsAiConcept =
+    Boolean(flags.showsAiConcept) ||
+    /\b(robot|robotics|cyborg|humanoid|android|neural network|machine learning|deep learning|cybernetic|synthetic intelligence|digital brain|microchip)\b/i.test(
+      textToCheck
+    );
+
+  if (!visualShowsAiConcept) {
+    keywords = keywords.filter((k) => !aiKeywords.has(k.trim().toLowerCase()));
+  }
+
   // Cut keywords to max count
   keywords = keywords.slice(0, options.keywordsMaxCount);
 
+  // Synchronize visibleTextOrLogo flag
+  const updatedFlags = {
+    identifiablePerson: false,
+    privateProperty: false,
+    visibleLogoOrBrand: false,
+    visibleText: false,
+    visibleTextOrLogo: false,
+    possibleEditorial: false,
+    showsAiConcept: false,
+    ...flags,
+  };
+  if (updatedFlags.visibleText || updatedFlags.visibleLogoOrBrand) {
+    updatedFlags.visibleTextOrLogo = true;
+  }
+
   return {
+    ...item,
     title,
     description: item.description,
     keywords,
+    flags: updatedFlags,
+    flagReasons: (item as { flagReasons?: string[] }).flagReasons || [],
   };
 }
 
