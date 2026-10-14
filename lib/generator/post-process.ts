@@ -1,0 +1,172 @@
+// Helper to trim text to maxLength at a word boundary
+export function trimAtWordBoundary(text: string, maxLength: number): string {
+  if (!text) return '';
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+
+  const sub = trimmed.substring(0, maxLength);
+  const lastSpace = sub.lastIndexOf(' ');
+  if (lastSpace > maxLength * 0.4) {
+    return sub.substring(0, lastSpace).trim();
+  }
+  return sub.trim();
+}
+
+export interface PostProcessMetadataOptions {
+  titleMaxLength: number;
+  keywordsMaxCount: number;
+  hasAlphaChannel?: boolean;
+  isPrefixEnabled?: boolean;
+  titlePrefix?: string;
+  isSuffixEnabled?: boolean;
+  titleSuffix?: string;
+  isNegativeTitleWordsEnabled?: boolean;
+  negativeTitleWords?: string;
+  isNegativeKeywordsEnabled?: boolean;
+  negativeKeywords?: string;
+  isAdditionalKeywordsEnabled?: boolean;
+  additionalKeywords?: string[];
+}
+
+export function postProcessMetadata(
+  item: { title: string; description?: string; keywords: string[] },
+  options: PostProcessMetadataOptions
+): { title: string; description?: string; keywords: string[] } {
+  let title = item.title || '';
+
+  // 1. Filter negative title words
+  if (options.isNegativeTitleWordsEnabled && options.negativeTitleWords) {
+    const banned = options.negativeTitleWords
+      .split(',')
+      .map((w) => w.trim().toLowerCase())
+      .filter(Boolean);
+
+    for (const b of banned) {
+      const reg = new RegExp(`\\b${b}\\b`, 'gi');
+      title = title.replace(reg, '').replace(/\s{2,}/g, ' ').trim();
+    }
+  }
+
+  // 2. Apply prefix & suffix
+  const prefix = options.isPrefixEnabled && options.titlePrefix ? `${options.titlePrefix.trim()} ` : '';
+  const suffix = options.isSuffixEnabled && options.titleSuffix ? ` ${options.titleSuffix.trim()}` : '';
+  title = `${prefix}${title}${suffix}`.trim();
+
+  // 3. Add transparent background phrase if transparent PNG
+  if (options.hasAlphaChannel) {
+    const phrase = 'isolated on transparent background';
+    if (!title.toLowerCase().includes('transparent')) {
+      if (title.length + phrase.length + 2 <= options.titleMaxLength) {
+        title = `${title}, ${phrase}`;
+      }
+    }
+  }
+
+  // 4. Enforce title length limit at word boundary
+  title = trimAtWordBoundary(title, options.titleMaxLength);
+
+  // 5. Clean and post-process keywords
+  let keywords = (item.keywords || []).map((k) => k.trim()).filter(Boolean);
+
+  // Deduplicate case-insensitively while preserving original capitalization
+  const seen = new Set<string>();
+  const deduplicated: string[] = [];
+  for (const kw of keywords) {
+    const lower = kw.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      deduplicated.push(kw);
+    }
+  }
+  keywords = deduplicated;
+
+  // Filter negative keywords
+  if (options.isNegativeKeywordsEnabled && options.negativeKeywords) {
+    const bannedKws = new Set(
+      options.negativeKeywords
+        .split(',')
+        .map((w) => w.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    keywords = keywords.filter((k) => !bannedKws.has(k.toLowerCase()));
+  }
+
+  // Add transparent background keyword if applicable
+  if (options.hasAlphaChannel) {
+    const extraAlphaTags = ['isolated on transparent background', 'transparent background'];
+    for (const tag of extraAlphaTags) {
+      if (!keywords.map((k) => k.toLowerCase()).includes(tag.toLowerCase())) {
+        keywords.unshift(tag);
+      }
+    }
+  }
+
+  // Merge additional keywords if enabled
+  if (options.isAdditionalKeywordsEnabled && options.additionalKeywords && options.additionalKeywords.length > 0) {
+    for (const extra of options.additionalKeywords) {
+      const trimmedExtra = extra.trim();
+      if (trimmedExtra && !keywords.map((k) => k.toLowerCase()).includes(trimmedExtra.toLowerCase())) {
+        keywords.push(trimmedExtra);
+      }
+    }
+  }
+
+  // Cut keywords to max count
+  keywords = keywords.slice(0, options.keywordsMaxCount);
+
+  return {
+    title,
+    description: item.description,
+    keywords,
+  };
+}
+
+export interface PostProcessPromptOptions {
+  promptMaxLength: number;
+  promptPrefix?: string;
+  isPromptPrefixEnabled?: boolean;
+  promptSuffix?: string;
+  isPromptSuffixEnabled?: boolean;
+  negativePromptWords?: string;
+  isNegativePromptWordsEnabled?: boolean;
+  whiteBackground?: boolean;
+  cameraParams?: boolean;
+}
+
+export function postProcessPrompt(
+  prompt: string,
+  options: PostProcessPromptOptions
+): string {
+  let result = prompt || '';
+
+  // Filter negative words
+  if (options.isNegativePromptWordsEnabled && options.negativePromptWords) {
+    const banned = options.negativePromptWords
+      .split(',')
+      .map((w) => w.trim().toLowerCase())
+      .filter(Boolean);
+
+    for (const b of banned) {
+      const reg = new RegExp(`\\b${b}\\b`, 'gi');
+      result = result.replace(reg, '').replace(/\s{2,}/g, ' ').trim();
+    }
+  }
+
+  // Apply white background detail if enabled
+  if (options.whiteBackground && !result.toLowerCase().includes('white background')) {
+    result = `${result}, isolated on a pure white background`;
+  }
+
+  // Apply camera details if enabled
+  if (options.cameraParams && !result.toLowerCase().includes('lens') && !result.toLowerCase().includes('aperture')) {
+    result = `${result}, shot with 50mm f/1.8 lens, high dynamic range, crisp sharp focus`;
+  }
+
+  // Apply prefix & suffix
+  const prefix = options.isPromptPrefixEnabled && options.promptPrefix ? `${options.promptPrefix.trim()} ` : '';
+  const suffix = options.isPromptSuffixEnabled && options.promptSuffix ? ` ${options.promptSuffix.trim()}` : '';
+  result = `${prefix}${result}${suffix}`.trim();
+
+  // Enforce max length at word boundary
+  return trimAtWordBoundary(result, options.promptMaxLength);
+}

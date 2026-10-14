@@ -1,0 +1,6 @@
+{
+  "name": "DOCTORx",
+  "description": "Microstock Research & Metadata Toolkit — Adobe Stock Analytics, Prompt & Metadata Generator",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
