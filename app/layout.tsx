@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Poppins } from 'next/font/google';
 import './globals.css';
+import './hover-pop.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AppShell } from '@/components/layout/AppShell';
 import { SITE_CONFIG } from '@/config/site';

@@ -14,7 +14,7 @@ interface UploadCardProps {
 export function UploadCard({
   onFilesSelected,
   currentCount,
-  maxFiles = 200,
+  maxFiles = 1000,
   disabled = false,
 }: UploadCardProps) {
   return (
@@ -26,7 +26,7 @@ export function UploadCard({
         <div>
           <h2 className="text-sm font-semibold text-foreground leading-tight">Upload Files</h2>
           <p className="text-[10px] text-muted-foreground mt-0.5">
-            {currentCount > 0 ? `${currentCount} / ${maxFiles} loaded` : `Ready for up to ${maxFiles} files`}
+            {currentCount > 0 ? `${currentCount} / ${maxFiles} loaded` : `Ready for up to ${maxFiles} files (large sequential batches)`}
           </p>
         </div>
       </div>

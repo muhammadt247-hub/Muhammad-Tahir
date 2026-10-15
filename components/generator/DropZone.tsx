@@ -15,7 +15,7 @@ interface DropZoneProps {
 export function DropZone({
   onFilesSelected,
   currentCount,
-  maxFiles = 200,
+  maxFiles = 1000,
   disabled = false,
 }: DropZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -27,14 +27,11 @@ export function DropZone({
 
     for (const f of rawFiles) {
       const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
-
-      // Explicitly reject EPS and AI files with the exact requested toast
       if (ext === '.eps' || ext === '.ai') {
         toast.error('EPS/AI is not supported. Export a JPG or PNG preview first.');
         continue;
       }
 
-      // Accepted formats: JPG, PNG, WEBP, GIF, SVG, and videos (MP4, MOV, WEBM)
       const isAcceptedImage =
         f.type.startsWith('image/') ||
         /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(f.name);
@@ -140,12 +137,10 @@ export function DropZone({
         disabled={disabled}
       />
 
-      {/* Upload icon tile */}
       <div className="w-14 h-14 rounded-2xl bg-card shadow-sm flex items-center justify-center text-primary mb-3">
         <UploadCloud className="h-7 w-7" />
       </div>
 
-      {/* Three small dark-orange pills */}
       <div className="flex items-center gap-1.5 mb-3">
         <span className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
           <ImageIcon className="h-2.5 w-2.5" /> Images
@@ -158,7 +153,6 @@ export function DropZone({
         </span>
       </div>
 
-      {/* Prompt Text */}
       <p className="text-sm text-foreground">
         Drag &amp; drop files here, or{' '}
         <button
@@ -171,9 +165,8 @@ export function DropZone({
         </button>
       </p>
 
-      {/* Small Caption */}
       <p className="text-[11px] text-muted-foreground mt-1">
-        Supports image, video &amp; SVG · Max {maxFiles} files
+        Supports image, video &amp; SVG · Large batch ready (up to {maxFiles} files)
       </p>
     </div>
   );

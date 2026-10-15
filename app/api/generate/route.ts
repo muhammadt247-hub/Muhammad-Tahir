@@ -1,94 +1,90 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { AI_CONFIG } from '@/config/ai';
 import { postProcessMetadata, postProcessPrompt } from '@/lib/generator/post-process';
 
-// Input Validation Schema
 const GenerateRequestSchema = z.object({
-  mode: z.enum(['metadata', 'prompt']),
-  images: z.array(z.string().min(10)).min(1).max(10), // Array of base64 data URIs
+  mode: z.enum(['metadata', 'prompt', 'retitle']).default('metadata'),
+  images: z.array(z.string()).min(1),
   platform: z.enum(['general', 'adobe-stock', 'shutterstock', 'freepik']).default('adobe-stock'),
-  titleMaxLength: z.number().min(20).max(300).default(100),
-  descriptionLength: z.number().min(30).max(500).default(150),
-  keywordsMaxCount: z.number().min(5).max(50).default(50),
-  hasAlphaChannel: z.array(z.boolean()).optional(),
-  titlePrefix: z.string().optional(),
-  isPrefixEnabled: z.boolean().optional(),
-  titleSuffix: z.string().optional(),
-  isSuffixEnabled: z.boolean().optional(),
-  negativeTitleWords: z.string().optional(),
-  isNegativeTitleWordsEnabled: z.boolean().optional(),
-  negativeKeywords: z.string().optional(),
-  isNegativeKeywordsEnabled: z.boolean().optional(),
-  additionalKeywords: z.array(z.string()).optional(),
-  isAdditionalKeywordsEnabled: z.boolean().optional(),
-
-  // Prompt mode fields
-  promptMaxLength: z.number().min(50).max(2000).default(500),
-  negativePromptWords: z.string().optional(),
-  isNegativePromptWordsEnabled: z.boolean().optional(),
-  whiteBackground: z.boolean().optional(),
-  cameraParams: z.boolean().optional(),
-  promptPrefix: z.string().optional(),
-  isPromptPrefixEnabled: z.boolean().optional(),
-  promptSuffix: z.string().optional(),
-  isPromptSuffixEnabled: z.boolean().optional(),
-
-  // Custom model & user API key
+  titleMaxLength: z.number().default(100),
+  descriptionLength: z.number().default(150),
+  keywordsMaxCount: z.number().default(45),
+  hasAlphaChannel: z.array(z.boolean()).optional().default([]),
+  titlePrefix: z.string().optional().default(''),
+  isPrefixEnabled: z.boolean().optional().default(false),
+  titleSuffix: z.string().optional().default(''),
+  isSuffixEnabled: z.boolean().optional().default(false),
+  negativeTitleWords: z.string().optional().default(''),
+  isNegativeTitleWordsEnabled: z.boolean().optional().default(false),
+  negativeKeywords: z.string().optional().default(''),
+  isNegativeKeywordsEnabled: z.boolean().optional().default(false),
+  additionalKeywords: z.array(z.string()).optional().default([]),
+  isAdditionalKeywordsEnabled: z.boolean().optional().default(false),
+  promptMaxLength: z.number().default(500),
+  negativePromptWords: z.string().optional().default(''),
+  isNegativePromptWordsEnabled: z.boolean().optional().default(false),
+  whiteBackground: z.boolean().optional().default(false),
+  cameraParams: z.boolean().optional().default(false),
+  promptPrefix: z.string().optional().default(''),
+  isPromptPrefixEnabled: z.boolean().optional().default(false),
+  promptSuffix: z.string().optional().default(''),
+  isPromptSuffixEnabled: z.boolean().optional().default(false),
   model: z.string().optional(),
   apiKey: z.string().optional(),
+  // Compliance & Quality extensions
+  existingTitles: z.array(z.string()).optional().default([]),
+  avoidTitles: z.array(z.string()).optional().default([]),
+  currentTitle: z.string().optional(),
+  reason: z.string().optional(),
+  uniqueness: z.enum(['strict', 'normal', 'relaxed']).optional().default('normal'),
+  contributorLanguage: z.string().optional().default('en'),
+  isAiBatch: z.boolean().optional().default(false),
+  customBlockedWords: z.array(z.string()).optional().default([]),
 });
 
-// Response Schemas for Gemini Type
 const MetadataResponseSchema = {
-  type: Type.OBJECT,
+  type: 'object',
   properties: {
     metadataSets: {
-      type: Type.ARRAY,
-      description: 'Ordered list of metadata sets matching the input images',
+      type: 'array',
       items: {
-        type: Type.OBJECT,
+        type: 'object',
         properties: {
           title: {
-            type: Type.STRING,
-            description: 'Natural readable stock image title without cutting mid-word',
+            type: 'string',
+            description: 'Commercial microstock title, factual natural sentence under requested length.',
           },
           description: {
-            type: Type.STRING,
-            description: 'One factual descriptive sentence (for platforms requiring description)',
+            type: 'string',
+            description: 'Concise factual commercial description around requested length.',
           },
           keywords: {
-            type: Type.ARRAY,
-            description: 'Keywords ordered by relevance, single words and short phrases, no duplicates',
-            items: { type: Type.STRING },
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Up to 45 commercial keywords ordered strictly by importance and relevance.',
           },
           flags: {
-            type: Type.OBJECT,
-            description: 'Visual advisories and features detected in the image',
+            type: 'object',
             properties: {
-              identifiablePerson: { type: Type.BOOLEAN },
-              privateProperty: { type: Type.BOOLEAN },
-              visibleLogoOrBrand: { type: Type.BOOLEAN },
-              visibleText: { type: Type.BOOLEAN },
-              visibleTextOrLogo: {
-                type: Type.BOOLEAN,
-                description: 'True if visible text, numbers, logo, watermark, or brand name is present in the image',
-              },
-              possibleEditorial: { type: Type.BOOLEAN },
-              showsAiConcept: {
-                type: Type.BOOLEAN,
-                description: 'True ONLY if the visual image is directly about robots, cyborgs, or artificial intelligence concept',
-              },
+              identifiablePerson: { type: 'boolean', description: 'True if visible recognizable person or face is shown.' },
+              privateProperty: { type: 'boolean', description: 'True if visible private property, recognizable house, or modern architecture.' },
+              visibleLogoOrBrand: { type: 'boolean', description: 'True if recognizable trademark or corporate brand is visible.' },
+              visibleText: { type: 'boolean', description: 'True if visible readable text or typography appears.' },
+              visibleTextOrLogo: { type: 'boolean', description: 'True if visible trademark, text, watermark, or brand appears.' },
+              possibleEditorial: { type: 'boolean', description: 'True if public event, protest, landmark, or news event.' },
+              showsAiConcept: { type: 'boolean', description: 'True ONLY if image subject is literally a robot, cyborg, neural network, or AI concept.' },
             },
+            required: ['identifiablePerson', 'privateProperty', 'visibleLogoOrBrand', 'visibleText', 'possibleEditorial', 'showsAiConcept'],
           },
           flagReasons: {
-            type: Type.ARRAY,
-            description: 'Short reason for any triggered flag, e.g. "Text visible on sign", "Brand logo on shoe"',
-            items: { type: Type.STRING },
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific short reason for any positive flag (e.g. "Text visible on sign").',
           },
         },
-        required: ['title', 'keywords'],
+        required: ['title', 'description', 'keywords', 'flags'],
       },
     },
   },
@@ -96,17 +92,16 @@ const MetadataResponseSchema = {
 };
 
 const PromptResponseSchema = {
-  type: Type.OBJECT,
+  type: 'object',
   properties: {
     prompts: {
-      type: Type.ARRAY,
-      description: 'Ordered list of text-to-image prompts matching input images',
+      type: 'array',
       items: {
-        type: Type.OBJECT,
+        type: 'object',
         properties: {
           prompt: {
-            type: Type.STRING,
-            description: 'Detailed text-to-image prompt describing subject, lighting, composition, colors, mood',
+            type: 'string',
+            description: 'Atmospheric generative prompt describing subject, style, perspective, lighting, and composition.',
           },
         },
         required: ['prompt'],
@@ -116,12 +111,11 @@ const PromptResponseSchema = {
   required: ['prompts'],
 };
 
-// Zod schemas for parsing Gemini output
 const ZodMetadataOutput = z.object({
   metadataSets: z.array(
     z.object({
       title: z.string().default(''),
-      description: z.string().optional().default(''),
+      description: z.string().default(''),
       keywords: z.array(z.string()).default([]),
       flags: z
         .object({
@@ -208,6 +202,7 @@ export async function POST(req: NextRequest) {
     } = parsed.data;
 
     const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+
     if (!apiKey) {
       return NextResponse.json(
         { error: { code: 'MISSING_API_KEY', message: 'No Gemini API key provided or configured.' } },
@@ -302,7 +297,6 @@ CRITICAL RULES:
 
         if (mode === 'metadata') {
           const validated = ZodMetadataOutput.parse(parsedJson);
-
           // Post-process each item to guarantee client-side limits & rules
           const processedSets = validated.metadataSets.map((item, idx) => {
             return postProcessMetadata(item, {
@@ -325,7 +319,6 @@ CRITICAL RULES:
           return NextResponse.json({ metadataSets: processedSets });
         } else {
           const validated = ZodPromptOutput.parse(parsedJson);
-
           // Post-process prompts
           const processedPrompts = validated.prompts.map((p) => {
             return {
@@ -349,25 +342,66 @@ CRITICAL RULES:
         lastError = err;
         console.warn(`Gemini generation attempt ${attempt} failed:`, err);
         if (attempt === 1) {
-          // Wait briefly before retry
           await new Promise((r) => setTimeout(r, 600));
         }
       }
     }
 
-    // If both attempts failed, format error
+    // If both attempts failed, format error with detailed quota diagnostics
     const errMessage = lastError instanceof Error ? lastError.message : 'Gemini generation failed';
-    const isRateLimit = errMessage.includes('429') || errMessage.toLowerCase().includes('quota') || errMessage.toLowerCase().includes('resource_exhausted');
-    const isAuthError = errMessage.includes('400') || errMessage.includes('403') || errMessage.toLowerCase().includes('api key');
+    const lowerMessage = errMessage.toLowerCase();
+
+    const isRateLimit =
+      errMessage.includes('429') ||
+      lowerMessage.includes('quota') ||
+      lowerMessage.includes('resource_exhausted') ||
+      lowerMessage.includes('too many requests');
+
+    const isDailyQuota =
+      isRateLimit &&
+      (errMessage.includes('PerDay') ||
+        lowerMessage.includes('daily') ||
+        lowerMessage.includes('day_quota') ||
+        lowerMessage.includes('per day'));
+
+    const isAuthError =
+      errMessage.includes('400') ||
+      errMessage.includes('401') ||
+      errMessage.includes('403') ||
+      lowerMessage.includes('api_key_invalid') ||
+      lowerMessage.includes('api key not valid') ||
+      lowerMessage.includes('unauthenticated') ||
+      lowerMessage.includes('permission_denied') ||
+      (lowerMessage.includes('api key') && !isRateLimit);
+
+    // Extract retry wait duration in seconds if Gemini provided one
+    const retryMatch = errMessage.match(/(?:retry in|retry after|wait)\s*([0-9.]+)\s*s/i);
+    const retryAfterSeconds = retryMatch ? parseFloat(retryMatch[1]) : isRateLimit ? 30 : undefined;
+
+    const headers: Record<string, string> = {};
+    if (retryAfterSeconds) {
+      headers['Retry-After'] = String(Math.ceil(retryAfterSeconds));
+    }
 
     return NextResponse.json(
       {
         error: {
-          code: isRateLimit ? 'RATE_LIMITED' : isAuthError ? 'INVALID_API_KEY' : 'GENERATION_FAILED',
+          code: isDailyQuota
+            ? 'DAILY_QUOTA_EXHAUSTED'
+            : isRateLimit
+            ? 'RATE_LIMITED'
+            : isAuthError
+            ? 'INVALID_API_KEY'
+            : 'GENERATION_FAILED',
           message: errMessage,
+          retryAfterSeconds,
+          quotaType: isDailyQuota ? 'day' : isRateLimit ? 'minute' : undefined,
         },
       },
-      { status: isRateLimit ? 429 : isAuthError ? 401 : 500 }
+      {
+        status: isRateLimit ? 429 : isAuthError ? 401 : 500,
+        headers,
+      }
     );
   } catch (err: unknown) {
     console.error('Fatal API error in /api/generate:', err);

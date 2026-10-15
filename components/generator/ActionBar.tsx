@@ -2,17 +2,21 @@
 
 import React, { useState } from 'react';
 import {
-  Trash2,
   Sparkles,
-  Square,
-  FileText,
   Download,
-  Layers,
-  Wand2,
-  ShieldCheck,
-  ShieldAlert,
+  Square,
+  Pause,
+  Play,
+  Trash2,
   Loader2,
-  Info,
+  FileText,
+  ShieldAlert,
+  ShieldCheck,
+  Wand2,
+  Layers,
+  Clock,
+  AlertTriangle,
+  KeyRound,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -20,8 +24,10 @@ interface ActionBarProps {
   totalFiles: number;
   doneCount: number;
   failedCount: number;
+  pendingCount?: number;
   generatingCount?: number;
   isGenerating: boolean;
+  isPaused?: boolean;
   isAnalyzingSimilarity?: boolean;
   hasResults: boolean;
   mode: 'metadata' | 'prompt';
@@ -31,7 +37,16 @@ interface ActionBarProps {
   libraryExcludedCount?: number;
   similarDeleteCount?: number;
   blockedCount?: number;
+  currentFilename?: string;
+  currentImageIndex?: number;
+  currentKeyInfo?: string;
+  isCoolingDown?: boolean;
+  cooldownSecondsRemaining?: number;
+  cooldownText?: string;
+  statusMessage?: string;
   onGenerateAll: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
   onStop: () => void;
   onClearAll: () => void;
   onDeleteSimilar?: () => void;
@@ -46,8 +61,10 @@ export function ActionBar({
   totalFiles,
   doneCount,
   failedCount,
+  pendingCount: explicitPendingCount,
   generatingCount,
   isGenerating,
+  isPaused = false,
   isAnalyzingSimilarity = false,
   hasResults,
   mode,
@@ -57,7 +74,16 @@ export function ActionBar({
   libraryExcludedCount = 0,
   similarDeleteCount = 0,
   blockedCount = 0,
+  currentFilename,
+  currentImageIndex,
+  currentKeyInfo,
+  isCoolingDown = false,
+  cooldownSecondsRemaining = 0,
+  cooldownText,
+  statusMessage,
   onGenerateAll,
+  onPause,
+  onResume,
   onStop,
   onClearAll,
   onDeleteSimilar,
@@ -69,50 +95,41 @@ export function ActionBar({
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
 
-  // Status text determination (Requirement 5)
+  const pendingCount =
+    explicitPendingCount ??
+    Math.max(0, totalFiles - doneCount - failedCount - similarExcludedCount);
+
+  // Status text determination
   let statusText = 'Upload files to begin.';
   let progressPercent = 0;
 
   if (totalFiles > 0) {
+    progressPercent = Math.min(100, Math.round(((doneCount + failedCount) / totalFiles) * 100));
+
     if (isAnalyzingSimilarity) {
       statusText = 'Checking for similar images...';
+    } else if (cooldownText) {
+      statusText = cooldownText;
+    } else if (statusMessage) {
+      statusText = statusMessage;
     } else if (isGenerating) {
-      const activeGen =
-        generatingCount ??
-        Math.max(1, totalFiles - similarExcludedCount - doneCount - failedCount);
-      const parts: string[] = [];
-      parts.push(`${activeGen} generating`);
-      if (libraryExcludedCount > 0) {
-        parts.push(`${libraryExcludedCount} skipped (already exported)`);
-      } else if (similarExcludedCount > 0) {
-        parts.push(`${similarExcludedCount} skipped`);
+      if (isPaused) {
+        statusText = `Paused · ${doneCount} of ${totalFiles} completed (${pendingCount} pending)`;
+      } else {
+        const imgNum = currentImageIndex && currentImageIndex > 0 ? currentImageIndex : doneCount + 1;
+        statusText = currentFilename
+          ? `Image ${imgNum} of ${totalFiles}: ${currentFilename}`
+          : `Processing Image ${imgNum} of ${totalFiles}...`;
       }
-      parts.push(`${similarCount} similar titles`);
-      statusText = parts.join(' · ');
-      progressPercent = Math.round(((doneCount + failedCount) / totalFiles) * 100);
     } else if (doneCount > 0) {
-      const parts: string[] = [];
-      parts.push(`${doneCount} generated`);
-      if (libraryExcludedCount > 0) {
-        parts.push(`${libraryExcludedCount} skipped (already exported)`);
-      } else if (similarExcludedCount > 0) {
-        parts.push(`${similarExcludedCount} skipped`);
-      }
-      parts.push(`${similarCount} similar titles`);
+      const parts: string[] = [`${doneCount} completed`];
+      if (pendingCount > 0) parts.push(`${pendingCount} pending`);
+      if (failedCount > 0) parts.push(`${failedCount} failed`);
+      if (similarExcludedCount > 0) parts.push(`${similarExcludedCount} skipped`);
       statusText = parts.join(' · ');
-      progressPercent = Math.round((doneCount / totalFiles) * 100);
     } else {
       const activeReady = Math.max(0, totalFiles - similarExcludedCount);
-      const parts: string[] = [];
-      parts.push(`${activeReady} ready`);
-      if (libraryExcludedCount > 0) {
-        parts.push(`${libraryExcludedCount} skipped (already exported)`);
-      } else if (similarExcludedCount > 0) {
-        parts.push(`${similarExcludedCount} skipped`);
-      }
-      parts.push(`${similarCount} similar titles`);
-      statusText = parts.join(' · ');
-      progressPercent = 0;
+      statusText = `${activeReady} ready to process sequentially`;
     }
   }
 
@@ -126,12 +143,12 @@ export function ActionBar({
     onClearAll();
   };
 
-  const actionsDisabled = isAnalyzingSimilarity || isGenerating;
+  const actionsDisabled = isAnalyzingSimilarity || (isGenerating && !isPaused);
   const similarityTooltip = isAnalyzingSimilarity ? 'Similarity check in progress' : undefined;
 
   return (
     <div className="space-y-2">
-      {/* Step 8 Deep Similarity Cluster Banner */}
+      {/* Deep Similarity Cluster Banner */}
       {similarClusterCount > 0 && onReviewClusters && !isAnalyzingSimilarity && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-orange-500/10 border border-primary/25 text-foreground text-xs shadow-xs">
           <div className="flex items-center gap-2">
@@ -152,23 +169,104 @@ export function ActionBar({
 
       {/* Main Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl glass-card border border-border/50 shadow-sm">
-        {/* Left: Progress bar & Status text & Compliance summary */}
-        <div className="flex-1 min-w-[200px] space-y-1.5">
-          <div className="h-1.5 rounded-full bg-accent overflow-hidden w-full">
-            <div
-              className={`h-full transition-all duration-300 rounded-full ${isAnalyzingSimilarity ? 'bg-orange-500 animate-pulse' : 'bg-primary'}`}
-              style={{ width: isAnalyzingSimilarity ? '100%' : `${progressPercent}%` }}
-            />
+        {/* Left: Progress bar & Status text & Badges */}
+        <div className="flex-1 min-w-[200px] space-y-2.5">
+          {/* Progress bar */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
+              <span className="font-semibold text-foreground flex items-center gap-1.5">
+                {isGenerating ? (
+                  isPaused ? (
+                    <span className="text-amber-600 dark:text-amber-400 font-semibold">Paused</span>
+                  ) : (
+                    <span className="text-primary font-semibold flex items-center gap-1">
+                      <span className="inline-block w-2 h-2 rounded-full bg-primary animate-pulse" />
+                      Sequential Processing
+                    </span>
+                  )
+                ) : doneCount === totalFiles && totalFiles > 0 ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Complete</span>
+                ) : (
+                  'Batch Progress'
+                )}
+              </span>
+              <span>{progressPercent}% ({doneCount}/{totalFiles})</span>
+            </div>
+            <div className="h-2 rounded-full bg-accent overflow-hidden w-full">
+              <div
+                className={`h-full transition-all duration-300 rounded-full ${
+                  isAnalyzingSimilarity
+                    ? 'bg-orange-500 animate-pulse'
+                    : isPaused
+                    ? 'bg-amber-500'
+                    : 'bg-primary'
+                }`}
+                style={{ width: isAnalyzingSimilarity ? '100%' : `${progressPercent}%` }}
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-foreground font-medium truncate">
+
+          {/* Status text + Key stats pills */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-foreground font-medium">
             {isAnalyzingSimilarity && (
               <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />
             )}
-            <span className="font-semibold">{statusText}</span>
-            {blockedCount > 0 && (
-              <span className="text-destructive font-bold flex items-center gap-1">
-                • {blockedCount} blocked
+
+            {/* Current Active Image (e.g. Image 3 of 20) */}
+            {isGenerating && !isPaused && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-primary/10 text-primary font-mono text-[11px] font-bold">
+                Image {currentImageIndex && currentImageIndex > 0 ? currentImageIndex : doneCount + 1} of {totalFiles}
               </span>
+            )}
+
+            {/* Active API Key in use */}
+            {isGenerating && currentKeyInfo && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-mono text-[11px] border border-border/50">
+                <KeyRound className="h-3 w-3 text-primary" />
+                <span className="truncate max-w-[170px]">{currentKeyInfo}</span>
+              </span>
+            )}
+
+            {/* Cooldown or Delay countdown timer */}
+            {cooldownText ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 text-[11px] font-semibold animate-pulse border border-amber-500/20">
+                <Clock className="h-3 w-3" />
+                {cooldownText}
+              </span>
+            ) : isPaused ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 text-[11px] font-medium">
+                <Pause className="h-3 w-3" />
+                Paused · Progress preserved
+              </span>
+            ) : (
+              <span className="font-semibold truncate max-w-[320px]">{statusText}</span>
+            )}
+
+            {/* Total / Completed / Pending / Failed counters */}
+            {totalFiles > 0 && (
+              <div className="flex items-center gap-1.5 text-[10px] font-mono shrink-0 ml-auto sm:ml-0">
+                <span className="px-1.5 py-0.5 rounded-md bg-secondary text-secondary-foreground font-semibold">
+                  Total: {totalFiles}
+                </span>
+                <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold">
+                  Done: {doneCount}
+                </span>
+                {pendingCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold">
+                    Pending: {pendingCount}
+                  </span>
+                )}
+                {failedCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-destructive/10 text-destructive font-semibold flex items-center gap-0.5">
+                    <AlertTriangle className="h-2.5 w-2.5" /> Failed: {failedCount}
+                  </span>
+                )}
+                {blockedCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-destructive/10 text-destructive font-semibold">
+                    Blocked: {blockedCount}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -207,7 +305,7 @@ export function ActionBar({
             </button>
           )}
 
-          {/* Delete Similar Button (Requirement 1) */}
+          {/* Delete Similar Button */}
           {totalFiles > 0 && onDeleteSimilar && (
             <button
               type="button"
@@ -237,26 +335,51 @@ export function ActionBar({
             </button>
           )}
 
-          {/* Generate All / Stop */}
+          {/* Pause / Resume / Stop / Generate All Controls */}
           {isGenerating ? (
-            <button
-              type="button"
-              onClick={onStop}
-              className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity shadow-sm"
-            >
-              <Square className="h-4 w-4 fill-current" />
-              <span>Stop</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {isPaused ? (
+                <button
+                  type="button"
+                  onClick={onResume}
+                  className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-emerald-600 text-white hover:opacity-90 transition-opacity shadow-sm"
+                >
+                  <Play className="h-4 w-4 fill-current" />
+                  <span>Resume</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onPause}
+                  className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-amber-500 text-white hover:opacity-90 transition-opacity shadow-sm"
+                >
+                  <Pause className="h-4 w-4" />
+                  <span>Pause</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onStop}
+                className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity shadow-sm"
+              >
+                <Square className="h-4 w-4 fill-current" />
+                <span>Stop</span>
+              </button>
+            </div>
           ) : (
             <button
               type="button"
               onClick={onGenerateAll}
-              disabled={totalFiles === 0 || isAnalyzingSimilarity}
+              disabled={totalFiles === 0 || isAnalyzingSimilarity || pendingCount === 0}
               title={similarityTooltip}
               className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50 disabled:pointer-events-none"
             >
               <Sparkles className="h-4 w-4" />
-              <span>Generate All</span>
+              <span>
+                {doneCount > 0 && pendingCount > 0
+                  ? `Resume (${pendingCount} pending)`
+                  : 'Generate All'}
+              </span>
             </button>
           )}
 

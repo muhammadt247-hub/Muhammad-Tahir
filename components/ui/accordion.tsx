@@ -26,6 +26,7 @@ const AccordionTrigger = React.forwardRef<
   <AccordionPrimitive.Header className="flex">
     <AccordionPrimitive.Trigger
       ref={ref}
+      data-no-pop
       className={cn(
         'flex flex-1 items-center justify-between py-3 text-sm font-semibold transition-all hover:text-primary [&[data-state=open]>svg]:rotate-180',
         className

@@ -25,8 +25,13 @@ import {
   saveLibraryEntries,
   clearLibraryStore,
   LibraryFingerprintEntry,
+  getSavedBatchItems,
+  saveBatchItem,
+  saveAllBatchItems,
+  deleteSavedBatchItem,
+  clearSavedBatchItems,
 } from '@/lib/generator/db';
-import { GeneratorItemState, GeneratorQueue } from '@/lib/generator/queue';
+import { GeneratorItemState, GeneratorQueue, QueueProgressState } from '@/lib/generator/queue';
 import { processFileForGenerator } from '@/lib/generator/compress';
 import { generateMarketplaceCsv, generatePromptCsv, GeneratorResultExportItem } from '@/lib/generator/csv';
 import { embedJpegMetadata, embedPngMetadata, isMetadataEmbeddable } from '@/lib/generator/embed';
@@ -48,6 +53,15 @@ export default function GeneratorPage() {
   const [settings, setSettings] = useState<GeneratorSavedSettings>(DEFAULT_GENERATOR_SETTINGS);
   const [items, setItems] = useState<GeneratorItemState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentFilename, setCurrentFilename] = useState<string>('');
+  const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
+  const [currentKeyInfo, setCurrentKeyInfo] = useState<string>('');
+  const [isCoolingDown, setIsCoolingDown] = useState<boolean>(false);
+  const [cooldownSecondsRemaining, setCooldownSecondsRemaining] = useState<number>(0);
+  const [cooldownText, setCooldownText] = useState<string>('');
+  const [statusMessage, setStatusMessage] = useState<string>('');
+
   const [apiKeysOpen, setApiKeysOpen] = useState(false);
   const [hasCustomKeys, setHasCustomKeys] = useState(false);
 
@@ -80,17 +94,30 @@ export default function GeneratorPage() {
     setHasCustomKeys(active);
   }, []);
 
-  // Load initial settings and check keys
+  // Load initial settings, saved batch items, and check keys
   useEffect(() => {
     let isMounted = true;
     getSavedGeneratorSettings().then((saved) => {
       if (isMounted) setSettings(saved);
     });
+
     getStoredApiKeys().then((keys) => {
       if (isMounted) {
         setHasCustomKeys(keys.some((k) => k.isActive && !k.isInvalid));
       }
     });
+
+    // Restore completed results from IndexedDB so refresh preserves data
+    getSavedBatchItems().then((savedItems) => {
+      if (isMounted && savedItems && savedItems.length > 0) {
+        setItems(savedItems);
+        const done = savedItems.filter((i) => i.status === 'done').length;
+        if (done > 0) {
+          toast.info(`Restored ${savedItems.length} items from previous session (${done} completed).`);
+        }
+      }
+    });
+
     return () => {
       isMounted = false;
     };
@@ -124,8 +151,8 @@ export default function GeneratorPage() {
           activeSettings,
           (prog) => setSimilarityProgress(prog)
         );
-
         setItems(result.updatedItems);
+        saveAllBatchItems(result.updatedItems);
         setSimilarityClusters(result.clusters);
 
         if (result.clusters.length > 0 || result.libraryExcludedCount > 0) {
@@ -180,9 +207,7 @@ export default function GeneratorPage() {
 
       const simMap = computeBatchSimilarities(activeDone, settings.titleUniqueness || 'normal');
       let changed = false;
-
       const updated = items.map((it) => {
-        // Never count a file name as a title anywhere; only items with real generated title have similarTo
         if (!it.title?.trim() || it.title.trim() === it.fileData.originalName) {
           if (it.similarTo && it.similarTo.length > 0) {
             changed = true;
@@ -205,15 +230,16 @@ export default function GeneratorPage() {
 
       if (changed) {
         setItems(updated);
+        saveAllBatchItems(updated);
       }
     }, 300);
 
     return () => clearTimeout(timer);
   }, [items, settings.titleUniqueness]);
 
-  // Handle uploaded files
+  // Handle uploaded files (Supports up to 1000 files for large batches)
   const handleFilesSelected = async (newFiles: File[]) => {
-    const maxCapacity = 200;
+    const maxCapacity = 1000;
     const remainingSlots = maxCapacity - items.length;
 
     if (remainingSlots <= 0) {
@@ -229,7 +255,6 @@ export default function GeneratorPage() {
     toast.info(`Preparing ${filesToProcess.length} file${filesToProcess.length === 1 ? '' : 's'}...`);
 
     const newItems: GeneratorItemState[] = [];
-
     for (const file of filesToProcess) {
       try {
         const fileData = await processFileForGenerator(file);
@@ -253,16 +278,14 @@ export default function GeneratorPage() {
         toast.error(`Could not process ${file.name}`);
       }
 
-      // Yield to UI to keep browser responsive with up to 200 files
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     if (newItems.length > 0) {
       const combined = [...items, ...newItems];
       setItems(combined);
+      await saveAllBatchItems(combined);
       toast.success(`Added ${newItems.length} file${newItems.length === 1 ? '' : 's'} to queue`);
-
-      // Run Deep Similarity Guard on the updated list
       runSimilarityCheck(combined);
     }
   };
@@ -275,7 +298,6 @@ export default function GeneratorPage() {
           if (item.id !== id) return item;
           const merged = { ...item, ...updated };
 
-          // Recalculate compliance and SEO if title/keywords were updated
           if (updated.title !== undefined || updated.keywords !== undefined) {
             if (settings.complianceGuard) {
               const comp = scanItemCompliance(
@@ -293,6 +315,7 @@ export default function GeneratorPage() {
             merged.seoChecklist = seo.checklist;
           }
 
+          saveBatchItem(merged);
           return merged;
         })
       );
@@ -309,6 +332,7 @@ export default function GeneratorPage() {
         } catch {}
       }
       const remaining = prev.filter((item) => item.id !== id);
+      deleteSavedBatchItem(id);
       return remaining;
     });
   }, []);
@@ -319,7 +343,16 @@ export default function GeneratorPage() {
       queueRef.current = null;
     }
     setIsGenerating(false);
+    setIsPaused(false);
+    setCurrentFilename('');
+    setCurrentImageIndex(0);
+    setCurrentKeyInfo('');
+    setIsCoolingDown(false);
+    setCooldownSecondsRemaining(0);
+    setCooldownText('');
+    setStatusMessage('');
     setSimilarityClusters([]);
+
     setItems((prev) => {
       for (const item of prev) {
         if (item.fileData.previewUrl?.startsWith('blob:')) {
@@ -330,6 +363,8 @@ export default function GeneratorPage() {
       }
       return [];
     });
+
+    clearSavedBatchItems();
     toast.success('Cleared all items');
   }, []);
 
@@ -343,9 +378,7 @@ export default function GeneratorPage() {
     const doneItems = items.filter((i) => {
       if (i.status !== 'done' || i.isExcluded) return false;
       const mp = (i.fileData.width * i.fileData.height) / 1_000_000;
-      // Exclude under 4 MP by default
       if (i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
-      // Exclude over 100 MP or over 45 MB
       if (mp > 100 || (i.fileData.originalSize || 0) > 45 * 1024 * 1024) return false;
       return true;
     });
@@ -385,7 +418,6 @@ export default function GeneratorPage() {
       toast.success(`Exported ${validItems.length} metadata rows for ${settings.platform}`);
     }
 
-    // Save exported fingerprints to IndexedDB libraryStore to remember them
     if (settings.rememberExportedImages) {
       const libraryEntriesToSave: LibraryFingerprintEntry[] = validItems
         .filter((it) => it.fingerprint)
@@ -396,16 +428,12 @@ export default function GeneratorPage() {
           thumbnail32: it.fingerprint!.thumbnail32,
           fingerprint: it.fingerprint!,
         }));
-
       if (libraryEntriesToSave.length > 0) {
         saveLibraryEntries(libraryEntriesToSave);
       }
     }
   }, [items, settings]);
 
-
-
-  // Trigger export or show report dialog if hard issues exist
   const handleExportCsv = useCallback(() => {
     if (currentReport.blockedItemsCount > 0) {
       setReportDialogOpen(true);
@@ -427,7 +455,6 @@ export default function GeneratorPage() {
       return;
     }
 
-    // Filter only JPG/JPEG and PNG files
     const compatibleItems = validItems.filter((i) => {
       const kind = isMetadataEmbeddable(i.fileData.originalName, i.fileData.mimeType);
       return kind !== null;
@@ -452,12 +479,10 @@ export default function GeneratorPage() {
     for (let idx = 0; idx < compatibleItems.length; idx++) {
       const item = compatibleItems[idx];
       setEmbedCurrent(idx + 1);
-
       try {
         const rawBuffer = await item.fileData.file.arrayBuffer();
         const rawBytes = new Uint8Array(rawBuffer);
         const kind = isMetadataEmbeddable(item.fileData.originalName, item.fileData.mimeType);
-
         const title = (item.title || '').trim();
         const description = (item.description || title).trim();
         const keywords = item.keywords || [];
@@ -480,7 +505,6 @@ export default function GeneratorPage() {
         console.error(`Failed to embed metadata in ${item.fileData.originalName}:`, err);
         failedFiles.push(item.fileData.originalName);
       }
-
       await new Promise((resolve) => setTimeout(resolve, 15));
     }
 
@@ -495,7 +519,6 @@ export default function GeneratorPage() {
       setEmbedStats({ successCount, skippedCount, failedFiles });
       setEmbedDialogStatus('complete');
 
-      // Save exported fingerprints to IndexedDB libraryStore
       if (settings.rememberExportedImages) {
         const libraryEntriesToSave: LibraryFingerprintEntry[] = compatibleItems
           .filter((it) => it.fingerprint)
@@ -506,7 +529,6 @@ export default function GeneratorPage() {
             thumbnail32: it.fingerprint!.thumbnail32,
             fingerprint: it.fingerprint!,
           }));
-
         if (libraryEntriesToSave.length > 0) {
           saveLibraryEntries(libraryEntriesToSave);
         }
@@ -534,7 +556,6 @@ export default function GeneratorPage() {
       if (!target) return;
 
       toast.info(`Rewriting title to remove "${blockedTerm || 'blocked term'}"...`);
-
       try {
         const keyInfo = await keyRotator.getNextKey();
         const res = await fetch('/api/generate', {
@@ -575,7 +596,6 @@ export default function GeneratorPage() {
 
   // Fix all flagged similar titles & rewrite repetitive title openings (>3 in batch)
   const handleFixSimilarTitles = useCallback(async () => {
-    // 1. Identify repetitive first words (> 3 titles)
     const firstWordMap = new Map<string, string[]>();
     for (const item of items) {
       if (!item.title?.trim()) continue;
@@ -585,6 +605,7 @@ export default function GeneratorPage() {
         .split(/\s+/)[0]
         ?.toLowerCase()
         .replace(/[^a-z0-9]/g, '');
+
       if (cleanFirst && cleanFirst.length > 1) {
         const ids = firstWordMap.get(cleanFirst) || [];
         ids.push(item.id);
@@ -636,23 +657,21 @@ export default function GeneratorPage() {
 
     if (openingFixedCount > 0) {
       setItems(modifiedItems);
+      saveAllBatchItems(modifiedItems);
       toast.success(`Rewrote opening words for ${openingFixedCount} titles`);
     }
 
-    // 2. Also rewrite any remaining flagged pairwise similar titles via AI
     const remainingFlagged = modifiedItems.filter(
       (it) => it.status === 'done' && it.similarTo && it.similarTo.length > 0
     );
 
     if (remainingFlagged.length > 0) {
       toast.info(`Refining ${remainingFlagged.length} similar title${remainingFlagged.length === 1 ? '' : 's'} with AI...`);
-
       for (const item of remainingFlagged) {
         try {
           const avoidList = (item.similarTo || [])
             .map((s) => s.otherFilename)
             .filter(Boolean);
-
           const keyInfo = await keyRotator.getNextKey();
           const res = await fetch('/api/generate', {
             method: 'POST',
@@ -691,7 +710,7 @@ export default function GeneratorPage() {
     }
   }, [items, settings, handleUpdateItem]);
 
-  // Approve ambiguous term (e.g. apple fruit, amazon rainforest)
+  // Approve ambiguous term
   const handleApproveIssue = useCallback(
     (id: string, term: string) => {
       setItems((prev) =>
@@ -707,13 +726,15 @@ export default function GeneratorPage() {
             settings.isAiBatch || false
           );
           const seo = calculateItemSeoScore({ ...item, blockedTermsFound: comp.blockedTerms });
-          return {
+          const updated = {
             ...item,
             approvedIssues: approved,
             blockedTermsFound: comp.blockedTerms,
             seoScore: seo.score,
             seoChecklist: seo.checklist,
           };
+          saveBatchItem(updated);
+          return updated;
         })
       );
       toast.success(`Approved "${term}" for this session.`);
@@ -721,14 +742,13 @@ export default function GeneratorPage() {
     [settings]
   );
 
-  // Step 8 Similarity Cluster Winner and Override Actions
+  // Similarity Cluster Winner
   const handleSetClusterWinner = useCallback(
     (cluster: SimilarityCluster, newWinnerId: string) => {
       setItems((prev) => {
         const winnerItem = prev.find((it) => it.id === newWinnerId);
         const winnerName = winnerItem?.fileData.originalName || 'chosen winner';
-
-        return prev.map((it) => {
+        const updated = prev.map((it) => {
           if (!cluster.itemIds.includes(it.id)) return it;
           if (it.id === newWinnerId) {
             return {
@@ -746,6 +766,8 @@ export default function GeneratorPage() {
             };
           }
         });
+        saveAllBatchItems(updated);
+        return updated;
       });
 
       setSimilarityClusters((prev) =>
@@ -756,7 +778,7 @@ export default function GeneratorPage() {
     []
   );
 
-  // Queue Generation Engine
+  // Sequential Queue Generation Engine
   const startQueue = useCallback((customItems?: GeneratorItemState[]) => {
     const targetItems = customItems || items;
     if (targetItems.length === 0) return;
@@ -767,6 +789,7 @@ export default function GeneratorPage() {
     }
 
     setIsGenerating(true);
+    setIsPaused(false);
 
     const queue = new GeneratorQueue(targetItems, settings, {
       onItemUpdate: (updatedItem) => {
@@ -774,18 +797,43 @@ export default function GeneratorPage() {
           prev.map((it) => (it.id === updatedItem.id ? updatedItem : it))
         );
       },
-      onProgress: () => {
-        // Handled via item statuses
+      onItemCompleted: (completedItem) => {
+        saveBatchItem(completedItem);
+      },
+      onProgressUpdate: (progressState: QueueProgressState) => {
+        setIsGenerating(progressState.isGenerating);
+        setIsPaused(progressState.isPaused);
+        setCurrentFilename(progressState.currentFilename || '');
+        setCurrentImageIndex(progressState.currentIndex || 0);
+        setCurrentKeyInfo(progressState.currentKeyInfo || '');
+        setIsCoolingDown(progressState.isCoolingDown || false);
+        setCooldownSecondsRemaining(progressState.cooldownSecondsRemaining || 0);
+        setCooldownText(
+          progressState.isCoolingDown
+            ? progressState.cooldownReason || `Cooling down (${progressState.cooldownSecondsRemaining}s)...`
+            : ''
+        );
+        setStatusMessage(progressState.statusMessage);
+      },
+      onStateChange: (running, paused) => {
+        setIsGenerating(running);
+        setIsPaused(paused);
       },
       onComplete: () => {
         setIsGenerating(false);
+        setIsPaused(false);
+        setCurrentFilename('');
+        setCurrentImageIndex(0);
+        setCurrentKeyInfo('');
+        setIsCoolingDown(false);
+        setCooldownSecondsRemaining(0);
+        setCooldownText('');
         queueRef.current = null;
-        toast.success('Generation complete!');
+        toast.success('Sequential generation complete!');
 
         if (settings.autoCsvDownload) {
           handleExportCsv();
         }
-
         if (settings.autoEmbed && settings.mode === 'metadata') {
           setTimeout(() => {
             handleEmbedMetadata();
@@ -798,6 +846,41 @@ export default function GeneratorPage() {
     queue.start();
   }, [items, settings, handleExportCsv, handleEmbedMetadata]);
 
+  const handlePause = useCallback(() => {
+    if (queueRef.current) {
+      queueRef.current.pause();
+      setIsPaused(true);
+      toast.info('Pausing queue after current image...');
+    }
+  }, []);
+
+  const handleResume = useCallback(() => {
+    if (queueRef.current && isPaused) {
+      queueRef.current.resume();
+      setIsPaused(false);
+      toast.success('Resuming sequential processing...');
+    } else {
+      startQueue();
+    }
+  }, [isPaused, startQueue]);
+
+  const handleStop = useCallback(() => {
+    if (queueRef.current) {
+      queueRef.current.stop();
+      queueRef.current = null;
+    }
+    setIsGenerating(false);
+    setIsPaused(false);
+    setCurrentFilename('');
+    setCurrentImageIndex(0);
+    setCurrentKeyInfo('');
+    setIsCoolingDown(false);
+    setCooldownSecondsRemaining(0);
+    setCooldownText('');
+    setStatusMessage('Generation stopped');
+    toast.info('Generation stopped');
+  }, []);
+
   const handleKeepInstead = useCallback(
     (itemId: string) => {
       let updatedItems: GeneratorItemState[] = [];
@@ -805,7 +888,6 @@ export default function GeneratorPage() {
       if (cluster) {
         const winnerItem = items.find((it) => it.id === itemId);
         const winnerName = winnerItem?.fileData.originalName || 'chosen winner';
-
         updatedItems = items.map((it) => {
           if (!cluster.itemIds.includes(it.id)) return it;
           if (it.id === itemId) {
@@ -826,7 +908,6 @@ export default function GeneratorPage() {
             };
           }
         });
-
         setSimilarityClusters((prev) =>
           prev.map((c) => (c.clusterId === cluster.clusterId ? { ...c, winnerId: itemId } : c))
         );
@@ -844,8 +925,8 @@ export default function GeneratorPage() {
             : it
         );
       }
-
       setItems(updatedItems);
+      saveAllBatchItems(updatedItems);
       toast.success('Kept this image for export. Starting generation...');
       startQueue(updatedItems);
     },
@@ -866,6 +947,7 @@ export default function GeneratorPage() {
           : it
       );
       setItems(updatedItems);
+      saveAllBatchItems(updatedItems);
       toast.success('Included image in export. Starting generation...');
       startQueue(updatedItems);
     },
@@ -886,6 +968,7 @@ export default function GeneratorPage() {
       return it;
     });
     setItems(updated);
+    saveAllBatchItems(updated);
     toast.success('Included all previously exported files in this batch. Starting generation...');
     startQueue(updated);
   }, [items, startQueue]);
@@ -901,14 +984,15 @@ export default function GeneratorPage() {
     (deletedItems: GeneratorItemState[]) => {
       if (deletedItems.length === 0) return;
       const deletedIds = new Set(deletedItems.map((d) => d.id));
-
       const previousItems = [...items];
       const previousClusters = [...similarityClusters];
 
-      // Remove from active state (thus from list, memory, CSV, ZIP)
-      setItems((prev) => prev.filter((it) => !deletedIds.has(it.id)));
+      setItems((prev) => {
+        const filtered = prev.filter((it) => !deletedIds.has(it.id));
+        saveAllBatchItems(filtered);
+        return filtered;
+      });
 
-      // Clean cluster references
       setSimilarityClusters((prev) =>
         prev
           .map((c) => ({
@@ -918,15 +1002,13 @@ export default function GeneratorPage() {
           .filter((c) => c.itemIds.length > 0)
       );
 
-      // Free object URLs after 10s undo window
       const cleanupTimer = setTimeout(() => {
         deletedItems.forEach((item) => {
+          deleteSavedBatchItem(item.id);
           if (item.fileData?.previewUrl && item.fileData.previewUrl.startsWith('blob:')) {
             try {
               URL.revokeObjectURL(item.fileData.previewUrl);
-            } catch {
-              // ignore
-            }
+            } catch {}
           }
         });
       }, 10000);
@@ -939,6 +1021,7 @@ export default function GeneratorPage() {
           onClick: () => {
             clearTimeout(cleanupTimer);
             setItems(previousItems);
+            saveAllBatchItems(previousItems);
             setSimilarityClusters(previousClusters);
             toast.success('Restored deleted files to batch.');
           },
@@ -948,7 +1031,6 @@ export default function GeneratorPage() {
     [items, similarityClusters]
   );
 
-  // Delete the others in a specific cluster group with 10s Undo
   const handleDeleteClusterOthers = useCallback(
     (cluster: SimilarityCluster) => {
       const keeperId = cluster.winnerId || cluster.itemIds[0];
@@ -959,7 +1041,12 @@ export default function GeneratorPage() {
       const previousItems = [...items];
       const previousClusters = [...similarityClusters];
 
-      setItems((prev) => prev.filter((it) => !idsToRemove.has(it.id)));
+      setItems((prev) => {
+        const filtered = prev.filter((it) => !idsToRemove.has(it.id));
+        saveAllBatchItems(filtered);
+        return filtered;
+      });
+
       setSimilarityClusters((prev) =>
         prev.map((c) =>
           c.clusterId === cluster.clusterId
@@ -970,12 +1057,11 @@ export default function GeneratorPage() {
 
       const cleanupTimer = setTimeout(() => {
         deletedItems.forEach((item) => {
+          deleteSavedBatchItem(item.id);
           if (item.fileData?.previewUrl && item.fileData.previewUrl.startsWith('blob:')) {
             try {
               URL.revokeObjectURL(item.fileData.previewUrl);
-            } catch {
-              // ignore
-            }
+            } catch {}
           }
         });
       }, 10000);
@@ -989,6 +1075,7 @@ export default function GeneratorPage() {
           onClick: () => {
             clearTimeout(cleanupTimer);
             setItems(previousItems);
+            saveAllBatchItems(previousItems);
             setSimilarityClusters(previousClusters);
             toast.success('Restored group files to batch.');
           },
@@ -998,7 +1085,6 @@ export default function GeneratorPage() {
     [items, similarityClusters]
   );
 
-  // Smooth scroll to card
   const handleScrollToItem = useCallback((targetId: string) => {
     const el = document.getElementById(`result-card-${targetId}`);
     if (el) {
@@ -1014,6 +1100,7 @@ export default function GeneratorPage() {
         item.id === id ? { ...item, status: 'queued' as const, errorMessage: undefined } : item
       );
       setItems(updated);
+      saveAllBatchItems(updated);
       startQueue(updated);
     },
     [items, startQueue]
@@ -1023,20 +1110,14 @@ export default function GeneratorPage() {
     startQueue();
   };
 
-  const handleStop = () => {
-    if (queueRef.current) {
-      queueRef.current.stop();
-      queueRef.current = null;
-    }
-    setIsGenerating(false);
-    toast.info('Generation stopped');
-  };
-
   // Counts & status
   const doneCount = items.filter(
     (i) => i.status === 'done' && Boolean(i.title?.trim()) && i.title.trim() !== i.fileData.originalName
   ).length;
   const failedCount = items.filter((i) => i.status === 'failed').length;
+  const pendingCount = items.filter(
+    (i) => (i.status === 'queued' || i.status === 'working') && !i.isExcluded
+  ).length;
   const hasResults = doneCount > 0;
   const currentSpec = PLATFORM_SPECS[settings.platform] || PLATFORM_SPECS['adobe-stock'];
 
@@ -1093,8 +1174,8 @@ export default function GeneratorPage() {
           />
 
           <BatchCard
-            batchMode={settings.batchMode}
-            onBatchModeChange={(b) => updateSettings({ batchMode: b })}
+            delaySeconds={settings.interImageDelaySeconds ?? 10}
+            onDelayChange={(sec) => updateSettings({ interImageDelaySeconds: sec })}
             disabled={isGenerating || isAnalyzingSimilarity}
           />
 
@@ -1105,7 +1186,6 @@ export default function GeneratorPage() {
                 onUpdate={updateSettings}
                 disabled={isGenerating || isAnalyzingSimilarity}
               />
-
               <ComplianceSettings
                 settings={settings}
                 onUpdate={updateSettings}
@@ -1129,7 +1209,7 @@ export default function GeneratorPage() {
           <UploadCard
             onFilesSelected={handleFilesSelected}
             currentCount={items.length}
-            maxFiles={200}
+            maxFiles={1000}
             disabled={isGenerating || isAnalyzingSimilarity}
           />
 
@@ -1142,7 +1222,9 @@ export default function GeneratorPage() {
             totalFiles={items.length}
             doneCount={doneCount}
             failedCount={failedCount}
+            pendingCount={pendingCount}
             isGenerating={isGenerating}
+            isPaused={isPaused}
             isAnalyzingSimilarity={isAnalyzingSimilarity}
             hasResults={hasResults}
             mode={settings.mode}
@@ -1153,7 +1235,16 @@ export default function GeneratorPage() {
             similarDeleteCount={similarDeleteCount}
             generatingCount={generatingCount}
             blockedCount={blockedCount}
+            currentFilename={currentFilename}
+            currentImageIndex={currentImageIndex}
+            currentKeyInfo={currentKeyInfo}
+            isCoolingDown={isCoolingDown}
+            cooldownSecondsRemaining={cooldownSecondsRemaining}
+            cooldownText={cooldownText}
+            statusMessage={statusMessage}
             onGenerateAll={handleGenerateAll}
+            onPause={handlePause}
+            onResume={handleResume}
             onStop={handleStop}
             onClearAll={handleClearAll}
             onDeleteSimilar={() => setDeleteSimilarOpen(true)}
