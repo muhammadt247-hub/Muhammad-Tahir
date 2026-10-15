@@ -1,0 +1,110 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-surface: hsl(var(--surface));
+  --color-surface-foreground: hsl(var(--surface-foreground));
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius: var(--radius);
+}
+
+:root, .light {
+  --background: 210 20% 96%;   --foreground: 220 20% 10%;
+  --card: 0 0% 100%;           --card-foreground: 220 20% 10%;
+  --popover: 0 0% 100%;        --popover-foreground: 220 20% 10%;
+  --primary: 21 90% 44%;       --primary-foreground: 0 0% 100%;
+  --secondary: 210 14% 92%;    --secondary-foreground: 220 20% 10%;
+  --muted: 210 14% 92%;        --muted-foreground: 220 10% 46%;
+  --accent: 210 16% 93%;       --accent-foreground: 220 20% 10%;
+  --destructive: 0 72% 56%;    --destructive-foreground: 0 0% 100%;
+  --success: 152 60% 42%;      --success-foreground: 0 0% 100%;
+  --border: 210 14% 89%;       --input: 210 14% 89%;   --ring: 21 90% 44%;
+  --surface: 210 18% 97%;      --surface-foreground: 220 20% 10%;
+  --glass: 0 0% 100% / .65;    --glass-border: 0 0% 100% / .5;
+  --radius: 1rem;
+  --pop-scale: 1.1;
+}
+
+.dark {
+  --background: 225 12% 7%;    --foreground: 210 20% 95%;
+  --card: 225 12% 11%;         --card-foreground: 210 20% 95%;
+  --popover: 225 12% 11%;      --popover-foreground: 210 20% 95%;
+  --primary: 21 92% 52%;       --primary-foreground: 0 0% 100%;
+  --secondary: 225 10% 16%;    --muted: 225 10% 16%;   --accent: 225 10% 16%;
+  --muted-foreground: 220 10% 55%;
+  --destructive: 0 62% 30%;    --border: 225 10% 16%;  --input: 225 10% 16%;  --ring: 21 92% 52%;
+  --surface: 225 10% 13%;      --success: 152 50% 36%; --warning: 38 80% 45%;
+  --glass: 225 12% 11% / .7;   --glass-border: 225 10% 20% / .5;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-poppins), Poppins, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.glass-card {
+  background: hsl(var(--glass));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid hsl(var(--glass-border));
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 3s infinite linear;
+}
+
+@keyframes logo-spin {
+  0%   { transform: rotate(0deg);   animation-timing-function: ease-in-out; }
+  25%  { transform: rotate(360deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.logo-spin {
+  animation: logo-spin 4s infinite;
+  transform-origin: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-spin {
+    animation: none;
+  }
+}

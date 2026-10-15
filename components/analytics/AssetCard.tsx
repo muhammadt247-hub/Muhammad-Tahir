@@ -90,7 +90,7 @@ export const AssetCard = React.memo(function AssetCard({
         )}
 
         {/* Top-Left Badge Stack */}
-        <div className="absolute top-2 left-2 flex flex-col gap-1 items-start pointer-events-none">
+        <div className="absolute top-3 left-3 flex flex-col gap-1 items-start pointer-events-none">
           <span className="bg-background/90 hover:bg-background/95 backdrop-blur-md text-foreground border-border/50 shadow-sm capitalize text-[10px] font-semibold px-2 py-0.5 rounded-full border">
             {asset.content_type}
           </span>
@@ -107,7 +107,7 @@ export const AssetCard = React.memo(function AssetCard({
         </div>
 
         {/* Top-Right Bookmark Button */}
-        <div className="absolute top-2 right-2 z-10">
+        <div className="absolute top-3 right-3 z-10">
           <SaveToBoardPopover asset={asset}>
             <button
               title="Save to Moodboard"

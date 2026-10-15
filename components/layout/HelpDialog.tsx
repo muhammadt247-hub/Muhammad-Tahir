@@ -18,7 +18,6 @@ import {
   Wand2,
   ExternalLink,
   ChevronRight,
-  ShieldCheck,
   Zap,
   Download,
   Info,
@@ -90,16 +89,6 @@ export function HelpDialog({ open, onOpenChange }: HelpDialogProps) {
               );
             })}
 
-            <div className="mt-auto pt-4 border-t border-border/40">
-              <div className="p-3 rounded-xl bg-muted/40 border border-border/40 text-[11px] space-y-1.5">
-                <p className="font-semibold text-foreground flex items-center gap-1.5">
-                  <ShieldCheck className="h-3.5 w-3.5 text-primary" /> 100% Free &amp; Offline
-                </p>
-                <p className="text-muted-foreground leading-relaxed">
-                  DOCTORx has zero credit meters, no subscriptions, and stores all workspaces locally in your browser.
-                </p>
-              </div>
-            </div>
           </div>
 
           {/* Right Content Panel */}
@@ -158,10 +147,10 @@ export function HelpDialog({ open, onOpenChange }: HelpDialogProps) {
                   <p>
                     Reach out to our team at{' '}
                     <a
-                      href={`mailto:${SITE_CONFIG.SUPPORT_URL.replace('mailto:', '')}`}
+                      href={SITE_CONFIG.SUPPORT_URL}
                       className="text-primary font-medium hover:underline"
                     >
-                      support@doctorx.ai
+                      {SITE_CONFIG.SUPPORT_URL.replace('mailto:', '')}
                     </a>
                     .
                   </p>

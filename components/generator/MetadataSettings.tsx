@@ -62,7 +62,7 @@ export function MetadataSettings({
             </div>
           </AccordionTrigger>
 
-          <AccordionContent className="px-4 pb-4 space-y-4">
+          <AccordionContent className="px-4 pb-4 space-y-4 data-[state=open]:overflow-visible overflow-visible">
             {/* 1. Export Platform Grid */}
             <div className="pt-2">
               <PlatformGrid

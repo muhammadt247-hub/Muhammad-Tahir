@@ -125,7 +125,7 @@ export function DropZone({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       className={cn(
-        'rounded-2xl border-2 border-dashed border-border/60 bg-accent/20 min-h-[200px] flex flex-col items-center justify-center p-6 text-center transition-all select-none',
+        'rounded-2xl border-2 border-dashed border-border/60 bg-accent/20 min-h-[200px] flex flex-col items-center justify-center p-6 text-center transition-all select-none pop-10',
         isDragOver && 'border-primary bg-primary/5 scale-[0.99]',
         disabled && 'opacity-60 cursor-not-allowed'
       )}

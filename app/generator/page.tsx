@@ -12,6 +12,7 @@ import { ResultList } from '@/components/generator/ResultList';
 import { ApiKeysDialog } from '@/components/generator/ApiKeysDialog';
 import { EmbedDialog, EmbedDialogStats } from '@/components/generator/EmbedDialog';
 import { SimilarityClustersDialog } from '@/components/generator/SimilarityClustersDialog';
+import { DeleteSimilarDialog } from '@/components/generator/DeleteSimilarDialog';
 import { SimilarityProgressCard } from '@/components/generator/SimilarityProgressCard';
 import { ComplianceReportDialog } from '@/components/generator/ComplianceReportDialog';
 import { PLATFORM_SPECS } from '@/config/platforms';
@@ -55,6 +56,7 @@ export default function GeneratorPage() {
   const [isAnalyzingSimilarity, setIsAnalyzingSimilarity] = useState(false);
   const [similarityClusters, setSimilarityClusters] = useState<SimilarityCluster[]>([]);
   const [similarityDialogOpen, setSimilarityDialogOpen] = useState(false);
+  const [deleteSimilarOpen, setDeleteSimilarOpen] = useState(false);
 
   // Compliance Report Dialog
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
@@ -894,6 +896,108 @@ export default function GeneratorPage() {
     runSimilarityCheck(items);
   }, [items, runSimilarityCheck]);
 
+  // Delete Similar: Confirmation Handler with 10s Undo Toast
+  const handleConfirmDeleteSimilar = useCallback(
+    (deletedItems: GeneratorItemState[]) => {
+      if (deletedItems.length === 0) return;
+      const deletedIds = new Set(deletedItems.map((d) => d.id));
+
+      const previousItems = [...items];
+      const previousClusters = [...similarityClusters];
+
+      // Remove from active state (thus from list, memory, CSV, ZIP)
+      setItems((prev) => prev.filter((it) => !deletedIds.has(it.id)));
+
+      // Clean cluster references
+      setSimilarityClusters((prev) =>
+        prev
+          .map((c) => ({
+            ...c,
+            itemIds: c.itemIds.filter((id) => !deletedIds.has(id)),
+          }))
+          .filter((c) => c.itemIds.length > 0)
+      );
+
+      // Free object URLs after 10s undo window
+      const cleanupTimer = setTimeout(() => {
+        deletedItems.forEach((item) => {
+          if (item.fileData?.previewUrl && item.fileData.previewUrl.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(item.fileData.previewUrl);
+            } catch {
+              // ignore
+            }
+          }
+        });
+      }, 10000);
+
+      toast(`Deleted ${deletedItems.length} duplicate file${deletedItems.length === 1 ? '' : 's'}`, {
+        description: 'Keepers remain in the batch. Files on your computer are untouched.',
+        duration: 10000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            clearTimeout(cleanupTimer);
+            setItems(previousItems);
+            setSimilarityClusters(previousClusters);
+            toast.success('Restored deleted files to batch.');
+          },
+        },
+      });
+    },
+    [items, similarityClusters]
+  );
+
+  // Delete the others in a specific cluster group with 10s Undo
+  const handleDeleteClusterOthers = useCallback(
+    (cluster: SimilarityCluster) => {
+      const keeperId = cluster.winnerId || cluster.itemIds[0];
+      const idsToRemove = new Set(cluster.itemIds.filter((id) => id !== keeperId));
+      if (idsToRemove.size === 0) return;
+
+      const deletedItems = items.filter((it) => idsToRemove.has(it.id));
+      const previousItems = [...items];
+      const previousClusters = [...similarityClusters];
+
+      setItems((prev) => prev.filter((it) => !idsToRemove.has(it.id)));
+      setSimilarityClusters((prev) =>
+        prev.map((c) =>
+          c.clusterId === cluster.clusterId
+            ? { ...c, itemIds: [keeperId] }
+            : { ...c, itemIds: c.itemIds.filter((id) => !idsToRemove.has(id)) }
+        )
+      );
+
+      const cleanupTimer = setTimeout(() => {
+        deletedItems.forEach((item) => {
+          if (item.fileData?.previewUrl && item.fileData.previewUrl.startsWith('blob:')) {
+            try {
+              URL.revokeObjectURL(item.fileData.previewUrl);
+            } catch {
+              // ignore
+            }
+          }
+        });
+      }, 10000);
+
+      const keeperName = items.find((it) => it.id === keeperId)?.fileData.originalName || 'keeper';
+      toast(`Deleted ${deletedItems.length} duplicate file${deletedItems.length === 1 ? '' : 's'} from group`, {
+        description: `Keeping ${keeperName}. Files on your computer are untouched.`,
+        duration: 10000,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            clearTimeout(cleanupTimer);
+            setItems(previousItems);
+            setSimilarityClusters(previousClusters);
+            toast.success('Restored group files to batch.');
+          },
+        },
+      });
+    },
+    [items, similarityClusters]
+  );
+
   // Smooth scroll to card
   const handleScrollToItem = useCallback((targetId: string) => {
     const el = document.getElementById(`result-card-${targetId}`);
@@ -960,6 +1064,16 @@ export default function GeneratorPage() {
   const libraryExcludedCount = useMemo(() => {
     return items.filter((i) => i.isExcluded && i.excludedReason?.startsWith('Already exported')).length;
   }, [items]);
+
+  const similarDeleteCount = useMemo(() => {
+    const similarOnly = items.filter(
+      (it) =>
+        it.isExcluded &&
+        !it.excludedReason?.startsWith('Already exported') &&
+        it.excludedReason !== "Below Adobe's 4 MP minimum, likely refused"
+    ).length;
+    return similarOnly > 0 ? similarOnly : libraryExcludedCount;
+  }, [items, libraryExcludedCount]);
 
   const generatingCount = useMemo(() => {
     return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !i.isExcluded)).length;
@@ -1036,11 +1150,13 @@ export default function GeneratorPage() {
             similarClusterCount={similarityClusters.length}
             similarExcludedCount={totalSimilarExcluded}
             libraryExcludedCount={libraryExcludedCount}
+            similarDeleteCount={similarDeleteCount}
             generatingCount={generatingCount}
             blockedCount={blockedCount}
             onGenerateAll={handleGenerateAll}
             onStop={handleStop}
             onClearAll={handleClearAll}
+            onDeleteSimilar={() => setDeleteSimilarOpen(true)}
             onExportCsv={handleExportCsv}
             onEmbedMetadata={handleEmbedMetadata}
             onFixSimilarTitles={handleFixSimilarTitles}
@@ -1095,6 +1211,16 @@ export default function GeneratorPage() {
         items={items}
         onSetWinner={handleSetClusterWinner}
         onOverrideInclude={handleOverrideInclude}
+        onDeleteClusterOthers={handleDeleteClusterOthers}
+      />
+
+      {/* Delete Similar Confirmation Dialog */}
+      <DeleteSimilarDialog
+        open={deleteSimilarOpen}
+        onOpenChange={setDeleteSimilarOpen}
+        items={items}
+        clusters={similarityClusters}
+        onConfirmDelete={handleConfirmDeleteSimilar}
       />
 
       {/* Pre-Export Compliance & Quality Report Dialog */}

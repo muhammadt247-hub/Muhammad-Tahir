@@ -20,7 +20,7 @@ export function ControlsCard({
   hasCustomKeys = false,
 }: ControlsCardProps) {
   return (
-    <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4 shadow-sm">
+    <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4 shadow-sm overflow-visible">
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -38,7 +38,7 @@ export function ControlsCard({
         {/* API Keys Pill Button */}
         <button
           onClick={onOpenApiKeys}
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-3 py-1.5 shadow-sm transition-all hover:opacity-90 active:scale-95"
+          className="inline-flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-3 py-1.5 shadow-sm transition-all hover:opacity-90 pop-10"
           title="Configure Gemini API Keys"
         >
           <Key className="h-3.5 w-3.5" />

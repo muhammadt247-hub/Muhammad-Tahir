@@ -18,7 +18,7 @@ export function UploadCard({
   disabled = false,
 }: UploadCardProps) {
   return (
-    <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4 shadow-sm">
+    <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4 shadow-sm overflow-visible">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center text-primary shrink-0 shadow-xs">
           <UploadCloud className="h-5 w-5" />

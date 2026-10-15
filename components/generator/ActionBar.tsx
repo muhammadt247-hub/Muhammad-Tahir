@@ -29,10 +29,12 @@ interface ActionBarProps {
   similarClusterCount?: number;
   similarExcludedCount?: number;
   libraryExcludedCount?: number;
+  similarDeleteCount?: number;
   blockedCount?: number;
   onGenerateAll: () => void;
   onStop: () => void;
   onClearAll: () => void;
+  onDeleteSimilar?: () => void;
   onExportCsv: () => void;
   onEmbedMetadata?: () => void;
   onFixSimilarTitles?: () => void;
@@ -53,10 +55,12 @@ export function ActionBar({
   similarClusterCount = 0,
   similarExcludedCount = 0,
   libraryExcludedCount = 0,
+  similarDeleteCount = 0,
   blockedCount = 0,
   onGenerateAll,
   onStop,
   onClearAll,
+  onDeleteSimilar,
   onExportCsv,
   onEmbedMetadata,
   onFixSimilarTitles,
@@ -200,6 +204,23 @@ export function ActionBar({
                 <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
               )}
               <span>Report</span>
+            </button>
+          )}
+
+          {/* Delete Similar Button (Requirement 1) */}
+          {totalFiles > 0 && onDeleteSimilar && (
+            <button
+              type="button"
+              onClick={onDeleteSimilar}
+              disabled={isGenerating || isAnalyzingSimilarity || similarDeleteCount === 0}
+              title={similarDeleteCount === 0 ? 'No similar files to delete' : `Delete ${similarDeleteCount} similar files`}
+              className="h-10 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-destructive/15 text-destructive hover:bg-destructive/25 border border-destructive/20 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <span className="relative inline-flex items-center justify-center w-4 h-4">
+                <Layers className="h-4 w-4 opacity-75" />
+                <Trash2 className="h-2.5 w-2.5 absolute -bottom-0.5 -right-0.5 text-destructive" />
+              </span>
+              <span>Delete similar ({similarDeleteCount})</span>
             </button>
           )}
 

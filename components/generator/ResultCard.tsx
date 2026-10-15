@@ -3,32 +3,34 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import {
-  Trash2,
-  Copy,
+  GeneratorItemState,
+} from '@/lib/generator/queue';
+import { PlatformConfig } from '@/config/platforms';
+import {
   RotateCcw,
-  Sparkles,
+  Copy,
   Check,
+  Trash2,
   AlertCircle,
   Plus,
   X,
-  FileCheck,
-  ShieldAlert,
-  AlertTriangle,
   Layers,
-  Wand2,
-  CheckCircle2,
-  ArrowRightLeft,
   ChevronDown,
   ChevronUp,
+  Sparkles,
   Info,
+  AlertTriangle,
+  ArrowRightLeft,
+  CheckCircle2,
+  ShieldAlert,
+  Wand2,
 } from 'lucide-react';
-import { GeneratorItemState } from '@/lib/generator/queue';
-import { PlatformConfig } from '@/config/platforms';
-import { ScoreBadge } from './ScoreBadge';
 import { FlagChips } from './FlagChips';
-import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+import { ScoreBadge } from './ScoreBadge';
 import { SIMILARITY_HONESTY_NOTE } from '@/config/similarity';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 interface ResultCardProps {
   item: GeneratorItemState;
@@ -46,8 +48,9 @@ interface ResultCardProps {
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes <= 0) return '0 KB';
-  return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function ResultCard({
@@ -71,22 +74,28 @@ export function ResultCard({
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [showDebugScores, setShowDebugScores] = useState(false);
 
-  const titleLength = (item.title || '').length;
+  // Platform constraints
   const maxTitle = platformSpec.maxTitleLength;
-  const isTitleOverLimit = titleLength > maxTitle;
-
-  const keywordsCount = (item.keywords || []).length;
   const maxKeywords = platformSpec.maxKeywordsCount;
+  const titleLength = (item.title || '').length;
+  const isTitleOverLimit = titleLength > maxTitle;
+  const keywordsCount = (item.keywords || []).length;
 
   const handleAddKeyword = () => {
-    const trimmed = newKeywordInput.trim();
-    if (!trimmed) return;
-    const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
-    const updated = [...(item.keywords || [])];
+    const raw = newKeywordInput.trim();
+    if (!raw) return;
 
-    for (const p of parts) {
-      if (!updated.map((k) => k.toLowerCase()).includes(p.toLowerCase())) {
-        updated.push(p);
+    const parts = raw
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    const currentKeywords = item.keywords || [];
+    const updated = [...currentKeywords];
+
+    for (const kw of parts) {
+      if (!updated.includes(kw) && updated.length < maxKeywords) {
+        updated.push(kw);
       }
     }
 
@@ -95,8 +104,7 @@ export function ResultCard({
   };
 
   const handleRemoveKeyword = (index: number) => {
-    const updated = [...(item.keywords || [])];
-    updated.splice(index, 1);
+    const updated = (item.keywords || []).filter((_, i) => i !== index);
     onUpdate({ keywords: updated });
   };
 
@@ -117,9 +125,8 @@ export function ResultCard({
   };
 
   const handleCopyAll = () => {
-    const text = `Title: ${item.title || ''}\nDescription: ${
-      item.description || ''
-    }\nKeywords: ${(item.keywords || []).join(', ')}`;
+    const descLine = platformSpec.hasDescription && item.description ? `Description: ${item.description}\n` : '';
+    const text = `Title: ${item.title || ''}\n${descLine}Keywords: ${(item.keywords || []).join(', ')}`;
     navigator.clipboard.writeText(text);
     setCopiedAll(true);
     toast.success('All metadata copied');
@@ -158,179 +165,156 @@ export function ResultCard({
   const topSimilarPair = item.similarPairDetails?.[0];
   const q = item.fingerprint?.quality;
 
+  // Determine Excluded Reason Text for status chip
+  let excludedReasonText = item.excludedReason || 'Similar to another image';
+  if (isUnder4Mp) {
+    excludedReasonText = "Below Adobe's 4 MP minimum, likely refused";
+  } else if (isOver100Mp) {
+    excludedReasonText = `Over Adobe's 100 MP limit (${megapixels.toFixed(1)} MP)`;
+  } else if (isOver45Mb) {
+    excludedReasonText = "Over Adobe's 45 MB limit";
+  } else if (hardBlockedTerms.length > 0) {
+    excludedReasonText = `Blocked trademark (${hardBlockedTerms[0]?.term})`;
+  } else if (isAlreadyExported) {
+    excludedReasonText = item.excludedReason || 'Already exported';
+  }
+
+  const isAnyExclusion = isExcluded || isUnder4Mp || isOver100Mp || isOver45Mb || hardBlockedTerms.length > 0;
+  const isReadyForExport = hasGeneratedContent && !isAnyExclusion;
+
   return (
     <div
       id={`result-card-${item.id}`}
       className={cn(
-        'flex flex-col md:flex-row rounded-2xl bg-card shadow-xl overflow-hidden border transition-all duration-300 relative',
-        isExcluded || isUnder4Mp
-          ? 'border-destructive/40 bg-muted/20 opacity-80'
+        'flex flex-col md:flex-row rounded-2xl bg-card shadow-md overflow-hidden border transition-all duration-300 relative scroll-mt-20',
+        isAnyExclusion
+          ? 'border-destructive/40 bg-muted/20 opacity-95'
           : isKeptBest
           ? 'border-emerald-500/50 shadow-emerald-500/5'
-          : hardBlockedTerms.length > 0 || isOver100Mp || isOver45Mb
-          ? 'border-destructive/60 hover:border-destructive shadow-destructive/5'
-          : 'border-border/50 hover:border-border'
+          : 'border-border/60 hover:border-border'
       )}
     >
-      {/* Top Banner on Card */}
-      {(isExcluded || isUnder4Mp) && (
-        <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold shadow-xs">
-          {isUnder4Mp
-            ? '< 4 MP (Excluded)'
-            : isAlreadyExported
-            ? item.excludedReason
-            : 'Excluded from Export'}
-        </div>
-      )}
+      {/* 1. LEFT PICTURE AREA (Desktop: side-by-side left; Mobile: stacked top) */}
+      <div className="relative aspect-video md:aspect-auto md:w-64 lg:w-72 md:shrink-0 bg-muted/40 border-b md:border-b-0 md:border-r border-border/40 overflow-hidden flex items-center justify-center min-h-[220px] md:min-h-0">
+        <Image
+          src={item.fileData.previewUrl || item.fileData.aiDataUrl}
+          alt={item.fileData.originalName}
+          fill
+          className="object-contain p-2"
+          unoptimized
+          referrerPolicy="no-referrer"
+        />
 
-      {isKeptBest && !isExcluded && !isUnder4Mp && (
-        <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
-          <Check className="h-3 w-3" />
-          <span>Kept (Best in Group)</span>
-        </div>
-      )}
+        {/* Badges on Image: Excluded and Best of group (Top-Left) */}
+        <div className="absolute top-3 left-3 z-20 flex flex-col gap-1 items-start max-w-[70%]">
+          {(isExcluded || isUnder4Mp) && (
+            <span className="px-2 py-0.5 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold shadow-xs truncate max-w-full">
+              {isUnder4Mp
+                ? '< 4 MP (Excluded)'
+                : isAlreadyExported
+                ? item.excludedReason
+                : 'Excluded from Export'}
+            </span>
+          )}
 
-      {/* Left Column: Preview & File Info (md:w-1/3) */}
-      <div className="md:w-1/3 p-4 flex flex-col justify-between border-b md:border-b-0 md:border-r border-border/40 bg-accent/10">
-        <div className="space-y-3">
-          {/* Square Image Preview */}
-          <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-muted/20 border border-border/40 flex items-center justify-center">
-            <Image
-              src={item.fileData.previewUrl}
-              alt={item.fileData.originalName}
-              fill
-              className="object-contain p-1"
-              unoptimized
-            />
-
-            {/* Trash Delete Button */}
-            <button
-              type="button"
-              onClick={onDelete}
-              title="Remove file"
-              aria-label="Remove file"
-              className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-destructive text-white transition-colors backdrop-blur-xs shadow-xs z-10"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          {/* File Name & Dimensions */}
-          <div className="min-w-0">
-            <p
-              className="text-xs font-semibold text-foreground truncate"
-              title={item.fileData.originalName}
-            >
-              {item.fileData.originalName}
-            </p>
-            {/* Dimensions & Megapixels */}
-            <div className="text-[11px] font-mono mt-1 flex flex-wrap items-center gap-1.5">
-              {width > 0 && height > 0 ? (
-                <span
-                  className={cn(
-                    'font-medium',
-                    isUnder4Mp || isOver100Mp ? 'text-destructive font-bold' : 'text-foreground'
-                  )}
-                >
-                  {width} × {height} ({megapixels.toFixed(1)} MP)
-                </span>
-              ) : null}
-              <span className="text-muted-foreground/60">·</span>
-              <span className={cn(isOver45Mb ? 'text-destructive font-bold' : 'text-muted-foreground')}>
-                {formatBytes(item.fileData.originalSize)}
-              </span>
-            </div>
-            {/* Compressed AI Payload */}
-            <p className="text-[10px] font-mono text-muted-foreground/75 mt-0.5">
-              AI preview: {formatBytes(item.fileData.compressedSize)}
-            </p>
-          </div>
+          {isKeptBest && !isExcluded && !isUnder4Mp && (
+            <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
+              <Check className="h-3 w-3" />
+              <span>Best of group</span>
+            </span>
+          )}
         </div>
 
-        {/* Status Tag & SEO Badge */}
-        <div className="pt-3 flex items-center justify-between gap-1 flex-wrap">
-          <div>
-            {item.status === 'working' && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary animate-pulse">
-                <Sparkles className="h-3 w-3 animate-spin" /> Generating...
-              </span>
-            )}
-            {hasGeneratedContent && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                <Check className="h-3.5 w-3.5" /> Ready
-              </span>
-            )}
-            {!hasGeneratedContent && item.status !== 'working' && item.status !== 'failed' && (
-              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground font-medium">
-                Not generated
-              </span>
-            )}
-            {item.status === 'failed' && (
-              <span className="inline-flex items-center gap-1 text-[11px] text-destructive font-medium">
-                Failed
-              </span>
-            )}
-          </div>
-
+        {/* Badges on Image: Score badge & Trash button (Top-Right) */}
+        <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
           {hasGeneratedContent && mode === 'metadata' && (
             <ScoreBadge score={item.seoScore} checklist={item.seoChecklist} />
           )}
+
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Remove file"
+            aria-label="Remove file"
+            className="p-1.5 rounded-lg bg-black/60 hover:bg-destructive text-white transition-colors backdrop-blur-xs shadow-xs"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         </div>
+
+        {/* Badges on Image: Flag chips along the bottom */}
+        {mode === 'metadata' && (
+          <div className="absolute bottom-2 left-2 right-2 z-20 flex flex-wrap gap-1 pointer-events-auto">
+            <FlagChips flags={item.flags} flagReasons={item.flagReasons} />
+          </div>
+        )}
       </div>
 
-      {/* Right Column: Editable Results (md:w-2/3) */}
-      <div className="md:w-2/3 p-4 flex flex-col justify-between space-y-4">
-        {/* Loading State: Skeletons */}
+      {/* 2. RIGHT CARD CONTENT & FIELDS (Desktop: side-by-side right; Mobile: stacked below) */}
+      <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between space-y-3.5 min-w-0">
+        {/* File name and size line sit directly under the image */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs pb-1 border-b border-border/30">
+          <p
+            className="font-semibold text-foreground truncate max-w-[65%]"
+            title={item.fileData.originalName}
+          >
+            {item.fileData.originalName}
+          </p>
+          <div className="text-[11px] font-mono flex items-center gap-1.5 text-muted-foreground">
+            {width > 0 && height > 0 ? (
+              <span
+                className={cn(
+                  'font-medium',
+                  isUnder4Mp || isOver100Mp ? 'text-destructive font-bold' : 'text-foreground'
+                )}
+              >
+                {width} × {height} ({megapixels.toFixed(1)} MP)
+              </span>
+            ) : null}
+            <span>·</span>
+            <span className={cn(isOver45Mb ? 'text-destructive font-bold' : '')}>
+              {formatBytes(item.fileData.originalSize)}
+            </span>
+          </div>
+        </div>
+
+        {/* Loading Skeleton */}
         {item.status === 'working' && (
           <div className="space-y-3 animate-pulse py-2">
             <div className="h-4 bg-accent rounded-md w-3/4" />
+            <div className="h-14 bg-accent rounded-xl w-full" />
             <div className="h-16 bg-accent rounded-xl w-full" />
-            <div className="h-20 bg-accent rounded-xl w-full" />
           </div>
         )}
 
-        {/* Failure State: Red Inline Message with Retry */}
+        {/* Failed Banner */}
         {item.status === 'failed' && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 space-y-2 text-destructive">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <AlertCircle className="h-4 w-4" />
-              <span>Generation failed</span>
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 space-y-1.5 text-destructive text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertCircle className="h-4 w-4" />
+                <span>Generation failed</span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                onClick={onRegenerate}
+                className="h-6 text-[10px] px-2 font-bold"
+              >
+                Retry
+              </Button>
             </div>
-            <p className="text-xs opacity-90">
+            <p className="text-[11px] opacity-90 truncate">
               {item.errorMessage || 'An error occurred during Gemini AI processing.'}
             </p>
-            <button
-              type="button"
-              onClick={onRegenerate}
-              className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground hover:opacity-90"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Retry</span>
-            </button>
           </div>
         )}
 
-        {/* Main Content Area */}
+        {/* Action Banners & Warnings */}
         {item.status !== 'working' && item.status !== 'failed' && (
-          <div className="space-y-3.5">
-            {/* Step 8 Winner Banner */}
-            {isKeptBest && !isExcluded && (
-              <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs">
-                <div className="flex items-center gap-1.5 min-w-0 pr-2">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                  <span className="font-semibold">
-                    Kept: Selected as single best image in similar group
-                  </span>
-                </div>
-                {item.aiReviewReason && (
-                  <span className="text-[11px] text-muted-foreground truncate max-w-[200px]" title={item.aiReviewReason}>
-                    {item.aiReviewReason}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Step 8 Similarity Exclusion Banner */}
+          <div className="space-y-2.5">
+            {/* Exclusion Override / Keep Banner */}
             {isExcluded && (
               <div className="flex flex-wrap items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -341,7 +325,7 @@ export function ResultCard({
                       : `Excluded: ${item.excludedReason || 'Similar to another image'}`}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 shrink-0 ml-auto">
+                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                   {onKeepInstead && (
                     <button
                       type="button"
@@ -366,37 +350,32 @@ export function ResultCard({
               </div>
             )}
 
-            {/* Visual Release & Copyright Advisories */}
-            {mode === 'metadata' && (
-              <FlagChips flags={item.flags} flagReasons={item.flagReasons} />
-            )}
-
             {/* Resolution Check Red Alerts */}
             {isUnder4Mp && (
-              <div className="flex items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+              <div className="flex items-center justify-between p-2 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
                 <div className="flex items-center gap-1.5 min-w-0 pr-2">
                   <ShieldAlert className="h-4 w-4 shrink-0" />
-                  <span className="font-semibold">
+                  <span className="font-semibold text-[11px]">
                     Below Adobe&apos;s 4 MP minimum, likely refused ({width} × {height} = {megapixels.toFixed(1)} MP)
                   </span>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive text-destructive-foreground uppercase tracking-wider shrink-0">
-                  Excluded
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground uppercase shrink-0">
+                  Refused
                 </span>
               </div>
             )}
 
             {(isOver100Mp || isOver45Mb) && (
-              <div className="flex items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+              <div className="flex items-center justify-between p-2 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
                 <div className="flex items-center gap-1.5 min-w-0 pr-2">
                   <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span className="font-semibold">
+                  <span className="font-semibold text-[11px]">
                     {isOver100Mp
-                      ? `Over Adobe's 100 MP maximum limit (${megapixels.toFixed(1)} MP)`
-                      : `Over Adobe's 45 MB file size limit (${formatBytes(item.fileData.originalSize)})`}
+                      ? `Over Adobe's 100 MP limit (${megapixels.toFixed(1)} MP)`
+                      : `Over Adobe's 45 MB limit (${formatBytes(item.fileData.originalSize)})`}
                   </span>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive text-destructive-foreground uppercase tracking-wider shrink-0">
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground uppercase shrink-0">
                   Refused
                 </span>
               </div>
@@ -404,10 +383,10 @@ export function ResultCard({
 
             {/* Blocked Term Red Alert */}
             {hardBlockedTerms.length > 0 && (
-              <div className="flex items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
+              <div className="flex items-center justify-between p-2 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
                 <div className="flex items-center gap-1.5 min-w-0 pr-2">
                   <ShieldAlert className="h-4 w-4 shrink-0" />
-                  <span className="font-semibold truncate">
+                  <span className="font-semibold truncate text-[11px]">
                     Blocked term: <span className="font-bold underline">{hardBlockedTerms.map((b) => b.term).join(', ')}</span>
                   </span>
                 </div>
@@ -415,7 +394,7 @@ export function ResultCard({
                   <button
                     type="button"
                     onClick={() => onFixTitle(item.id, hardBlockedTerms[0]?.term)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-destructive text-destructive-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity shrink-0"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-destructive text-destructive-foreground text-[10px] font-semibold hover:opacity-90 shrink-0"
                   >
                     <Wand2 className="h-3 w-3" />
                     <span>Fix title</span>
@@ -424,20 +403,20 @@ export function ResultCard({
               </div>
             )}
 
-            {/* Ambiguous Term Amber Warning */}
+            {/* Ambiguous Term Warning */}
             {ambiguousTerms.length > 0 && (
-              <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-xs">
+              <div className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-xs">
                 <div className="flex items-center gap-1.5 min-w-0 pr-2">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   <span className="text-[11px]">
-                    Check: <span className="font-semibold">{ambiguousTerms.map((a) => a.term).join(', ')}</span> (verify natural use)
+                    Check: <span className="font-semibold">{ambiguousTerms.map((a) => a.term).join(', ')}</span>
                   </span>
                 </div>
                 {onApproveIssue && (
                   <button
                     type="button"
                     onClick={() => onApproveIssue(item.id, ambiguousTerms[0]?.term)}
-                    className="px-2.5 py-0.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 text-[10px] font-bold transition-colors shrink-0"
+                    className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 text-[10px] font-bold shrink-0"
                   >
                     This is fine
                   </button>
@@ -445,11 +424,11 @@ export function ResultCard({
               </div>
             )}
 
-            {/* Similar Title Amber Chip - ONLY for items with generated title, never self-similar */}
+            {/* Similar Title Amber Chips */}
             {hasGeneratedContent && item.similarTo && item.similarTo.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {item.similarTo
-                  .filter((sim) => sim.otherId !== item.id && sim.otherFilename !== item.fileData.originalName)
+                  .filter((sim) => sim.otherId !== item.id && sim.otherFilename.toLowerCase().trim() !== item.fileData.originalName.toLowerCase().trim())
                   .map((sim, i) => (
                     <button
                       key={i}
@@ -472,10 +451,9 @@ export function ResultCard({
               </div>
             )}
 
-            {/* Metadata Mode Content */}
+            {/* Title (with counter) */}
             {mode === 'metadata' ? (
               <>
-                {/* 1. Title Input with Length Counter */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <label className="font-semibold text-foreground">Title</label>
@@ -496,32 +474,32 @@ export function ResultCard({
                     onChange={(e) => onUpdate({ title: e.target.value })}
                     placeholder="Stock asset title..."
                     className={cn(
-                      'w-full px-3 py-2 rounded-xl bg-accent/30 border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all',
+                      'w-full px-3 py-1.5 rounded-xl bg-accent/30 border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all',
                       isTitleOverLimit ? 'border-destructive/80' : 'border-border/60'
                     )}
                   />
                 </div>
 
-                {/* 2. Description Input */}
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-foreground">
-                    Description
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={item.description || ''}
-                    onChange={(e) => onUpdate({ description: e.target.value })}
-                    placeholder="Detailed commercial description..."
-                    className="w-full px-3 py-2 rounded-xl bg-accent/30 border border-border/60 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none transition-all"
-                  />
-                </div>
+                {/* Description (ONLY if platformSpec.hasDescription is true) */}
+                {platformSpec.hasDescription && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-foreground">
+                      Description
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={item.description || ''}
+                      onChange={(e) => onUpdate({ description: e.target.value })}
+                      placeholder="Detailed commercial description..."
+                      className="w-full px-3 py-1.5 rounded-xl bg-accent/30 border border-border/60 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none transition-all"
+                    />
+                  </div>
+                )}
 
-                {/* 3. Keyword Chips Container with Live Count */}
+                {/* Keywords (chips) */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <label className="font-semibold text-foreground">
-                      Keywords
-                    </label>
+                    <label className="font-semibold text-foreground">Keywords</label>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-mono text-muted-foreground">
                         {keywordsCount}/{maxKeywords} tags
@@ -539,8 +517,7 @@ export function ResultCard({
                     </div>
                   </div>
 
-                  {/* Chips Scrollable Area */}
-                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 rounded-xl bg-accent/20 border border-border/40 min-h-[38px] items-center">
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 rounded-xl bg-accent/20 border border-border/40 min-h-[38px] items-center">
                     {(item.keywords || []).length === 0 ? (
                       <span className="text-xs text-muted-foreground/60 italic py-0.5 px-1 select-none">
                         No keywords generated yet...
@@ -549,7 +526,7 @@ export function ResultCard({
                       (item.keywords || []).map((kw, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-card border border-border/60 text-xs font-medium text-foreground shadow-2xs group hover:border-primary/40 transition-colors"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-card border border-border/60 text-xs font-medium text-foreground shadow-2xs group hover:border-primary/40 transition-colors"
                         >
                           <span className="text-[10px] text-muted-foreground/60 mr-0.5 font-mono">
                             {idx + 1}
@@ -567,7 +544,6 @@ export function ResultCard({
                       ))
                     )}
 
-                    {/* Inline Add Keyword Input */}
                     <div className="inline-flex items-center gap-1 ml-1">
                       <input
                         type="text"
@@ -580,7 +556,7 @@ export function ResultCard({
                           }
                         }}
                         placeholder="+ Add tag..."
-                        className="w-24 px-2 py-0.5 text-xs bg-transparent border-none text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-0"
+                        className="w-20 px-1.5 py-0.5 text-xs bg-transparent border-none text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-0"
                       />
                       {newKeywordInput.trim() && (
                         <button
@@ -597,7 +573,7 @@ export function ResultCard({
                 </div>
               </>
             ) : (
-              /* Prompt Mode Content */
+              /* Prompt Mode */
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <label className="font-semibold text-foreground">
@@ -613,63 +589,43 @@ export function ResultCard({
                   </button>
                 </div>
                 <textarea
-                  rows={4}
+                  rows={3}
                   value={item.prompt || ''}
                   onChange={(e) => onUpdate({ prompt: e.target.value })}
-                  placeholder="Generated image generation prompt..."
-                  className="w-full px-3 py-2 rounded-xl bg-accent/30 border border-border/60 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none transition-all font-mono"
+                  placeholder="Generated prompt..."
+                  className="w-full px-3 py-1.5 rounded-xl bg-accent/30 border border-border/60 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none transition-all font-mono"
                 />
               </div>
             )}
 
-            {/* Debug Similarity Scores Accordion */}
+            {/* Debug Scores (if enabled) */}
             {showSimilarityScores && (item.fingerprint || topSimilarPair) && (
               <div className="rounded-xl border border-border/50 bg-accent/15 overflow-hidden text-xs">
                 <button
                   type="button"
                   onClick={() => setShowDebugScores(!showDebugScores)}
-                  className="w-full flex items-center justify-between px-3 py-2 font-semibold text-muted-foreground hover:text-foreground text-[11px]"
+                  className="w-full flex items-center justify-between px-3 py-1.5 font-semibold text-muted-foreground hover:text-foreground text-[10px]"
                 >
                   <span className="flex items-center gap-1.5">
-                    <Layers className="h-3.5 w-3.5 text-primary" />
-                    <span>Similarity & Quality Metrics (Debug View)</span>
+                    <Layers className="h-3 w-3 text-primary" />
+                    <span>Similarity & Quality Metrics</span>
                   </span>
-                  {showDebugScores ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {showDebugScores ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </button>
 
                 {showDebugScores && (
-                  <div className="p-3 pt-0 border-t border-border/30 space-y-2 text-[10px] font-mono text-muted-foreground">
+                  <div className="p-2.5 pt-0 border-t border-border/30 space-y-1 text-[10px] font-mono text-muted-foreground">
                     {topSimilarPair && (
-                      <div className="p-2 rounded-lg bg-background/60 border border-border/40 space-y-1">
-                        <div className="flex justify-between font-bold text-foreground">
-                          <span>Top Match: {topSimilarPair.otherFilename}</span>
-                          <span className="text-primary">{Math.round(topSimilarPair.totalSimilarity * 100)}% Sim</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-                          <span>pHash: {Math.round(topSimilarPair.pHashSim * 100)}%</span>
-                          <span>dHash: {Math.round(topSimilarPair.dHashSim * 100)}%</span>
-                          <span>Region: {Math.round(topSimilarPair.regionSim * 100)}%</span>
-                          <span>Color Hist: {Math.round(topSimilarPair.colorSim * 100)}%</span>
-                          <span>SSIM: {Math.round(topSimilarPair.ssim * 100)}%</span>
-                        </div>
+                      <div className="p-1.5 rounded bg-background/60 border border-border/40">
+                        Top Match: {topSimilarPair.otherFilename} ({Math.round(topSimilarPair.totalSimilarity * 100)}%)
                       </div>
                     )}
-
                     {q && (
-                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 p-2 rounded-lg bg-background/40">
-                        <span>Focus Sharpness: {q.sharpness}</span>
-                        <span>Exposure Score: {q.exposureScore}</span>
-                        <span>Clipped Shadows: {Math.round(q.clippedShadows * 100)}%</span>
-                        <span>Clipped Highlights: {Math.round(q.clippedHighlights * 100)}%</span>
-                        <span>Noise Estimate: {q.noiseEstimate}</span>
-                        <span>Overall Q-Score: {Math.round(q.overallQualityScore * 100)}%</span>
+                      <div className="grid grid-cols-2 gap-1 p-1.5 rounded bg-background/40">
+                        <span>Sharpness: {q.sharpness}</span>
+                        <span>Score: {Math.round(q.overallQualityScore * 100)}%</span>
                       </div>
                     )}
-
-                    <div className="flex items-start gap-1.5 pt-1 text-[9px] text-muted-foreground/80 not-italic">
-                      <Info className="h-3 w-3 shrink-0 text-primary mt-0.5" />
-                      <span>{SIMILARITY_HONESTY_NOTE}</span>
-                    </div>
                   </div>
                 )}
               </div>
@@ -677,51 +633,102 @@ export function ResultCard({
           </div>
         )}
 
-        {/* Bottom Per-Card Action Buttons */}
-        <div className="pt-2 border-t border-border/30 flex items-center justify-between gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={onRegenerate}
-            disabled={item.status === 'working'}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border border-border/50 hover:bg-accent transition-colors disabled:opacity-50"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Regenerate</span>
-          </button>
+        {/* 3. BUTTONS (Regenerate, Copy title, Copy all) & VISIBLE FINAL STATUS CHIP (Requirement 2 & 4) */}
+        <div className="pt-3 border-t border-border/40 flex flex-wrap items-center justify-between gap-2 mt-auto">
+          {/* Action buttons: Regenerate, Copy title, Copy all */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRegenerate}
+              disabled={item.status === 'working'}
+              className="h-7 text-xs font-semibold px-2.5 gap-1.5"
+              title="Regenerate"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Regenerate</span>
+            </Button>
 
-          <div className="flex items-center gap-2">
             {mode === 'metadata' ? (
               <>
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   onClick={handleCopyTitle}
                   disabled={!item.title}
-                  className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-xl hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                  className="h-7 text-xs px-2 gap-1 text-muted-foreground hover:text-foreground"
                 >
                   {copiedTitle ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                   <span>Copy title</span>
-                </button>
+                </Button>
 
-                <button
+                <Button
                   type="button"
+                  size="sm"
+                  variant="ghost"
                   onClick={handleCopyAll}
-                  disabled={!item.title && !item.keywords?.length}
-                  className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                  disabled={!item.title && !(item.keywords && item.keywords.length > 0)}
+                  className="h-7 text-xs px-2 gap-1 text-muted-foreground hover:text-foreground"
                 >
-                  {copiedAll ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copiedAll ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                   <span>Copy all</span>
-                </button>
+                </Button>
               </>
             ) : (
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant="ghost"
                 onClick={handleCopyPrompt}
                 disabled={!item.prompt}
-                className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                className="h-7 text-xs px-2 gap-1 text-primary hover:text-primary"
               >
                 {copiedPrompt ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                 <span>Copy prompt</span>
-              </button>
+              </Button>
+            )}
+          </div>
+
+          {/* Visible Final Status Chip (Requirement 4) */}
+          <div className="ml-auto flex items-center">
+            {item.status === 'failed' ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-destructive/15 text-destructive border border-destructive/30 text-[11px] font-semibold max-w-[220px]">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate" title={item.errorMessage || 'Generation failed'}>
+                  Failed: {item.errorMessage || 'Error'}
+                </span>
+                <button
+                  type="button"
+                  onClick={onRegenerate}
+                  className="underline hover:opacity-80 ml-1 font-bold shrink-0"
+                >
+                  Retry
+                </button>
+              </span>
+            ) : isAnyExclusion ? (
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-destructive/10 text-destructive border border-destructive/25 text-[11px] font-semibold max-w-[220px]"
+                title={excludedReasonText}
+              >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Excluded ({excludedReasonText})</span>
+              </span>
+            ) : isReadyForExport ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-bold">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>Exported</span>
+              </span>
+            ) : item.status === 'working' ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 text-primary border border-primary/25 text-[11px] font-semibold animate-pulse">
+                <Sparkles className="h-3 w-3 animate-spin shrink-0" />
+                <span>Generating...</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-muted text-muted-foreground border border-border/50 text-[10px] font-medium">
+                Not generated
+              </span>
             )}
           </div>
         </div>

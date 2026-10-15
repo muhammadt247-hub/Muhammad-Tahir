@@ -105,7 +105,7 @@ export function ResultList({
         </div>
       )}
 
-      {/* Cards list */}
+      {/* Cards list (vertical stack of side-by-side cards) */}
       <div className="space-y-4">
         {displayedItems.map((item) => (
           <ResultCard

@@ -19,6 +19,7 @@ import {
   ArrowRightLeft,
   Info,
   Check,
+  Trash2,
 } from 'lucide-react';
 import { GeneratorItemState } from '@/lib/generator/queue';
 import { SimilarityCluster } from '@/types/similarity';
@@ -31,6 +32,7 @@ interface SimilarityClustersDialogProps {
   items: GeneratorItemState[];
   onSetWinner: (cluster: SimilarityCluster, newWinnerId: string) => void;
   onOverrideInclude: (itemId: string) => void;
+  onDeleteClusterOthers?: (cluster: SimilarityCluster) => void;
 }
 
 export function SimilarityClustersDialog({
@@ -40,6 +42,7 @@ export function SimilarityClustersDialog({
   items,
   onSetWinner,
   onOverrideInclude,
+  onDeleteClusterOthers,
 }: SimilarityClustersDialogProps) {
   const itemMap = new Map<string, GeneratorItemState>(items.map((it) => [it.id, it]));
 
@@ -94,12 +97,27 @@ export function SimilarityClustersDialog({
                       </span>
                     </div>
 
-                    {cluster.aiReviewed && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
-                        <Sparkles className="h-3 w-3" />
-                        <span>Deep AI Reviewed</span>
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {cluster.aiReviewed && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20">
+                          <Sparkles className="h-3 w-3" />
+                          <span>Deep AI Reviewed</span>
+                        </span>
+                      )}
+
+                      {onDeleteClusterOthers && clusterItems.length > 1 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onDeleteClusterOthers(cluster)}
+                          className="h-6 text-[10px] font-semibold text-destructive border-destructive/30 hover:bg-destructive/10 hover:border-destructive/60 gap-1 px-2"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          <span>Delete the others</span>
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {/* AI Explanation / Quality Reason */}

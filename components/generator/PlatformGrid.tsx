@@ -25,7 +25,7 @@ export function PlatformGrid({ platform, onPlatformChange, disabled = false }: P
         EXPORT PLATFORM
       </label>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 overflow-visible">
         {PLATFORM_BUTTONS.map((item) => {
           const isSelected = platform === item.id;
           return (
@@ -35,7 +35,7 @@ export function PlatformGrid({ platform, onPlatformChange, disabled = false }: P
               disabled={disabled}
               onClick={() => onPlatformChange(item.id)}
               className={cn(
-                'h-10 rounded-xl text-xs font-medium px-2.5 flex items-center justify-between transition-all select-none',
+                'h-10 rounded-xl text-xs font-medium px-2.5 flex items-center justify-between transition-all select-none pop-10',
                 isSelected
                   ? 'bg-primary text-primary-foreground shadow-md'
                   : 'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground border border-border/40'
