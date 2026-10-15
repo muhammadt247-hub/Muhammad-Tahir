@@ -46,6 +46,10 @@ export interface GeneratorItemState {
   keywords: string[];
   prompt: string;
   errorMessage?: string;
+  errorDetails?: string;
+  httpStatus?: number;
+  currentStage?: string;
+  modelUsed?: string;
   retryCount: number;
 
   // Compliance & SEO fields
@@ -76,6 +80,7 @@ export interface QueueProgressState {
   currentIndex: number;
   currentFilename?: string;
   currentKeyInfo?: string;
+  currentStage?: string;
   isGenerating: boolean;
   isPaused: boolean;
   isCoolingDown: boolean;
@@ -104,6 +109,7 @@ export class GeneratorQueue {
   private currentItemIndex = 0;
   private currentFilename = '';
   private currentKeyInfo = '';
+  private currentStage = '';
   private isCoolingDown = false;
   private cooldownSeconds = 0;
   private cooldownReason = '';
@@ -130,7 +136,7 @@ export class GeneratorQueue {
     if (!this.isRunning || this.isPaused) return;
     this.isPaused = true;
     this.callbacks.onStateChange?.(true, true);
-    this.broadcastProgress('Generation paused. Click Resume to continue.');
+    this.broadcastProgress('Generation paused. Completed results are preserved.');
   }
 
   resume() {
@@ -141,7 +147,7 @@ export class GeneratorQueue {
       this.resumeResolve();
       this.resumeResolve = null;
     }
-    this.broadcastProgress('Resuming generation...');
+    this.broadcastProgress('Resuming sequential processing...');
   }
 
   stop() {
@@ -157,8 +163,9 @@ export class GeneratorQueue {
     }
     this.isCoolingDown = false;
     this.currentKeyInfo = '';
+    this.currentStage = '';
     this.callbacks.onStateChange?.(false, false);
-    this.broadcastProgress('Generation stopped');
+    this.broadcastProgress('Generation stopped. Completed items preserved.');
   }
 
   private async checkPause(): Promise<void> {
@@ -198,6 +205,7 @@ export class GeneratorQueue {
       currentIndex: this.currentItemIndex,
       currentFilename: this.currentFilename,
       currentKeyInfo: this.currentKeyInfo || undefined,
+      currentStage: this.currentStage || undefined,
       isGenerating: this.isRunning,
       isPaused: this.isPaused,
       isCoolingDown: this.isCoolingDown,
@@ -217,8 +225,8 @@ export class GeneratorQueue {
     this.abortController = new AbortController();
     this.callbacks.onStateChange?.(true, false);
 
-    // Strictly process pending items (status = queued or failed)
-    // Completed items (status = done) are preserved without duplication
+    // Strictly process pending items (queued or failed)
+    // Done items are preserved without duplication
     const pendingItems = this.items.filter((i) => i.status === 'queued' || i.status === 'failed');
 
     if (pendingItems.length === 0) {
@@ -238,18 +246,18 @@ export class GeneratorQueue {
       if (!this.isRunning || this.abortController?.signal.aborted) break;
 
       const item = pendingItems[i];
-      // Accurate overall index in the entire batch (e.g., Image 3 of 20)
       const overallIndex = this.items.findIndex((it) => it.id === item.id);
       this.currentItemIndex = overallIndex !== -1 ? overallIndex + 1 : i + 1;
       this.currentFilename = item.fileData.originalName;
 
-      // Skip AI generation if excluded by deep similarity guard to save quota
+      // Skip AI generation if excluded to save quota
       if (this.settings.skipAiGenerationForExcluded && item.isExcluded) {
         item.status = 'queued';
         this.callbacks.onItemUpdate({ ...item });
         continue;
       }
 
+      this.currentStage = `Processing Image ${this.currentItemIndex} of ${this.items.length}`;
       this.broadcastProgress(`Generating metadata for Image ${this.currentItemIndex} of ${this.items.length}: ${item.fileData.originalName}...`);
 
       const success = await this.processSingleItem(item);
@@ -268,7 +276,7 @@ export class GeneratorQueue {
           );
         }
       } else {
-        // Failed items are also saved immediately with error state
+        // Failed items are also saved immediately with error details
         await saveBatchItem(item);
       }
 
@@ -279,6 +287,7 @@ export class GeneratorQueue {
     this.isPaused = false;
     this.currentFilename = '';
     this.currentKeyInfo = '';
+    this.currentStage = '';
     this.isCoolingDown = false;
     this.callbacks.onStateChange?.(false, false);
     this.broadcastProgress('Processing sequence finished.');
@@ -312,11 +321,14 @@ export class GeneratorQueue {
 
   private async processSingleItem(item: GeneratorItemState): Promise<boolean> {
     item.status = 'working';
+    item.currentStage = 'Connecting to Gemini AI...';
     item.errorMessage = undefined;
+    item.errorDetails = undefined;
+    item.httpStatus = undefined;
     this.callbacks.onItemUpdate({ ...item });
 
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxServerAttempts = 3;
 
     // Last 15 generated titles to avoid repetitive phrasing
     const recentTitles = this.items
@@ -324,25 +336,31 @@ export class GeneratorQueue {
       .map((i) => i.title.trim())
       .slice(-15);
 
-    while (attempts < maxAttempts && this.isRunning && !this.abortController?.signal.aborted) {
+    while (this.isRunning && !this.abortController?.signal.aborted) {
       await this.checkPause();
       if (!this.isRunning || this.abortController?.signal.aborted) break;
 
       // Obtain next key sequentially via controlled round-robin
       let keyInfo = await keyRotator.getNextKey();
 
-      // If all keys are resting or shared rate limit is reached, wait with live countdown
+      // If all keys are resting, wait with live countdown
       if (keyInfo.allResting) {
         this.isCoolingDown = true;
-        this.currentKeyInfo = keyInfo.isSharedRateLimit ? 'Shared Quota Cooldown' : 'All Keys Resting';
+        const cooldownDesc = keyInfo.isSharedRateLimit ? 'Shared project quota cooldown' : 'All API keys resting';
+        item.currentStage = `${cooldownDesc}. Waiting for cooldown...`;
+        this.callbacks.onItemUpdate({ ...item });
+
         keyInfo = await keyRotator.waitForNextAvailableKey(
           this.abortController?.signal,
           (sec, reason) => {
             this.cooldownSeconds = sec;
             this.cooldownReason = reason;
+            item.currentStage = `${cooldownDesc} (${sec}s remaining)...`;
+            this.callbacks.onItemUpdate({ ...item });
             this.broadcastProgress();
           }
         );
+
         this.isCoolingDown = false;
         this.cooldownSeconds = 0;
         this.cooldownReason = '';
@@ -352,9 +370,9 @@ export class GeneratorQueue {
       if (this.abortController?.signal.aborted) break;
 
       this.currentKeyInfo = keyInfo?.maskedKey || (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : 'Gemini Key');
+      item.currentStage = `Sending request using ${this.currentKeyInfo}...`;
+      this.callbacks.onItemUpdate({ ...item });
       this.broadcastProgress(`Generating with ${this.currentKeyInfo}...`);
-
-      attempts++;
 
       try {
         const res = await fetch('/api/generate', {
@@ -389,6 +407,7 @@ export class GeneratorQueue {
             promptSuffix: this.settings.promptSuffix,
             isPromptSuffixEnabled: this.settings.isPromptSuffixEnabled,
             model: this.settings.selectedModel,
+            modelFallback: this.settings.modelFallback ?? true,
             apiKey: keyInfo?.apiKey,
 
             // Compliance & Uniqueness
@@ -400,61 +419,104 @@ export class GeneratorQueue {
           }),
         });
 
-        const errData = !res.ok ? await res.json().catch(() => ({})) : null;
+        const resData = await res.json().catch(() => ({}));
 
-        // Handle 429 Rate Limit
+        // Handle 429 Rate Limit / Quota Exhaustion
         if (res.status === 429) {
           const retryAfterSec =
-            errData?.error?.retryAfterSeconds ||
+            resData?.error?.retryAfterSeconds ||
             parseInt(res.headers.get('Retry-After') || '30', 10) ||
             30;
 
-          const cooldownWait = await keyRotator.markKeyRateLimited(keyInfo?.keyId, retryAfterSec);
-
-          if (attempts < maxAttempts) {
-            // Check if other keys are available or wait
+          if (resData?.error?.code === 'DAILY_QUOTA_EXHAUSTED') {
+            await keyRotator.markKeyDailyExhausted(keyInfo?.keyId);
             const nextKeyCheck = await keyRotator.getNextKey();
-            if (nextKeyCheck.allResting) {
-              await this.waitWithCountdown(
-                cooldownWait || retryAfterSec,
-                `Gemini quota rate limit reached. Pausing for cooldown`
-              );
+            if (nextKeyCheck.apiKey) {
+              item.currentStage = `Key reached daily quota. Switching to ${nextKeyCheck.maskedKey}...`;
+              this.callbacks.onItemUpdate({ ...item });
+              continue;
             } else {
-              // Wait short 2s jitter before trying next rotated key
-              await new Promise((r) => setTimeout(r, 2000));
+              item.status = 'failed';
+              item.httpStatus = 429;
+              item.errorMessage = resData?.error?.message || 'Daily quota exhausted on all configured keys.';
+              item.errorDetails = 'Quota resets at midnight UTC. Add another key in Settings to continue.';
+              this.callbacks.onItemUpdate({ ...item });
+              return false;
             }
-            continue;
           }
-        }
 
-        // Handle 401 / 403 Authentication Error (Permanent invalid key)
-        if (res.status === 401 || res.status === 403) {
-          await keyRotator.markKeyInvalid(keyInfo?.keyId);
-          // Do not count auth failure against image retry limit
-          attempts--;
+          // Temporary RPM / TPM rate limit
+          const cooldownWait = await keyRotator.markKeyRateLimited(keyInfo?.keyId, retryAfterSec);
+          item.currentStage = `Rate limit reached. Cooling down for ${cooldownWait}s...`;
+          this.callbacks.onItemUpdate({ ...item });
+
+          const nextKeyCheck = await keyRotator.getNextKey();
+          if (nextKeyCheck.allResting) {
+            await this.waitWithCountdown(
+              cooldownWait,
+              `Gemini quota cooldown: waiting ${cooldownWait}s before resuming`
+            );
+          } else {
+            // Wait 2s jitter before trying next rotated key
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+          // Do not fail the item for standard rate limits - retry the same item
           continue;
         }
 
-        // Handle Daily Quota Exhausted
-        if (errData?.error?.code === 'DAILY_QUOTA_EXHAUSTED') {
-          await keyRotator.markKeyDailyExhausted(keyInfo?.keyId);
-          if (attempts < maxAttempts) {
+        // Handle 401 / 403 Authentication Error
+        if (res.status === 401 || res.status === 403) {
+          await keyRotator.markKeyInvalid(keyInfo?.keyId);
+          const nextKeyCheck = await keyRotator.getNextKey();
+
+          if (nextKeyCheck.apiKey) {
+            item.currentStage = 'Invalid API key detected. Switched to next valid key...';
+            this.callbacks.onItemUpdate({ ...item });
             continue;
+          } else {
+            item.status = 'failed';
+            item.httpStatus = res.status;
+            item.errorMessage = 'HTTP 401: Invalid API Key. Authentication failed.';
+            item.errorDetails = 'Please enter a valid Gemini API key in Settings.';
+            this.callbacks.onItemUpdate({ ...item });
+            return false;
           }
         }
 
-        // Handle other HTTP errors
-        if (!res.ok) {
-          throw new Error(errData?.error?.message || `HTTP ${res.status}`);
+        // Handle 400 Bad Request (permanent failure, do not retry)
+        if (res.status === 400) {
+          item.status = 'failed';
+          item.httpStatus = 400;
+          item.errorMessage = `HTTP 400: ${resData?.error?.message || 'Invalid image or prompt payload'}`;
+          this.callbacks.onItemUpdate({ ...item });
+          return false;
         }
 
-        const data = await res.json();
+        // Handle 500 / 503 Server Error
+        if (!res.ok) {
+          attempts++;
+          if (attempts >= maxServerAttempts) {
+            item.status = 'failed';
+            item.httpStatus = res.status;
+            item.errorMessage = `HTTP ${res.status}: ${resData?.error?.message || 'Gemini server error'}`;
+            this.callbacks.onItemUpdate({ ...item });
+            return false;
+          }
 
-        // Successful request - reset consecutive error count on this key
+          // Exponential backoff with jitter
+          const backoff = 1500 * Math.pow(2, attempts) + Math.random() * 1000;
+          item.currentStage = `Server error ${res.status}. Retrying in ${Math.round(backoff / 1000)}s (attempt ${attempts}/${maxServerAttempts})...`;
+          this.callbacks.onItemUpdate({ ...item });
+          await new Promise((r) => setTimeout(r, backoff));
+          continue;
+        }
+
+        // Request Succeeded!
         await keyRotator.recordKeySuccess(keyInfo?.keyId);
+        item.modelUsed = resData.modelUsed;
 
         if (this.settings.mode === 'metadata') {
-          const resItem = data.metadataSets?.[0];
+          const resItem = resData.metadataSets?.[0];
           if (resItem) {
             item.title = resItem.title || '';
             item.description = resItem.description || '';
@@ -462,7 +524,10 @@ export class GeneratorQueue {
             item.flags = resItem.flags;
             item.flagReasons = resItem.flagReasons;
             item.status = 'done';
+            item.currentStage = undefined;
             item.errorMessage = undefined;
+            item.errorDetails = undefined;
+            item.httpStatus = undefined;
 
             // AI keyword hygiene
             const showsAi =
@@ -513,11 +578,14 @@ export class GeneratorQueue {
           throw new Error('No metadata returned in Gemini response');
         } else {
           // Prompt mode
-          const promptItem = data.prompts?.[0];
+          const promptItem = resData.prompts?.[0];
           if (promptItem) {
             item.prompt = promptItem.prompt || '';
             item.status = 'done';
+            item.currentStage = undefined;
             item.errorMessage = undefined;
+            item.errorDetails = undefined;
+            item.httpStatus = undefined;
             this.callbacks.onItemUpdate({ ...item });
             return true;
           }
@@ -526,18 +594,20 @@ export class GeneratorQueue {
       } catch (err: unknown) {
         if (this.abortController?.signal.aborted) {
           item.status = 'queued';
+          item.currentStage = undefined;
           this.callbacks.onItemUpdate({ ...item });
           return false;
         }
 
-        if (attempts >= maxAttempts) {
+        attempts++;
+        if (attempts >= maxServerAttempts) {
           item.status = 'failed';
-          item.errorMessage = err instanceof Error ? err.message : 'Generation failed';
+          item.currentStage = undefined;
+          item.errorMessage = err instanceof Error ? err.message : 'Network error';
           this.callbacks.onItemUpdate({ ...item });
           return false;
         }
 
-        // Exponential backoff with jitter for temporary errors
         const backoffMs = 1500 * Math.pow(2, attempts) + Math.random() * 1000;
         await new Promise((r) => setTimeout(r, backoffMs));
       }

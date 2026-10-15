@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   ShieldAlert,
   Wand2,
+  Loader2,
 } from 'lucide-react';
 import { FlagChips } from './FlagChips';
 import { ScoreBadge } from './ScoreBadge';
@@ -278,36 +279,57 @@ export function ResultCard({
           </div>
         </div>
 
-        {/* Loading Skeleton */}
+        {/* Working Progress & Stage Indicator */}
         {item.status === 'working' && (
-          <div className="space-y-3 animate-pulse py-2">
-            <div className="h-4 bg-accent rounded-md w-3/4" />
-            <div className="h-14 bg-accent rounded-xl w-full" />
-            <div className="h-16 bg-accent rounded-xl w-full" />
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-3.5 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Loader2 className="h-4 w-4 text-primary animate-spin shrink-0" />
+                <span className="text-xs font-semibold text-primary truncate">
+                  {item.currentStage || 'Generating metadata with Gemini AI...'}
+                </span>
+              </div>
+              {item.modelUsed && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-primary/10 text-primary shrink-0">
+                  {item.modelUsed}
+                </span>
+              )}
+            </div>
+            <div className="h-1.5 rounded-full bg-primary/15 overflow-hidden w-full">
+              <div className="h-full bg-primary animate-pulse w-full rounded-full" />
+            </div>
           </div>
         )}
 
-        {/* Failed Banner */}
+        {/* Failed Banner with Full Diagnostics */}
         {item.status === 'failed' && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 space-y-1.5 text-destructive text-xs">
-            <div className="flex items-center justify-between">
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3.5 space-y-2 text-destructive text-xs">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 font-semibold">
-                <AlertCircle className="h-4 w-4" />
-                <span>Generation failed</span>
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>
+                  {item.httpStatus ? `HTTP ${item.httpStatus}: ` : ''}
+                  Generation Failed
+                </span>
               </div>
               <Button
                 type="button"
                 size="sm"
                 variant="destructive"
                 onClick={onRegenerate}
-                className="h-6 text-[10px] px-2 font-bold"
+                className="h-6 text-[10px] px-2.5 font-bold"
               >
                 Retry
               </Button>
             </div>
-            <p className="text-[11px] opacity-90 truncate">
+            <p className="text-[11px] leading-relaxed break-words opacity-95">
               {item.errorMessage || 'An error occurred during Gemini AI processing.'}
             </p>
+            {item.errorDetails && (
+              <p className="text-[10px] font-mono text-muted-foreground bg-background/60 p-2 rounded-lg border border-border/40 break-words">
+                {item.errorDetails}
+              </p>
+            )}
           </div>
         )}
 
@@ -694,10 +716,11 @@ export function ResultCard({
           {/* Visible Final Status Chip (Requirement 4) */}
           <div className="ml-auto flex items-center">
             {item.status === 'failed' ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-destructive/15 text-destructive border border-destructive/30 text-[11px] font-semibold max-w-[220px]">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-destructive/15 text-destructive border border-destructive/30 text-[11px] font-semibold max-w-[280px]">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate" title={item.errorMessage || 'Generation failed'}>
-                  Failed: {item.errorMessage || 'Error'}
+                  {item.httpStatus ? `HTTP ${item.httpStatus}` : 'Failed'}
+                  {item.errorMessage ? `: ${item.errorMessage}` : ''}
                 </span>
                 <button
                   type="button"

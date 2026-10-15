@@ -94,7 +94,7 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   negativePromptWords: '',
   whiteBackground: false,
   cameraParams: false,
-  selectedModel: 'gemini-3.8-flash',
+  selectedModel: 'gemini-2.5-flash',
   modelFallback: true,
   complianceGuard: true,
   titleUniqueness: 'normal',
@@ -198,7 +198,11 @@ export async function getSavedGeneratorSettings(): Promise<GeneratorSavedSetting
       const req = store.get('current');
       req.onsuccess = () => {
         if (req.result && req.result.value) {
-          resolve({ ...DEFAULT_GENERATOR_SETTINGS, ...req.result.value });
+          const merged = { ...DEFAULT_GENERATOR_SETTINGS, ...req.result.value };
+          if (merged.selectedModel === 'gemini-3.8-flash') {
+            merged.selectedModel = 'gemini-2.5-flash';
+          }
+          resolve(merged);
         } else {
           resolve(DEFAULT_GENERATOR_SETTINGS);
         }
