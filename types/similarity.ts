@@ -27,6 +27,7 @@ export interface PairwiseSimilarityScore {
   otherId: string;
   otherFilename: string;
   isLibraryMatch?: boolean;
+  exportedAtDate?: string;
   totalSimilarity: number;
   pHashSim: number;
   dHashSim: number;

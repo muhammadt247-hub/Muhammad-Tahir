@@ -31,11 +31,12 @@ import {
   Zap,
   Sliders,
 } from 'lucide-react';
-import { GeneratorSavedSettings } from '@/lib/generator/db';
+import { GeneratorSavedSettings, getLibraryEntries, clearLibraryStore } from '@/lib/generator/db';
 import { CONTRIBUTOR_LANGUAGES } from '@/config/compliance';
 import { SimilarityStrictness } from '@/config/similarity';
 import { BlockedWordsDialog } from './BlockedWordsDialog';
 import { LibraryManageDialog } from './LibraryManageDialog';
+import { toast } from 'sonner';
 
 interface ComplianceSettingsProps {
   settings: GeneratorSavedSettings;
@@ -54,6 +55,36 @@ export function ComplianceSettings({
   const [confirmDisableSimilarityOpen, setConfirmDisableSimilarityOpen] = useState(false);
   const [blockedWordsOpen, setBlockedWordsOpen] = useState(false);
   const [libraryDialogOpen, setLibraryDialogOpen] = useState(false);
+  const [libraryCount, setLibraryCount] = useState<number>(0);
+
+  React.useEffect(() => {
+    let active = true;
+    getLibraryEntries()
+      .then((entries) => {
+        if (active) {
+          setLibraryCount(entries.length);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLibraryCount(0);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [libraryDialogOpen]);
+
+  const handleClearLibrary = async () => {
+    try {
+      await clearLibraryStore();
+      setLibraryCount(0);
+      toast.success('Cleared exported images library');
+      onLibraryChanged?.();
+    } catch {
+      toast.error('Failed to clear library');
+    }
+  };
 
   const handleComplianceToggle = (checked: boolean) => {
     if (!checked) {
@@ -231,8 +262,8 @@ export function ComplianceSettings({
                   />
                 </div>
 
-                {/* 3. Toggle Remember my exported images + Manage Library Button */}
-                <div className="space-y-1.5 p-2.5 rounded-xl bg-accent/20 border border-border/30">
+                {/* 3. Toggle Remember my exported images + Library: N images & Clear library */}
+                <div className="space-y-2 p-2.5 rounded-xl bg-accent/20 border border-border/30">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5 pr-2">
                       <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
@@ -243,24 +274,42 @@ export function ComplianceSettings({
                         Stores fingerprints (never photos) to prevent submitting duplicates in future sessions.
                       </p>
                     </div>
-                    <Switch
-                      checked={settings.rememberExportedImages ?? true}
-                      onCheckedChange={(checked) => onUpdate({ rememberExportedImages: checked })}
-                      disabled={disabled}
-                      aria-label="Toggle Remember my exported images"
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Switch
+                        checked={settings.rememberExportedImages ?? true}
+                        onCheckedChange={(checked) => onUpdate({ rememberExportedImages: checked })}
+                        disabled={disabled}
+                        aria-label="Toggle Remember my exported images"
+                      />
+                    </div>
                   </div>
 
-                  <div className="pt-1 flex justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setLibraryDialogOpen(true)}
-                      className="h-6 px-2.5 text-[11px] font-semibold text-foreground border-border/60 hover:bg-accent"
-                    >
-                      Manage library...
-                    </Button>
+                  {/* Requirement 6: Library: N images with Clear library button */}
+                  <div className="pt-1.5 flex items-center justify-between border-t border-border/25 text-xs">
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      Library: {libraryCount} {libraryCount === 1 ? 'image' : 'images'}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleClearLibrary}
+                        disabled={disabled || libraryCount === 0}
+                        className="h-6 px-2 text-[10px] font-semibold text-destructive hover:bg-destructive/10 border-destructive/30"
+                      >
+                        Clear library
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setLibraryDialogOpen(true)}
+                        className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        Manage...
+                      </Button>
+                    </div>
                   </div>
                 </div>
 

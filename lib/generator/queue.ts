@@ -173,10 +173,7 @@ export class GeneratorQueue {
   private async processSingleItem(item: GeneratorItemState): Promise<void> {
     // Skip AI generation if image was excluded by similarity guard to save API quota
     if (this.settings.skipAiGenerationForExcluded && item.isExcluded) {
-      item.status = 'done';
-      if (!item.title) {
-        item.title = item.fileData.originalName.replace(/\.[^/.]+$/, '');
-      }
+      item.status = 'queued';
       this.callbacks.onItemUpdate({ ...item });
       return;
     }
@@ -360,10 +357,7 @@ export class GeneratorQueue {
       : batch;
 
     for (const item of excludedItems) {
-      item.status = 'done';
-      if (!item.title) {
-        item.title = item.fileData.originalName.replace(/\.[^/.]+$/, '');
-      }
+      item.status = 'queued';
       this.callbacks.onItemUpdate({ ...item });
     }
 

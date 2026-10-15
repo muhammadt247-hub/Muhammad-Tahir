@@ -218,7 +218,7 @@ export function buildPreExportReport(items: GeneratorItemState[]): PreExportRepo
   // A. Repetitive First Words: warn when more than 3 titles in a batch start with the same first word
   const firstWordMap = new Map<string, { count: number; itemIds: string[]; filenames: string[] }>();
   for (const item of doneItems) {
-    if (!item.title?.trim()) continue;
+    if (!item.title?.trim() || item.title.trim() === item.fileData.originalName) continue;
     const cleanFirstWord = item.title
       .trim()
       .replace(/^[^a-zA-Z0-9]+/, '')

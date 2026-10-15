@@ -22,6 +22,7 @@ import {
   saveGeneratorSettings,
   getStoredApiKeys,
   saveLibraryEntries,
+  clearLibraryStore,
   LibraryFingerprintEntry,
 } from '@/lib/generator/db';
 import { GeneratorItemState, GeneratorQueue } from '@/lib/generator/queue';
@@ -159,16 +160,40 @@ export default function GeneratorPage() {
   // Batch title similarity computation (debounced)
   useEffect(() => {
     const timer = setTimeout(() => {
-      const activeDone = items.filter((i) => i.status === 'done' && i.title?.trim());
-      if (activeDone.length < 2) return;
+      const activeDone = items.filter(
+        (i) =>
+          i.status === 'done' &&
+          Boolean(i.title?.trim()) &&
+          i.title.trim() !== i.fileData.originalName
+      );
 
-      const simMap = computeBatchSimilarities(items, settings.titleUniqueness || 'normal');
+      if (activeDone.length < 2) {
+        setItems((prev) =>
+          prev.some((it) => it.similarTo && it.similarTo.length > 0)
+            ? prev.map((it) => (it.similarTo && it.similarTo.length > 0 ? { ...it, similarTo: [] } : it))
+            : prev
+        );
+        return;
+      }
+
+      const simMap = computeBatchSimilarities(activeDone, settings.titleUniqueness || 'normal');
       let changed = false;
 
       const updated = items.map((it) => {
-        const matches = simMap.get(it.id);
+        // Never count a file name as a title anywhere; only items with real generated title have similarTo
+        if (!it.title?.trim() || it.title.trim() === it.fileData.originalName) {
+          if (it.similarTo && it.similarTo.length > 0) {
+            changed = true;
+            return { ...it, similarTo: [] };
+          }
+          return it;
+        }
+
+        const matches = (simMap.get(it.id) || []).filter(
+          (m) => m.otherId !== it.id && m.otherFilename.toLowerCase().trim() !== it.fileData.originalName.toLowerCase().trim()
+        );
         const prevLen = it.similarTo?.length || 0;
-        const newLen = matches?.length || 0;
+        const newLen = matches.length;
         if (prevLen !== newLen) {
           changed = true;
           return { ...it, similarTo: matches };
@@ -729,53 +754,19 @@ export default function GeneratorPage() {
     []
   );
 
-  const handleKeepInstead = useCallback(
-    (itemId: string) => {
-      const cluster = similarityClusters.find((c) => c.itemIds.includes(itemId));
-      if (cluster) {
-        handleSetClusterWinner(cluster, itemId);
-      } else {
-        setItems((prev) =>
-          prev.map((it) =>
-            it.id === itemId
-              ? { ...it, isExcluded: false, isKeptBest: true, excludedReason: undefined }
-              : it
-          )
-        );
-        toast.success('Kept this image for export.');
-      }
-    },
-    [similarityClusters, handleSetClusterWinner]
-  );
-
-  const handleOverrideInclude = useCallback((itemId: string) => {
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === itemId
-          ? { ...it, isExcluded: false, excludedReason: 'manual_override' }
-          : it
-      )
-    );
-    toast.success('Overridden: image will be included in export.');
-  }, []);
-
-  // Smooth scroll to card
-  const handleScrollToItem = useCallback((targetId: string) => {
-    const el = document.getElementById(`result-card-${targetId}`);
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      el.classList.add('ring-2', 'ring-primary');
-      setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 2000);
-    }
-  }, []);
-
   // Queue Generation Engine
-  const startQueue = useCallback(() => {
-    if (items.length === 0) return;
+  const startQueue = useCallback((customItems?: GeneratorItemState[]) => {
+    const targetItems = customItems || items;
+    if (targetItems.length === 0) return;
+
+    if (queueRef.current) {
+      queueRef.current.stop();
+      queueRef.current = null;
+    }
 
     setIsGenerating(true);
 
-    const queue = new GeneratorQueue(items, settings, {
+    const queue = new GeneratorQueue(targetItems, settings, {
       onItemUpdate: (updatedItem) => {
         setItems((prev) =>
           prev.map((it) => (it.id === updatedItem.id ? updatedItem : it))
@@ -805,18 +796,123 @@ export default function GeneratorPage() {
     queue.start();
   }, [items, settings, handleExportCsv, handleEmbedMetadata]);
 
+  const handleKeepInstead = useCallback(
+    (itemId: string) => {
+      let updatedItems: GeneratorItemState[] = [];
+      const cluster = similarityClusters.find((c) => c.itemIds.includes(itemId));
+      if (cluster) {
+        const winnerItem = items.find((it) => it.id === itemId);
+        const winnerName = winnerItem?.fileData.originalName || 'chosen winner';
+
+        updatedItems = items.map((it) => {
+          if (!cluster.itemIds.includes(it.id)) return it;
+          if (it.id === itemId) {
+            return {
+              ...it,
+              isExcluded: false,
+              isKeptBest: true,
+              excludedReason: undefined,
+              status: 'queued' as const,
+              errorMessage: undefined,
+            };
+          } else {
+            return {
+              ...it,
+              isExcluded: true,
+              isKeptBest: false,
+              excludedReason: `Similar to ${winnerName}`,
+            };
+          }
+        });
+
+        setSimilarityClusters((prev) =>
+          prev.map((c) => (c.clusterId === cluster.clusterId ? { ...c, winnerId: itemId } : c))
+        );
+      } else {
+        updatedItems = items.map((it) =>
+          it.id === itemId
+            ? {
+                ...it,
+                isExcluded: false,
+                isKeptBest: true,
+                excludedReason: undefined,
+                status: 'queued' as const,
+                errorMessage: undefined,
+              }
+            : it
+        );
+      }
+
+      setItems(updatedItems);
+      toast.success('Kept this image for export. Starting generation...');
+      startQueue(updatedItems);
+    },
+    [similarityClusters, items, startQueue]
+  );
+
+  const handleOverrideInclude = useCallback(
+    (itemId: string) => {
+      const updatedItems = items.map((it) =>
+        it.id === itemId
+          ? {
+              ...it,
+              isExcluded: false,
+              excludedReason: 'manual_override',
+              status: 'queued' as const,
+              errorMessage: undefined,
+            }
+          : it
+      );
+      setItems(updatedItems);
+      toast.success('Included image in export. Starting generation...');
+      startQueue(updatedItems);
+    },
+    [items, startQueue]
+  );
+
+  const handleIgnoreLibraryAndGenerate = useCallback(() => {
+    const updated = items.map((it) => {
+      if (it.excludedReason?.startsWith('Already exported')) {
+        return {
+          ...it,
+          isExcluded: false,
+          excludedReason: 'manual_override',
+          status: 'queued' as const,
+          errorMessage: undefined,
+        };
+      }
+      return it;
+    });
+    setItems(updated);
+    toast.success('Included all previously exported files in this batch. Starting generation...');
+    startQueue(updated);
+  }, [items, startQueue]);
+
+  const handleClearLibraryBatch = useCallback(async () => {
+    await clearLibraryStore();
+    toast.success('Exported images library cleared');
+    runSimilarityCheck(items);
+  }, [items, runSimilarityCheck]);
+
+  // Smooth scroll to card
+  const handleScrollToItem = useCallback((targetId: string) => {
+    const el = document.getElementById(`result-card-${targetId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 2000);
+    }
+  }, []);
+
   const handleRegenerateItem = useCallback(
     (id: string) => {
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, status: 'queued', errorMessage: undefined } : item
-        )
+      const updated = items.map((item) =>
+        item.id === id ? { ...item, status: 'queued' as const, errorMessage: undefined } : item
       );
-      setTimeout(() => {
-        startQueue();
-      }, 50);
+      setItems(updated);
+      startQueue(updated);
     },
-    [startQueue]
+    [items, startQueue]
   );
 
   const handleGenerateAll = () => {
@@ -833,13 +929,22 @@ export default function GeneratorPage() {
   };
 
   // Counts & status
-  const doneCount = items.filter((i) => i.status === 'done').length;
+  const doneCount = items.filter(
+    (i) => i.status === 'done' && Boolean(i.title?.trim()) && i.title.trim() !== i.fileData.originalName
+  ).length;
   const failedCount = items.filter((i) => i.status === 'failed').length;
   const hasResults = doneCount > 0;
   const currentSpec = PLATFORM_SPECS[settings.platform] || PLATFORM_SPECS['adobe-stock'];
 
   const similarTitleCount = useMemo(() => {
-    return items.filter((i) => i.status === 'done' && i.similarTo && i.similarTo.length > 0).length;
+    return items.filter(
+      (i) =>
+        i.status === 'done' &&
+        Boolean(i.title?.trim()) &&
+        i.title.trim() !== i.fileData.originalName &&
+        i.similarTo &&
+        i.similarTo.length > 0
+    ).length;
   }, [items]);
 
   const blockedCount = useMemo(() => {
@@ -850,6 +955,14 @@ export default function GeneratorPage() {
 
   const totalSimilarExcluded = useMemo(() => {
     return items.filter((i) => i.isExcluded).length;
+  }, [items]);
+
+  const libraryExcludedCount = useMemo(() => {
+    return items.filter((i) => i.isExcluded && i.excludedReason?.startsWith('Already exported')).length;
+  }, [items]);
+
+  const generatingCount = useMemo(() => {
+    return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !i.isExcluded)).length;
   }, [items]);
 
   return (
@@ -922,6 +1035,8 @@ export default function GeneratorPage() {
             similarCount={similarTitleCount}
             similarClusterCount={similarityClusters.length}
             similarExcludedCount={totalSimilarExcluded}
+            libraryExcludedCount={libraryExcludedCount}
+            generatingCount={generatingCount}
             blockedCount={blockedCount}
             onGenerateAll={handleGenerateAll}
             onStop={handleStop}
@@ -938,6 +1053,9 @@ export default function GeneratorPage() {
             mode={settings.mode}
             platformSpec={currentSpec}
             showSimilarityScores={settings.showSimilarityScores}
+            alreadyExportedCount={libraryExcludedCount}
+            onIgnoreLibraryAndGenerate={handleIgnoreLibraryAndGenerate}
+            onClearLibrary={handleClearLibraryBatch}
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
             onRegenerateItem={handleRegenerateItem}

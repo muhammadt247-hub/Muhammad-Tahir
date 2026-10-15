@@ -148,6 +148,11 @@ export function ResultCard({
   const isUnder4Mp = width > 0 && height > 0 && megapixels < 4.0;
   const isOver100Mp = megapixels > 100;
   const isOver45Mb = (item.fileData.originalSize || 0) > 45 * 1024 * 1024;
+  const isAlreadyExported = item.excludedReason?.startsWith('Already exported');
+  const hasGeneratedContent =
+    item.status === 'done' &&
+    Boolean(item.title?.trim()) &&
+    item.title.trim() !== item.fileData.originalName;
 
   // Highest similarity match for score display
   const topSimilarPair = item.similarPairDetails?.[0];
@@ -170,7 +175,11 @@ export function ResultCard({
       {/* Top Banner on Card */}
       {(isExcluded || isUnder4Mp) && (
         <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold shadow-xs">
-          {isUnder4Mp ? '< 4 MP (Excluded)' : 'Excluded from Export'}
+          {isUnder4Mp
+            ? '< 4 MP (Excluded)'
+            : isAlreadyExported
+            ? item.excludedReason
+            : 'Excluded from Export'}
         </div>
       )}
 
@@ -246,19 +255,24 @@ export function ResultCard({
                 <Sparkles className="h-3 w-3 animate-spin" /> Generating...
               </span>
             )}
-            {item.status === 'done' && (
+            {hasGeneratedContent && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
                 <Check className="h-3.5 w-3.5" /> Ready
               </span>
             )}
-            {item.status === 'queued' && (
-              <span className="text-[11px] text-muted-foreground font-medium">
-                Queued
+            {!hasGeneratedContent && item.status !== 'working' && item.status !== 'failed' && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground font-medium">
+                Not generated
+              </span>
+            )}
+            {item.status === 'failed' && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-destructive font-medium">
+                Failed
               </span>
             )}
           </div>
 
-          {item.status === 'done' && mode === 'metadata' && (
+          {hasGeneratedContent && mode === 'metadata' && (
             <ScoreBadge score={item.seoScore} checklist={item.seoChecklist} />
           )}
         </div>
@@ -322,7 +336,9 @@ export function ResultCard({
                 <div className="flex items-center gap-1.5 min-w-0">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   <span className="font-semibold truncate">
-                    Excluded: {item.excludedReason || 'Similar to another image'}
+                    {item.excludedReason?.startsWith('Already exported')
+                      ? item.excludedReason
+                      : `Excluded: ${item.excludedReason || 'Similar to another image'}`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-auto">
@@ -429,28 +445,30 @@ export function ResultCard({
               </div>
             )}
 
-            {/* Similar Title Amber Chip */}
-            {item.similarTo && item.similarTo.length > 0 && (
+            {/* Similar Title Amber Chip - ONLY for items with generated title, never self-similar */}
+            {hasGeneratedContent && item.similarTo && item.similarTo.length > 0 && (
               <div className="flex flex-wrap gap-1">
-                {item.similarTo.map((sim, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      if (sim.otherId && onScrollToItem) {
-                        onScrollToItem(sim.otherId);
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 text-[10px] font-medium hover:bg-amber-500/20 transition-colors"
-                  >
-                    <Layers className="h-3 w-3" />
-                    <span>
-                      {sim.reason === 'same_opening_words'
-                        ? sim.otherFilename
-                        : `Similar title to: ${sim.otherFilename}`}
-                    </span>
-                  </button>
-                ))}
+                {item.similarTo
+                  .filter((sim) => sim.otherId !== item.id && sim.otherFilename !== item.fileData.originalName)
+                  .map((sim, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        if (sim.otherId && onScrollToItem) {
+                          onScrollToItem(sim.otherId);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 text-[10px] font-medium hover:bg-amber-500/20 transition-colors"
+                    >
+                      <Layers className="h-3 w-3" />
+                      <span>
+                        {sim.reason === 'same_opening_words'
+                          ? sim.otherFilename
+                          : `Similar title to: ${sim.otherFilename}`}
+                      </span>
+                    </button>
+                  ))}
               </div>
             )}
 
@@ -522,26 +540,32 @@ export function ResultCard({
                   </div>
 
                   {/* Chips Scrollable Area */}
-                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 rounded-xl bg-accent/20 border border-border/40">
-                    {(item.keywords || []).map((kw, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-card border border-border/60 text-xs font-medium text-foreground shadow-2xs group hover:border-primary/40 transition-colors"
-                      >
-                        <span className="text-[10px] text-muted-foreground/60 mr-0.5 font-mono">
-                          {idx + 1}
-                        </span>
-                        <span>{kw}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveKeyword(idx)}
-                          className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
-                          title="Remove keyword"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 rounded-xl bg-accent/20 border border-border/40 min-h-[38px] items-center">
+                    {(item.keywords || []).length === 0 ? (
+                      <span className="text-xs text-muted-foreground/60 italic py-0.5 px-1 select-none">
+                        No keywords generated yet...
                       </span>
-                    ))}
+                    ) : (
+                      (item.keywords || []).map((kw, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-card border border-border/60 text-xs font-medium text-foreground shadow-2xs group hover:border-primary/40 transition-colors"
+                        >
+                          <span className="text-[10px] text-muted-foreground/60 mr-0.5 font-mono">
+                            {idx + 1}
+                          </span>
+                          <span>{kw}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveKeyword(idx)}
+                            className="text-muted-foreground hover:text-destructive transition-colors ml-0.5"
+                            title="Remove keyword"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))
+                    )}
 
                     {/* Inline Add Keyword Input */}
                     <div className="inline-flex items-center gap-1 ml-1">

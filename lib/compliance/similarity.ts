@@ -153,18 +153,26 @@ export function computeBatchSimilarities(
   const threshold = thresholdMap[uniqueness] || 0.65;
   const results = new Map<string, SimilarTitleMatch[]>();
 
+  // Only run title similarity on items that have a real generated title (never filename as title)
   const activeItems = items.filter(
-    (item) => item.status === 'done' && (item.title?.trim() || item.keywords?.length)
+    (item) =>
+      item.status === 'done' &&
+      Boolean(item.title?.trim()) &&
+      item.title.trim() !== item.fileData.originalName
   );
+
+  if (activeItems.length < 2) {
+    return results;
+  }
 
   // Pre-tokenize and pre-trigram
   const prepared = activeItems.map((item) => ({
     id: item.id,
     filename: item.fileData.originalName,
-    title: item.title || '',
-    tokens: tokenizeTitle(item.title || ''),
+    title: item.title.trim(),
+    tokens: tokenizeTitle(item.title.trim()),
     keywords: item.keywords || [],
-    firstFourWords: item.title?.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/).slice(0, 4).join(' ') || '',
+    firstFourWords: item.title.trim().toLowerCase().replace(/[^a-z0-9\s]/g, '').trim().split(/\s+/).slice(0, 4).join(' ') || '',
   }));
 
   // Track first 4 words occurrences
@@ -195,6 +203,13 @@ export function computeBatchSimilarities(
     for (let j = 0; j < prepared.length; j++) {
       if (i === j) continue;
       const itemB = prepared[j];
+      // Never show a file as similar to itself
+      if (
+        itemA.id === itemB.id ||
+        itemA.filename.toLowerCase().trim() === itemB.filename.toLowerCase().trim()
+      ) {
+        continue;
+      }
 
       // Check title similarity
       if (itemA.title && itemB.title) {

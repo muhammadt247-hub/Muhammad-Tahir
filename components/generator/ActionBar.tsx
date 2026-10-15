@@ -20,6 +20,7 @@ interface ActionBarProps {
   totalFiles: number;
   doneCount: number;
   failedCount: number;
+  generatingCount?: number;
   isGenerating: boolean;
   isAnalyzingSimilarity?: boolean;
   hasResults: boolean;
@@ -27,6 +28,7 @@ interface ActionBarProps {
   similarCount?: number;
   similarClusterCount?: number;
   similarExcludedCount?: number;
+  libraryExcludedCount?: number;
   blockedCount?: number;
   onGenerateAll: () => void;
   onStop: () => void;
@@ -42,6 +44,7 @@ export function ActionBar({
   totalFiles,
   doneCount,
   failedCount,
+  generatingCount,
   isGenerating,
   isAnalyzingSimilarity = false,
   hasResults,
@@ -49,6 +52,7 @@ export function ActionBar({
   similarCount = 0,
   similarClusterCount = 0,
   similarExcludedCount = 0,
+  libraryExcludedCount = 0,
   blockedCount = 0,
   onGenerateAll,
   onStop,
@@ -61,7 +65,7 @@ export function ActionBar({
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
 
-  // Status text determination
+  // Status text determination (Requirement 5)
   let statusText = 'Upload files to begin.';
   let progressPercent = 0;
 
@@ -69,13 +73,41 @@ export function ActionBar({
     if (isAnalyzingSimilarity) {
       statusText = 'Checking for similar images...';
     } else if (isGenerating) {
-      statusText = `Generating ${doneCount + failedCount} / ${totalFiles}${failedCount > 0 ? ` (${failedCount} failed)` : ''}`;
+      const activeGen =
+        generatingCount ??
+        Math.max(1, totalFiles - similarExcludedCount - doneCount - failedCount);
+      const parts: string[] = [];
+      parts.push(`${activeGen} generating`);
+      if (libraryExcludedCount > 0) {
+        parts.push(`${libraryExcludedCount} skipped (already exported)`);
+      } else if (similarExcludedCount > 0) {
+        parts.push(`${similarExcludedCount} skipped`);
+      }
+      parts.push(`${similarCount} similar titles`);
+      statusText = parts.join(' · ');
       progressPercent = Math.round(((doneCount + failedCount) / totalFiles) * 100);
     } else if (doneCount > 0) {
-      statusText = `Done: ${doneCount} / ${totalFiles}${failedCount > 0 ? ` (${failedCount} failed)` : ''}`;
+      const parts: string[] = [];
+      parts.push(`${doneCount} generated`);
+      if (libraryExcludedCount > 0) {
+        parts.push(`${libraryExcludedCount} skipped (already exported)`);
+      } else if (similarExcludedCount > 0) {
+        parts.push(`${similarExcludedCount} skipped`);
+      }
+      parts.push(`${similarCount} similar titles`);
+      statusText = parts.join(' · ');
       progressPercent = Math.round((doneCount / totalFiles) * 100);
     } else {
-      statusText = `${totalFiles} file${totalFiles === 1 ? '' : 's'} ready`;
+      const activeReady = Math.max(0, totalFiles - similarExcludedCount);
+      const parts: string[] = [];
+      parts.push(`${activeReady} ready`);
+      if (libraryExcludedCount > 0) {
+        parts.push(`${libraryExcludedCount} skipped (already exported)`);
+      } else if (similarExcludedCount > 0) {
+        parts.push(`${similarExcludedCount} skipped`);
+      }
+      parts.push(`${similarCount} similar titles`);
+      statusText = parts.join(' · ');
       progressPercent = 0;
     }
   }
@@ -124,21 +156,11 @@ export function ActionBar({
               style={{ width: isAnalyzingSimilarity ? '100%' : `${progressPercent}%` }}
             />
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground font-medium truncate">
+          <div className="flex items-center gap-2 text-xs text-foreground font-medium truncate">
             {isAnalyzingSimilarity && (
               <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />
             )}
-            <span>{statusText}</span>
-            {similarExcludedCount > 0 && (
-              <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
-                • {similarExcludedCount} excluded
-              </span>
-            )}
-            {similarCount > 0 && (
-              <span className="text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1">
-                • {similarCount} similar title{similarCount === 1 ? '' : 's'}
-              </span>
-            )}
+            <span className="font-semibold">{statusText}</span>
             {blockedCount > 0 && (
               <span className="text-destructive font-bold flex items-center gap-1">
                 • {blockedCount} blocked

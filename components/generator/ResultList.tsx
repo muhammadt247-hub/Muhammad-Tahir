@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { ResultCard } from './ResultCard';
 import { GeneratorItemState } from '@/lib/generator/queue';
 import { PlatformConfig } from '@/config/platforms';
-import { Image as ImageIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Image as ImageIcon, ChevronLeft, ChevronRight, Database } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface ResultListProps {
@@ -12,6 +12,9 @@ interface ResultListProps {
   mode: 'metadata' | 'prompt';
   platformSpec: PlatformConfig;
   showSimilarityScores?: boolean;
+  alreadyExportedCount?: number;
+  onIgnoreLibraryAndGenerate?: () => void;
+  onClearLibrary?: () => void;
   onUpdateItem: (id: string, updated: Partial<GeneratorItemState>) => void;
   onDeleteItem: (id: string) => void;
   onRegenerateItem: (id: string) => void;
@@ -27,6 +30,9 @@ export function ResultList({
   mode,
   platformSpec,
   showSimilarityScores = false,
+  alreadyExportedCount = 0,
+  onIgnoreLibraryAndGenerate,
+  onClearLibrary,
   onUpdateItem,
   onDeleteItem,
   onRegenerateItem,
@@ -67,6 +73,38 @@ export function ResultList({
 
   return (
     <div className="space-y-4">
+      {/* Top of file list banner: N files were already exported */}
+      {alreadyExportedCount > 0 && onIgnoreLibraryAndGenerate && onClearLibrary && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-foreground font-medium">
+            <Database className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              <span className="font-bold">{alreadyExportedCount}</span> {alreadyExportedCount === 1 ? 'file was' : 'files were'} already exported.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              onClick={onIgnoreLibraryAndGenerate}
+              className="h-7 text-xs font-semibold px-3"
+            >
+              Ignore library for this batch
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onClearLibrary}
+              className="h-7 text-xs px-3"
+            >
+              Clear library
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Cards list */}
       <div className="space-y-4">
         {displayedItems.map((item) => (

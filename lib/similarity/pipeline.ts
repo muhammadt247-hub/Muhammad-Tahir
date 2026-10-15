@@ -233,6 +233,13 @@ export async function runSimilarityPipeline(
 
     // Check against library first
     for (const libEntry of libraryEntries) {
+      // Never compare a file with itself
+      if (itemA.id === libEntry.id) continue;
+
+      const isSameFilename =
+        itemA.fileData.originalName.toLowerCase().trim() ===
+        libEntry.filename.toLowerCase().trim();
+
       pairCounter++;
       const score = compareFingerprints(
         fpA,
@@ -242,7 +249,19 @@ export async function runSimilarityPipeline(
         libEntry.filename,
         true
       );
-      if (score.isSimilar) {
+      if (score.isSimilar && isSameFilename) {
+        const dateStr = libEntry.exportedAt
+          ? new Date(libEntry.exportedAt).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+            })
+          : new Date().toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+            });
+        score.exportedAtDate = dateStr;
         libraryMatches.set(itemA.id, score);
       }
     }
@@ -251,6 +270,14 @@ export async function runSimilarityPipeline(
     for (let j = i + 1; j < total; j++) {
       pairCounter++;
       const itemB = itemsWithFingerprints[j];
+      // Never compare a file with itself (by id or filename)
+      if (
+        itemA.id === itemB.id ||
+        itemA.fileData.originalName.toLowerCase().trim() ===
+          itemB.fileData.originalName.toLowerCase().trim()
+      ) {
+        continue;
+      }
       const fpB = fingerprintMap.get(itemB.id);
       if (!fpB) continue;
 
@@ -515,12 +542,13 @@ export async function runSimilarityPipeline(
     if (libMatch) {
       libraryExcludedCount++;
       totalExcludedCount++;
+      const dateLabel = libMatch.exportedAtDate || 'previous session';
       return {
         ...item,
         isExcluded: true,
-        excludedReason: `Similar to previously exported: ${libMatch.otherFilename}`,
+        excludedReason: `Already exported on ${dateLabel}`,
         isKeptBest: false,
-        similarPairDetails: pairs,
+        similarPairDetails: [],
       };
     }
 
