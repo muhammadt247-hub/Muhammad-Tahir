@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -31,7 +33,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius: var(--radius);
 }
 
 :root, .light {
@@ -106,5 +107,15 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .logo-spin {
     animation: none;
+  }
+}
+
+:where(button, [role="button"], [role="tab"], [role="combobox"], a.pop-10, .pop-10):not(:disabled):not([aria-disabled="true"]):not([data-no-pop]):not([role="menuitem"]):not([role="menuitemcheckbox"]):not([role="menuitemradio"]):not([role="option"]):not([role="slider"]):not([role="heading"]) {
+  transition: scale 200ms ease-out;
+  transform-origin: center;
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  :where(button, [role="button"], [role="tab"], [role="combobox"], a.pop-10, .pop-10):not(:disabled):not([aria-disabled="true"]):not([data-no-pop]):not([role="menuitem"]):not([role="menuitemcheckbox"]):not([role="menuitemradio"]):not([role="option"]):not([role="slider"]):not([role="heading"]):is(:hover, :focus-visible) {
+    scale: var(--pop-scale);
   }
 }
