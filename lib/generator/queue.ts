@@ -1,3 +1,4 @@
+import { toast } from 'sonner';
 import { ProcessedAssetFile } from './compress';
 import { GeneratorSavedSettings, saveBatchItem } from './db';
 import { keyRotator } from './key-rotation';
@@ -418,6 +419,20 @@ export class GeneratorQueue {
             customBlockedWords: this.settings.customBlockedWords || [],
           }),
         });
+
+        // Handle 401 Unauthorized
+        if (res.status === 401) {
+          toast.error('Session expired or unauthorized. Please log in.');
+          item.status = 'failed';
+          item.httpStatus = 401;
+          item.errorMessage = 'Unauthorized: Please log in to your account.';
+          this.callbacks.onItemUpdate({ ...item });
+          this.stop();
+          if (typeof window !== 'undefined') {
+            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+          }
+          return false;
+        }
 
         const resData = await res.json().catch(() => ({}));
 

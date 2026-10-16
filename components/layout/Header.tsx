@@ -21,6 +21,8 @@ import {
   Menu,
   X,
   Zap,
+  User as UserIcon,
+  LogOut,
 } from 'lucide-react';
 import { SITE_CONFIG } from '@/config/site';
 import { TOOLS_REGISTRY } from '@/config/tools';
@@ -37,6 +39,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { HelpDialog } from './HelpDialog';
 import { SettingsDialog } from './SettingsDialog';
+import { useAuth } from '@/components/AuthProvider';
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
   Sparkles: <Sparkles className="h-4 w-4" />,
@@ -57,6 +60,9 @@ export function Header() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileToolsExpanded, setMobileToolsExpanded] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  const { user, profile, loading: authLoading, signOut } = useAuth();
+  const isLoggedIn = !!user;
 
   // Close mobile menu on Esc key
   useEffect(() => {
@@ -85,20 +91,20 @@ export function Header() {
   }, [mobileMenuOpen]);
 
   const isDark = mounted && resolvedTheme === 'dark';
-
   const toggleTheme = () => {
     setTheme(isDark ? 'light' : 'dark');
   };
 
-  // Active state determination (Requirement 5)
+  const displayName = profile?.display_name || user?.email?.split('@')[0] || 'Creator';
+  const avatarLetter = (displayName.charAt(0) || 'C').toUpperCase();
+
+  // Active state determination
   const isGenerator =
-    pathname === '/' || pathname === '/generator' || pathname.startsWith('/generator/');
+    pathname === '/generator' || pathname.startsWith('/generator/');
   const isAnalytics =
     pathname === '/adobe-analytics' || pathname.startsWith('/adobe-analytics/');
   const isTools =
-    pathname === '/tools' ||
-    pathname.startsWith('/tools/') ||
-    (!isGenerator && !isAnalytics);
+    pathname === '/tools' || pathname.startsWith('/tools/');
 
   return (
     <>
@@ -109,7 +115,7 @@ export function Header() {
         <div className="flex h-full items-center justify-between gap-4">
           {/* LEFT: Brand & Logo */}
           <Link
-            href="/"
+            href={isLoggedIn ? '/generator' : '/login'}
             className="flex items-center gap-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-xl shrink-0"
             aria-label="DOCTORx Home"
           >
@@ -119,7 +125,6 @@ export function Header() {
                 <LogoMark size={24} />
               </div>
             </div>
-
             <div className="flex flex-col justify-center min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-lg font-bold tracking-tight text-foreground leading-none">
@@ -139,207 +144,285 @@ export function Header() {
             </div>
           </Link>
 
-          {/* NAVIGATION (Desktop from md up, gap of 24px) */}
-          <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-6">
-            {/* 1. Generator */}
-            <Link
-              href="/generator"
-              className={cn(
-                'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pop-10',
-                isGenerator
-                  ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              )}
-            >
-              Generator
-            </Link>
-
-            {/* 2. Adobe Analytics */}
-            <Link
-              href="/adobe-analytics"
-              className={cn(
-                'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pop-10',
-                isAnalytics
-                  ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              )}
-            >
-              Adobe Analytics
-            </Link>
-
-            {/* 3. All Tools Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer pop-10',
-                    isTools
-                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                  )}
-                  aria-label="All Tools Menu"
-                >
-                  <span>All Tools</span>
-                  <ChevronDown className="h-4 w-4 opacity-75" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                sideOffset={8}
-                className="w-80 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
+          {/* NAVIGATION: Desktop from md up, ONLY when logged in */}
+          {isLoggedIn && (
+            <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-6">
+              {/* 1. Generator */}
+              <Link
+                href="/generator"
+                className={cn(
+                  'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pop-10',
+                  isGenerator
+                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
               >
-                <DropdownMenuLabel className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1.5">
-                  <span className="font-semibold text-foreground">DOCTORx Toolkit</span>
-                  <Link
-                    href="/tools"
-                    className="text-[11px] text-primary hover:underline font-semibold"
-                  >
-                    View all &rarr;
-                  </Link>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="my-1 border-border/40" />
-                <div className="max-h-[380px] overflow-y-auto space-y-1">
-                  {TOOLS_REGISTRY.map((tool) => {
-                    const isLive = tool.status === 'live';
-                    const icon = TOOL_ICONS[tool.iconName] || <LayoutGrid className="h-4 w-4" />;
+                Generator
+              </Link>
 
-                    if (isLive) {
+              {/* 2. Adobe Analytics */}
+              <Link
+                href="/adobe-analytics"
+                className={cn(
+                  'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pop-10',
+                  isAnalytics
+                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                )}
+              >
+                Adobe Analytics
+              </Link>
+
+              {/* 3. All Tools Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer pop-10',
+                      isTools
+                        ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    )}
+                    aria-label="All Tools Menu"
+                  >
+                    <span>All Tools</span>
+                    <ChevronDown className="h-4 w-4 opacity-75" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-80 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
+                >
+                  <DropdownMenuLabel className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1.5">
+                    <span className="font-semibold text-foreground">DOCTORx Toolkit</span>
+                    <Link
+                      href="/tools"
+                      className="text-[11px] text-primary hover:underline font-semibold"
+                    >
+                      View all &rarr;
+                    </Link>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator className="my-1 border-border/40" />
+                  <div className="max-h-[380px] overflow-y-auto space-y-1">
+                    {TOOLS_REGISTRY.map((tool) => {
+                      const isLive = tool.status === 'live';
+                      const icon = TOOL_ICONS[tool.iconName] || <LayoutGrid className="h-4 w-4" />;
+                      if (isLive) {
+                        return (
+                          <DropdownMenuItem
+                            key={tool.id}
+                            asChild
+                            className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors"
+                          >
+                            <Link href={tool.href} className="flex items-start gap-3 w-full">
+                              <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+                                {icon}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-semibold text-foreground">
+                                    {tool.name}
+                                  </span>
+                                  {tool.badge && (
+                                    <span className="text-[9px] bg-primary/15 text-primary font-bold px-1.5 py-0.2 rounded-full">
+                                      {tool.badge}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                                  {tool.description}
+                                </p>
+                              </div>
+                            </Link>
+                          </DropdownMenuItem>
+                        );
+                      }
                       return (
                         <DropdownMenuItem
                           key={tool.id}
-                          asChild
-                          className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors"
+                          disabled
+                          className="p-2.5 rounded-xl flex items-start gap-3 opacity-60 cursor-not-allowed"
                         >
-                          <Link href={tool.href} className="flex items-start gap-3 w-full">
-                            <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-                              {icon}
+                          <div className="w-8 h-8 rounded-lg bg-muted text-muted-foreground flex items-center justify-center shrink-0 mt-0.5">
+                            {icon}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-semibold text-foreground">
+                                {tool.name}
+                              </span>
+                              <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium shrink-0">
+                                Coming soon
+                              </span>
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-semibold text-foreground">
-                                  {tool.name}
-                                </span>
-                                {tool.badge && (
-                                  <span className="text-[9px] bg-primary/15 text-primary font-bold px-1.5 py-0.2 rounded-full">
-                                    {tool.badge}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
-                                {tool.description}
-                              </p>
-                            </div>
-                          </Link>
+                            <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                              {tool.description}
+                            </p>
+                          </div>
                         </DropdownMenuItem>
                       );
-                    }
-
-                    return (
-                      <DropdownMenuItem
-                        key={tool.id}
-                        disabled
-                        className="p-2.5 rounded-xl flex items-start gap-3 opacity-60 cursor-not-allowed"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-muted text-muted-foreground flex items-center justify-center shrink-0 mt-0.5">
-                          {icon}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-semibold text-foreground">
-                              {tool.name}
-                            </span>
-                            <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium shrink-0">
-                              Coming soon
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
-                            {tool.description}
-                          </p>
-                        </div>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </div>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </nav>
+                    })}
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </nav>
+          )}
 
           {/* RIGHT: Actions */}
           <div className="ml-auto flex items-center gap-2">
-            {/* Chrome Extension Pill (if set, visible from md up) */}
-            {SITE_CONFIG.CHROME_EXTENSION_URL && (
-              <a
-                href={SITE_CONFIG.CHROME_EXTENSION_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label="Get Chrome Extension"
-              >
-                <Zap className="h-3.5 w-3.5" />
-                <span>Get Extension</span>
-              </a>
+            {/* If Logged In: Show Chrome Ext, Help, Settings, Theme, and Avatar */}
+            {isLoggedIn ? (
+              <>
+                {/* Chrome Extension Pill */}
+                {SITE_CONFIG.CHROME_EXTENSION_URL && (
+                  <a
+                    href={SITE_CONFIG.CHROME_EXTENSION_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label="Get Chrome Extension"
+                  >
+                    <Zap className="h-3.5 w-3.5" />
+                    <span>Get Extension</span>
+                  </a>
+                )}
+
+                {/* Help Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setHelpOpen(true)}
+                      className="hidden md:flex h-9 w-9 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      aria-label="Help & Guide"
+                    >
+                      <HelpCircle className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Help & Guide</TooltipContent>
+                </Tooltip>
+
+                {/* Settings Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setSettingsOpen(true)}
+                      className="hidden md:flex h-9 w-9 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      aria-label="Workspace Settings"
+                    >
+                      <SettingsIcon className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Settings</TooltipContent>
+                </Tooltip>
+
+                {/* Theme Toggle Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleTheme}
+                      className="h-9 w-9 rounded-full flex items-center justify-center bg-primary/10 text-primary hover:bg-primary/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                    >
+                      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{isDark ? 'Light Mode' : 'Dark Mode'}</TooltipContent>
+                </Tooltip>
+
+                {/* Avatar Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 via-amber-600 to-orange-600 text-white font-bold text-sm flex items-center justify-center shadow-md shadow-primary/25 border-2 border-primary/30 hover:scale-105 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer select-none"
+                      aria-label="User Account Menu"
+                    >
+                      {avatarLetter}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="end"
+                    sideOffset={8}
+                    className="w-60 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
+                  >
+                    <div className="px-3 py-2 border-b border-border/40">
+                      <p className="text-xs font-bold text-foreground truncate">{displayName}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                    </div>
+                    <div className="pt-1">
+                      <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
+                        <Link href="/account" className="flex items-center gap-2.5 w-full text-xs font-semibold text-foreground">
+                          <UserIcon className="h-4 w-4 text-primary" />
+                          <span>Account</span>
+                        </Link>
+                      </DropdownMenuItem>
+                    </div>
+                    <DropdownMenuSeparator className="my-1 border-border/40" />
+                    <DropdownMenuItem
+                      onClick={signOut}
+                      className="p-2.5 rounded-xl cursor-pointer focus:bg-destructive/10 text-destructive text-xs font-semibold flex items-center gap-2.5 transition-colors"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign out</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {/* Mobile Hamburger Button (below md) */}
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen((prev) => !prev)}
+                  className="flex md:hidden h-9 w-9 rounded-full items-center justify-center text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                >
+                  {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                </button>
+              </>
+            ) : (
+              /* If Logged Out: ONLY Theme button + Log in / Sign up buttons */
+              <>
+                {/* Theme Toggle Button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleTheme}
+                      className="h-9 w-9 rounded-full flex items-center justify-center bg-primary/10 text-primary hover:bg-primary/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                    >
+                      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{isDark ? 'Light Mode' : 'Dark Mode'}</TooltipContent>
+                </Tooltip>
+
+                {/* Log In Link */}
+                <Link
+                  href="/login"
+                  className="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  Log in
+                </Link>
+
+                {/* Sign Up Link */}
+                <Link
+                  href="/signup"
+                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all shadow-md shadow-primary/25 pop-10"
+                >
+                  Sign up
+                </Link>
+              </>
             )}
-
-            {/* Help Button (md up) */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setHelpOpen(true)}
-                  className="hidden md:flex h-9 w-9 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  aria-label="Help & Guide"
-                >
-                  <HelpCircle className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Help & Guide</TooltipContent>
-            </Tooltip>
-
-            {/* Settings Button (md up) */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(true)}
-                  className="hidden md:flex h-9 w-9 rounded-full items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  aria-label="Settings"
-                >
-                  <SettingsIcon className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Settings</TooltipContent>
-            </Tooltip>
-
-            {/* Theme Toggle Button: moon in orange tinted circle, sun in dark mode */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  className="h-9 w-9 rounded-full flex items-center justify-center bg-primary/10 text-primary hover:bg-primary/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-                >
-                  {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{isDark ? 'Light Mode' : 'Dark Mode'}</TooltipContent>
-            </Tooltip>
-
-            {/* Mobile Hamburger Button (below md) */}
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((prev) => !prev)}
-              className="flex md:hidden h-9 w-9 rounded-full items-center justify-center text-foreground hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-            >
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
           </div>
         </div>
 
-        {/* MOBILE DROPDOWN PANEL (below md) */}
-        {mobileMenuOpen && (
+        {/* MOBILE DROPDOWN PANEL (below md) - only when logged in */}
+        {isLoggedIn && mobileMenuOpen && (
           <div className="md:hidden absolute top-full left-0 right-0 border-b border-border/50 bg-card/95 backdrop-blur-md shadow-2xl p-4 space-y-3 z-50 animate-in fade-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="space-y-1">
               {/* Generator */}
@@ -442,6 +525,16 @@ export function Header() {
             </div>
 
             <div className="pt-2 border-t border-border/40 space-y-1">
+              {/* Account Link in mobile */}
+              <Link
+                href="/account"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <UserIcon className="h-4 w-4" />
+                <span>Account</span>
+              </Link>
+
               {/* Help */}
               <button
                 type="button"
@@ -468,18 +561,18 @@ export function Header() {
                 <span>Settings</span>
               </button>
 
-              {/* Chrome Extension in Mobile if URL is set */}
-              {SITE_CONFIG.CHROME_EXTENSION_URL && (
-                <a
-                  href={SITE_CONFIG.CHROME_EXTENSION_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-primary hover:bg-primary/10 transition-colors"
-                >
-                  <Zap className="h-4 w-4" />
-                  <span>Get Chrome Extension</span>
-                </a>
-              )}
+              {/* Sign out */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  signOut();
+                }}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign out</span>
+              </button>
             </div>
           </div>
         )}

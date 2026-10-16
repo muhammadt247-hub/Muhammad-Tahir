@@ -110,7 +110,13 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   detectDuplicates: true,
 };
 
-const DB_NAME = 'doctorxDB';
+import { getActiveUserId } from '@/lib/storage';
+
+export function getDatabaseName(): string {
+  const uid = getActiveUserId();
+  return uid ? ('doctorxDB_' + uid) : 'doctorxDB';
+}
+
 const DB_VERSION = 3; // Incremented for batchItemsStore
 const API_KEYS_STORE = 'apiKeysStore';
 const SETTINGS_STORE = 'settingsStore';
@@ -122,7 +128,7 @@ function openDB(): Promise<IDBDatabase> {
     if (typeof window === 'undefined') {
       return reject(new Error('IndexedDB not supported in SSR'));
     }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(getDatabaseName(), DB_VERSION);
 
     request.onupgradeneeded = () => {
       const db = request.result;

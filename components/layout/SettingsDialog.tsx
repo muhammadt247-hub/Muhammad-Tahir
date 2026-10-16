@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme } from 'next-themes';
 import {
   Dialog,
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { useSettings } from '@/hooks/useSettings';
 import { useSearchHistory } from '@/hooks/useSearchHistory';
+import { useAuth } from '@/components/AuthProvider';
 import {
   clearAllDoctorXStorage,
   exportAllDoctorXData,
@@ -29,8 +30,8 @@ import {
 } from '@/lib/storage';
 import { downloadBlob } from '@/lib/csv';
 import { toast } from 'sonner';
-import { Trash2, Download, Upload, Check } from 'lucide-react';
-import { SortOption, ContentTypeFilter, AiFilter } from '@/types/asset';
+import { Trash2, Download, Upload, Check, Loader2 } from 'lucide-react';
+import { SortOption, ContentTypeFilter } from '@/types/asset';
 
 interface SettingsDialogProps {
   open: boolean;
@@ -38,18 +39,39 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+  const { user, profile, updateProfileName } = useAuth();
   const { settings, updateSettings } = useSettings();
   const { clearHistory } = useSearchHistory();
   const { theme, setTheme } = useTheme();
 
-  const [name, setName] = useState(settings.displayName);
+  const [name, setName] = useState(profile?.display_name || settings.displayName);
   const [importText, setImportText] = useState('');
   const [showImportArea, setShowImportArea] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
-    updateSettings({ displayName: name.trim() || 'Microstock Creator' });
-    toast.success('Settings saved');
+  useEffect(() => {
+    if (profile?.display_name) {
+      setName(profile.display_name);
+    }
+  }, [profile?.display_name]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    const finalName = name.trim() || 'Microstock Creator';
+    updateSettings({ displayName: finalName });
+
+    if (user) {
+      const res = await updateProfileName(finalName);
+      if (!res.success) {
+        setIsSaving(false);
+        toast.error(res.error || 'Failed to update profile name in account');
+        return;
+      }
+    }
+
+    setIsSaving(false);
+    toast.success('Settings and profile saved');
     onOpenChange(false);
   };
 
@@ -95,19 +117,27 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogHeader>
           <DialogTitle>Workspace Settings</DialogTitle>
           <DialogDescription>
-            Personalize your local toolkit preferences and manage offline storage.
+            Personalize your toolkit preferences and account display name.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          {/* Display Name */}
+          {/* Display Name - Saves to Supabase profiles table */}
           <div className="space-y-1.5">
-            <Label htmlFor="display-name">Display Name</Label>
+            <Label htmlFor="display-name" className="flex items-center justify-between">
+              <span>Display Name</span>
+              {user && (
+                <span className="text-[10px] text-primary font-medium">
+                  Saves to Account
+                </span>
+              )}
+            </Label>
             <Input
               id="display-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Elena Rostova"
+              disabled={isSaving}
             />
           </div>
 
@@ -193,7 +223,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
               Data &amp; Local Persistence
             </span>
-
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
@@ -204,7 +233,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <Download className="h-3.5 w-3.5" />
                 Export Backup (JSON)
               </Button>
-
               <Button
                 variant="outline"
                 size="sm"
@@ -214,7 +242,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <Upload className="h-3.5 w-3.5" />
                 Import Backup
               </Button>
-
               <Button
                 variant="outline"
                 size="sm"
@@ -254,11 +281,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} className="gap-1.5">
-            <Check className="h-4 w-4" />
+          <Button onClick={handleSave} disabled={isSaving} className="gap-1.5">
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             Save Changes
           </Button>
         </DialogFooter>

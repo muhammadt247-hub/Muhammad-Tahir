@@ -164,3 +164,49 @@ DOCTORx is designed with a centralized tool registry:
 3. The new tool will automatically appear in:
    - The `/tools` directory catalog.
    - The sidebar's **All Tools** dropdown menu.
+
+---
+
+---
+
+## Set up accounts (Supabase Authentication & Profiles)
+
+DOCTORx features full account authentication using Supabase (`@supabase/supabase-js` and `@supabase/ssr`), with email sign-up, email verification, login, password reset, and user profile management.
+
+### 1. Environment Variables
+
+Configure the following four variables in your host environment or `.env.local`:
+
+```env
+# 1. Supabase Project URL (from Project Settings -> API)
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+
+# 2. Supabase Publishable / Anon Key (starts with sb_publishable_ or standard anon key)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
+
+# 3. Supabase Secret Service Role Key (starts with sb_secret_ or standard service key)
+# Never exposed to the browser.
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
+
+# 4. Canonical Site URL for email confirmation redirects
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+### 2. Supabase Project Settings
+
+1. **Email Confirmation**: Enable **Confirm email** under **Authentication -> Providers -> Email** in your Supabase dashboard.
+2. **Redirect URLs**: Under **Authentication -> URL Configuration**, add your site URL and redirect callback:
+   - `http://localhost:3000/auth/callback` (or your production domain `https://your-domain.com/auth/callback`).
+
+### 3. Database Schema (`profiles` table & trigger)
+
+The reference SQL migration for creating the `public.profiles` table with Row Level Security (RLS) and automatic user creation triggers is located at `supabase/step10.sql`.
+
+### 4. Account Features & Security
+
+- **/signup**: Email, password (min 8 characters, show/hide eye toggle, strength indicator), optional display name, terms & privacy agreement, and 60-second cooldown email resend screen.
+- **/login**: Email, password, clear error reporting (wrong password, unconfirmed email with one-click resend, rate limit protection), and anti-enumeration security.
+- **/forgot-password & /reset-password**: Secure email reset flow with code exchange in `/auth/callback`.
+- **/account**: Email verified badge, live editable display name saved to `public.profiles`, password change, and sign out.
+- **Route & API Protection**: Next.js App Router `middleware.ts` automatically refreshes sessions and guards `/generator`, `/adobe-analytics`, `/tools`, `/account`, and all `/api/*` endpoints.
+- **Data Partitioning**: User moodboards, settings, and personal Gemini API keys in the browser are namespaced per user ID to keep multi-user workstation data completely isolated.

@@ -576,6 +576,11 @@ export default function GeneratorPage() {
           }),
         });
 
+        if (res.status === 401) {
+          toast.error('Session expired or unauthorized. Please log in.');
+          window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+          return;
+        }
         if (!res.ok) {
           throw new Error('Failed to retitle image');
         }
