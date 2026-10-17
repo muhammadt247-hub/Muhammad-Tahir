@@ -1,4 +1,4 @@
-// IndexedDB helper for DOCTORx Generator client-side storage
+// IndexedDB helper for OrbinexaCSV Generator client-side storage
 import { SimilarityStrictness } from '@/config/similarity';
 import { LibraryFingerprintEntry } from '@/types/similarity';
 import type { GeneratorItemState } from './queue';

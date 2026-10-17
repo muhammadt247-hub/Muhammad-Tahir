@@ -1,5 +1,5 @@
 export const SITE_CONFIG = {
-  BRAND_NAME: 'DOCTORx',
+  BRAND_NAME: 'OrbinexaCSV',
   BRAND_TAGLINE: 'Microstock Research & Metadata Toolkit',
   BRAND_CAPTION: 'AI Stock Toolkit',
   BADGE_TEXT: 'BETA',
@@ -9,7 +9,7 @@ export const SITE_CONFIG = {
   HOW_TO_USE_URL: 'https://youtube.com',
   SUPPORT_URL: 'mailto:fox7mind@gmail.com',
 
-  PAGE_TITLE: 'DOCTORx — Adobe Stock Analytics, Prompt & Metadata Generator',
+  PAGE_TITLE: 'OrbinexaCSV — Adobe Stock Analytics, Prompt & Metadata Generator',
   PAGE_DESCRIPTION: 'Complete microstock research and metadata generation toolkit for Adobe Stock, Shutterstock, and Freepik contributors. Search, analyze, reverse-engineer prompts, and generate bulk metadata.',
-  SITE_URL: 'https://doctorx.ai',
+  SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || 'https://orbinexacsv.com',
 };

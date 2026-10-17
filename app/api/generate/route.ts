@@ -3,6 +3,9 @@ import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
 import { AI_CONFIG } from '@/config/ai';
 import { postProcessMetadata, postProcessPrompt } from '@/lib/generator/post-process';
+import { requireUser } from '@/lib/supabase/server';
+import { CREDIT_COSTS, MAX_IMAGES_PER_REQUEST } from '@/config/credits';
+import { spendCredits, refundCredits, getBalance, InsufficientCreditsError } from '@/lib/credits';
 
 const GenerateRequestSchema = z.object({
   mode: z.enum(['metadata', 'prompt', 'retitle']).default('metadata'),
@@ -159,7 +162,34 @@ function parseDataUri(dataUri: string): { mimeType: string; data: string } {
 }
 
 export async function POST(req: NextRequest) {
+  let user: { id: string } | null = null;
+  const requestId = crypto.randomUUID();
+  let creditsToCharge = 0;
+  let creditsRemaining = 0;
+  let hasRefunded = false;
+
+  const refundHelper = async (count: number, reason: string) => {
+    if (creditsToCharge <= 0 || hasRefunded || count <= 0 || !user) return;
+    hasRefunded = true;
+    const refundAmount = count * CREDIT_COSTS.generatePerImage;
+    try {
+      creditsRemaining = await refundCredits(user.id, refundAmount, reason, requestId);
+    } catch (refErr) {
+      console.error('Failed to refund credits:', refErr);
+    }
+  };
+
   try {
+    // 1. Login check
+    user = await requireUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: { code: 'unauthorized', message: 'Please log in.' } },
+        { status: 401 }
+      );
+    }
+
+    // 2. Zod validation
     const rawBody = await req.json();
     const parsed = GenerateRequestSchema.safeParse(rawBody);
 
@@ -201,13 +231,62 @@ export async function POST(req: NextRequest) {
       apiKey: userApiKey,
     } = parsed.data;
 
-    const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+    // 4a. Count images on server from validated request body (reject < 1 or > MAX_IMAGES_PER_REQUEST)
+    const imageCount = images.length;
+    if (imageCount < 1 || imageCount > MAX_IMAGES_PER_REQUEST) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'INVALID_IMAGE_COUNT',
+            message: `Images count must be between 1 and ${MAX_IMAGES_PER_REQUEST}. Received ${imageCount}.`,
+          },
+        },
+        { status: 400 }
+      );
+    }
+
+    // 4b. If no server key exists and request has no user key, return 503 BEFORE charging
+    const trimmedUserApiKey = userApiKey?.trim();
+    const serverApiKey = process.env.GEMINI_API_KEY?.trim();
+    const apiKey = trimmedUserApiKey || serverApiKey;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: { code: 'MISSING_API_KEY', message: 'No Gemini API key provided or configured.' } },
-        { status: 401 }
+        { error: { code: 'not_configured', message: 'The service is not configured.' } },
+        { status: 503 }
       );
+    }
+
+    // 4c. Always charge BEFORE calling Gemini: spendCredits(user.id, imageCount * CREDIT_COSTS.generatePerImage, "generate", requestId)
+    // This applies whether the server key or the user's own key is used.
+    creditsToCharge = imageCount * CREDIT_COSTS.generatePerImage;
+
+    try {
+      creditsRemaining = await spendCredits(user.id, creditsToCharge, 'generate', requestId);
+    } catch (err: unknown) {
+      // 4d. Return HTTP 402 on insufficient credits and do not call Gemini
+      if (
+        err instanceof InsufficientCreditsError ||
+        (err as { code?: string })?.code === 'insufficient_credits' ||
+        (err as { message?: string })?.message?.includes('insufficient_credits')
+      ) {
+        const insErr = err as Partial<InsufficientCreditsError>;
+        const balance =
+          typeof insErr?.balance === 'number' ? insErr.balance : await getBalance(user.id);
+        const needed = typeof insErr?.needed === 'number' ? insErr.needed : creditsToCharge;
+        return NextResponse.json(
+          {
+            error: {
+              code: 'insufficient_credits',
+              message: 'You do not have enough credits.',
+              balance,
+              needed,
+            },
+          },
+          { status: 402 }
+        );
+      }
+      throw err;
     }
 
     const modelName = requestedModel || process.env.GEMINI_MODEL || AI_CONFIG.DEFAULT_MODEL;
@@ -236,7 +315,7 @@ export async function POST(req: NextRequest) {
     let userPromptText = '';
     let responseSchema: typeof MetadataResponseSchema | typeof PromptResponseSchema;
 
-    if (mode === 'metadata') {
+    if (mode === 'metadata' || mode === 'retitle') {
       const isFreepik = platform === 'freepik';
       const maxTitle = isFreepik ? Math.min(100, titleMaxLength) : titleMaxLength;
 
@@ -261,7 +340,11 @@ CRITICAL RULES:
    - flagReasons: short specific reason for any positive flag (e.g. "Text visible on sign", "Logo on clothing").
 10. Output exactly one metadata set for each provided image in the exact same order.`;
 
-      userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). Ensure titles are under ${maxTitle} chars and keywords are ordered by relevance.`;
+      if (mode === 'retitle') {
+        userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). A title rewrite was specifically requested to address: "${parsed.data.reason || 'Better commercial distinctiveness'}". Do NOT use the current title "${parsed.data.currentTitle || ''}". Ensure titles are under ${maxTitle} chars.`;
+      } else {
+        userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). Ensure titles are under ${maxTitle} chars and keywords are ordered by relevance.`;
+      }
       responseSchema = MetadataResponseSchema;
     } else {
       systemInstruction = `You are an expert visual prompt engineer reverse-engineering images into detailed generative prompts for Midjourney, FLUX, and SDXL.
@@ -295,7 +378,7 @@ CRITICAL RULES:
         const textOutput = response.text?.trim() || '{}';
         const parsedJson = JSON.parse(textOutput);
 
-        if (mode === 'metadata') {
+        if (mode === 'metadata' || mode === 'retitle') {
           const validated = ZodMetadataOutput.parse(parsedJson);
           // Post-process each item to guarantee client-side limits & rules
           const processedSets = validated.metadataSets.map((item, idx) => {
@@ -316,7 +399,24 @@ CRITICAL RULES:
             });
           });
 
-          return NextResponse.json({ metadataSets: processedSets });
+          // Check if any image failed or came back empty
+          const successfulCount = processedSets.filter(
+            (s) => s && typeof s.title === 'string' && s.title.trim().length > 0
+          ).length;
+          const failedCount = Math.max(0, imageCount - successfulCount);
+
+          if (failedCount > 0) {
+            await refundHelper(failedCount, 'refund_failed_images');
+          }
+
+          const actualSuccessCount = imageCount - failedCount;
+          const creditsCharged = actualSuccessCount * CREDIT_COSTS.generatePerImage;
+
+          return NextResponse.json({
+            metadataSets: processedSets,
+            creditsCharged,
+            creditsRemaining,
+          });
         } else {
           const validated = ZodPromptOutput.parse(parsedJson);
           // Post-process prompts
@@ -336,16 +436,36 @@ CRITICAL RULES:
             };
           });
 
-          return NextResponse.json({ prompts: processedPrompts });
+          // Check if any prompt failed or came back empty
+          const successfulCount = processedPrompts.filter(
+            (p) => p && typeof p.prompt === 'string' && p.prompt.trim().length > 0
+          ).length;
+          const failedCount = Math.max(0, imageCount - successfulCount);
+
+          if (failedCount > 0) {
+            await refundHelper(failedCount, 'refund_failed_images');
+          }
+
+          const actualSuccessCount = imageCount - failedCount;
+          const creditsCharged = actualSuccessCount * CREDIT_COSTS.generatePerImage;
+
+          return NextResponse.json({
+            prompts: processedPrompts,
+            creditsCharged,
+            creditsRemaining,
+          });
         }
       } catch (err: unknown) {
         lastError = err;
-        console.warn(`Gemini generation attempt ${attempt} failed:`, err);
+        console.warn(`Gemini generation attempt ${attempt} failed`);
         if (attempt === 1) {
           await new Promise((r) => setTimeout(r, 600));
         }
       }
     }
+
+    // Both attempts failed: refund all charged credits once
+    await refundHelper(imageCount, 'refund_failed_generation');
 
     // If both attempts failed, format error with detailed quota diagnostics
     const errMessage = lastError instanceof Error ? lastError.message : 'Gemini generation failed';
@@ -404,7 +524,8 @@ CRITICAL RULES:
       }
     );
   } catch (err: unknown) {
-    console.error('Fatal API error in /api/generate:', err);
+    await refundHelper(creditsToCharge / CREDIT_COSTS.generatePerImage, 'refund_failed_generation');
+    console.error('Fatal API error in /api/generate');
     return NextResponse.json(
       {
         error: {

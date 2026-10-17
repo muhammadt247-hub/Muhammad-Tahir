@@ -54,7 +54,7 @@ export function HelpDialog({ open, onOpenChange }: HelpDialogProps) {
             </div>
             <div>
               <DialogTitle className="text-xl font-bold text-foreground">
-                DOCTORx Help &amp; Documentation
+                OrbinexaCSV Help &amp; Documentation
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
                 Guides, workflow tips, and technical reference for microstock contributors.
@@ -97,10 +97,10 @@ export function HelpDialog({ open, onOpenChange }: HelpDialogProps) {
               <div className="space-y-4">
                 <div>
                   <h3 className="text-base font-bold text-foreground mb-1">
-                    Welcome to DOCTORx
+                    Welcome to OrbinexaCSV
                   </h3>
                   <p>
-                    DOCTORx is an all-in-one suite built for stock contributors, microstock photographers, vector illustrators, and generative AI creators uploading to Adobe Stock, Shutterstock, and Freepik.
+                    OrbinexaCSV is an all-in-one suite built for stock contributors, microstock photographers, vector illustrators, and generative AI creators uploading to Adobe Stock, Shutterstock, and Freepik.
                   </p>
                 </div>
 
@@ -212,7 +212,7 @@ export function HelpDialog({ open, onOpenChange }: HelpDialogProps) {
                   <div className="p-3 rounded-xl bg-card border border-border/50 space-y-1">
                     <p className="font-semibold text-foreground">Byte-Identical Pixel Preservation</p>
                     <p className="text-[11px]">
-                      Unlike standard graphic editors, DOCTORx never re-encodes image pixels. It parses container segments, replaces metadata headers (APP1 XMP, APP13 IPTC, and PNG iTXt chunks), and leaves image pixels untouched.
+                      Unlike standard graphic editors, OrbinexaCSV never re-encodes image pixels. It parses container segments, replaces metadata headers (APP1 XMP, APP13 IPTC, and PNG iTXt chunks), and leaves image pixels untouched.
                     </p>
                   </div>
 

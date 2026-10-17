@@ -4,7 +4,7 @@ import { AdobeStockOfficialProvider } from './adobe';
 
 export function getStockProvider(): StockProvider {
   const apiKey = process.env.ADOBE_STOCK_API_KEY?.trim();
-  const productName = process.env.ADOBE_STOCK_PRODUCT_NAME?.trim() || 'DOCTORx/1.0';
+  const productName = process.env.ADOBE_STOCK_PRODUCT_NAME?.trim() || 'OrbinexaCSV/1.0';
 
   if (apiKey) {
     return new AdobeStockOfficialProvider(apiKey, productName);

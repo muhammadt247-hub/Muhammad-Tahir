@@ -163,7 +163,7 @@ function LoginForm() {
             Welcome back
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Log in to access DOCTORx tools, Generator, and Analytics.
+            Log in to access OrbinexaCSV tools, Generator, and Analytics.
           </p>
         </div>
 

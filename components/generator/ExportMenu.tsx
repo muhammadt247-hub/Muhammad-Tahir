@@ -49,7 +49,7 @@ export function GeneratorExportMenu({
     const csvContent = buildPlatformCsvString(platform, doneItems);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = platform === 'adobe' ? 'doctorx_adobe-stock_export.csv' : `${platform}_metadata_${dateStr}.csv`;
+    const filename = platform === 'adobe' ? 'orbinexacsv_adobe-stock_export.csv' : `${platform}_metadata_${dateStr}.csv`;
     downloadBlob(blob, filename);
     toast.success(`Exported ${doneItems.length} rows for ${platform}`);
   };

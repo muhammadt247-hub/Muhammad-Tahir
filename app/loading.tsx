@@ -8,7 +8,7 @@ export default function Loading() {
         <LogoMark size={36} />
       </div>
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider animate-pulse">
-        Loading DOCTORx Toolkit...
+        Loading OrbinexaCSV Toolkit...
       </p>
     </div>
   );

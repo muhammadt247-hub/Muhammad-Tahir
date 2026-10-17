@@ -34,7 +34,7 @@ export class AdobeStockOfficialProvider implements StockProvider {
   private apiKey: string;
   private productName: string;
 
-  constructor(apiKey: string, productName: string = 'DOCTORx/1.0') {
+  constructor(apiKey: string, productName: string = 'OrbinexaCSV/1.0') {
     this.apiKey = apiKey;
     this.productName = productName;
   }

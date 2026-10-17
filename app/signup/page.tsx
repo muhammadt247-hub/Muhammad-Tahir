@@ -182,7 +182,7 @@ export default function SignupPage() {
               {email}
             </p>
             <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-              Click the link inside to confirm your account and open DOCTORx.
+              Click the link inside to confirm your account and open OrbinexaCSV.
             </p>
           </div>
 
@@ -223,7 +223,7 @@ export default function SignupPage() {
             Create your account
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            Join DOCTORx to generate stock metadata and inspect market trends.
+            Join OrbinexaCSV to generate stock metadata and inspect market trends.
           </p>
         </div>
 

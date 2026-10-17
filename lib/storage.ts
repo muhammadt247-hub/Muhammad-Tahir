@@ -10,9 +10,9 @@ export function getActiveUserId(): string | null {
 
 export function getStoragePrefix(): string {
   if (currentUserId) {
-    return `doctorx_u_${currentUserId}_`;
+    return `orbinexacsv_u_${currentUserId}_`;
   }
-  return 'doctorx_v1_';
+  return 'orbinexacsv_v1_';
 }
 
 export function getStorageItem<T>(key: string, defaultValue: T): T {
@@ -24,18 +24,27 @@ export function getStorageItem<T>(key: string, defaultValue: T): T {
     let raw = window.localStorage.getItem(`${prefix}${key}`);
 
     // If not found in user-namespaced storage, check if legacy storage exists to seamlessly migrate
-    if (raw === null && prefix !== 'doctorx_v1_') {
-      const legacyRaw = window.localStorage.getItem(`doctorx_v1_${key}`);
-      if (legacyRaw !== null) {
-        window.localStorage.setItem(`${prefix}${key}`, legacyRaw);
-        raw = legacyRaw;
+    if (raw === null) {
+      const legacyKeys = [
+        currentUserId ? `doctorx_u_${currentUserId}_${key}` : null,
+        `doctorx_v1_${key}`,
+        `orbinexacsv_v1_${key}`,
+      ].filter(Boolean) as string[];
+
+      for (const legacyKey of legacyKeys) {
+        const legacyVal = window.localStorage.getItem(legacyKey);
+        if (legacyVal !== null) {
+          window.localStorage.setItem(`${prefix}${key}`, legacyVal);
+          raw = legacyVal;
+          break;
+        }
       }
     }
 
     if (raw === null) return defaultValue;
     return JSON.parse(raw) as T;
   } catch (error) {
-    console.warn(`[DOCTORx Storage] Failed reading key "${key}":`, error);
+    console.warn(`[OrbinexaCSV Storage] Failed reading key "${key}":`, error);
     return defaultValue;
   }
 }
@@ -49,7 +58,7 @@ export function setStorageItem<T>(key: string, value: T): boolean {
     window.localStorage.setItem(`${prefix}${key}`, JSON.stringify(value));
     return true;
   } catch (error) {
-    console.warn(`[DOCTORx Storage] Failed writing key "${key}":`, error);
+    console.warn(`[OrbinexaCSV Storage] Failed writing key "${key}":`, error);
     return false;
   }
 }
@@ -63,12 +72,12 @@ export function removeStorageItem(key: string): boolean {
     window.localStorage.removeItem(`${prefix}${key}`);
     return true;
   } catch (error) {
-    console.warn(`[DOCTORx Storage] Failed removing key "${key}":`, error);
+    console.warn(`[OrbinexaCSV Storage] Failed removing key "${key}":`, error);
     return false;
   }
 }
 
-export function clearAllDoctorXStorage(): boolean {
+export function clearAllOrbinexaStorage(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
@@ -77,36 +86,47 @@ export function clearAllDoctorXStorage(): boolean {
     const keysToRemove: string[] = [];
     for (let i = 0; i < window.localStorage.length; i++) {
       const key = window.localStorage.key(i);
-      if (key && (key.startsWith(prefix) || key.startsWith('doctorx_v1_'))) {
+      if (
+        key &&
+        (key.startsWith(prefix) ||
+          key.startsWith('orbinexacsv_v1_') ||
+          key.startsWith('doctorx_v1_'))
+      ) {
         keysToRemove.push(key);
       }
     }
     keysToRemove.forEach((k) => window.localStorage.removeItem(k));
     return true;
   } catch (error) {
-    console.warn('[DOCTORx Storage] Failed clearing storage:', error);
+    console.warn('[OrbinexaCSV Storage] Failed clearing storage:', error);
     return false;
   }
 }
 
-export function exportAllDoctorXData(): string {
+export const clearAllDoctorXStorage = clearAllOrbinexaStorage;
+
+export function exportAllOrbinexaData(): string {
   if (typeof window === 'undefined') return '{}';
   const prefix = getStoragePrefix();
   const data: Record<string, unknown> = {};
   for (let i = 0; i < window.localStorage.length; i++) {
     const key = window.localStorage.key(i);
-    if (key && key.startsWith(prefix)) {
+    if (key && (key.startsWith(prefix) || key.startsWith('doctorx_v1_'))) {
       try {
-        data[key.replace(prefix, '')] = JSON.parse(window.localStorage.getItem(key) || 'null');
+        const cleanKey = key.replace(prefix, '').replace('doctorx_v1_', '');
+        data[cleanKey] = JSON.parse(window.localStorage.getItem(key) || 'null');
       } catch {
-        data[key.replace(prefix, '')] = window.localStorage.getItem(key);
+        const cleanKey = key.replace(prefix, '').replace('doctorx_v1_', '');
+        data[cleanKey] = window.localStorage.getItem(key);
       }
     }
   }
   return JSON.stringify(data, null, 2);
 }
 
-export function importDoctorXData(jsonString: string): boolean {
+export const exportAllDoctorXData = exportAllOrbinexaData;
+
+export function importOrbinexaData(jsonString: string): boolean {
   if (typeof window === 'undefined') return false;
   try {
     const data = JSON.parse(jsonString) as Record<string, unknown>;
@@ -115,7 +135,9 @@ export function importDoctorXData(jsonString: string): boolean {
     }
     return true;
   } catch (error) {
-    console.warn('[DOCTORx Storage] Failed importing data:', error);
+    console.warn('[OrbinexaCSV Storage] Failed importing data:', error);
     return false;
   }
 }
+
+export const importDoctorXData = importOrbinexaData;

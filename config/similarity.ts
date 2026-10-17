@@ -1,5 +1,5 @@
 /**
- * DOCTORx Deep Similarity Guard Configuration
+ * OrbinexaCSV Deep Similarity Guard Configuration
  * Adobe Stock spam prevention & portfolio diversity engine.
  */
 
@@ -42,4 +42,4 @@ export const QUALITY_SCORE_WEIGHTS = {
 };
 
 export const SIMILARITY_HONESTY_NOTE =
-  "DOCTORx cannot see Adobe's own similarity checks or other contributors' files. This guard greatly reduces the risk but cannot guarantee acceptance.";
+  "OrbinexaCSV cannot see Adobe's own similarity checks or other contributors' files. This guard greatly reduces the risk but cannot guarantee acceptance.";

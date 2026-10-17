@@ -153,7 +153,7 @@ export default function AccountPage() {
               Account Overview
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Manage your DOCTORx profile, credentials, and account settings.
+              Manage your OrbinexaCSV profile, credentials, and account settings.
             </p>
           </div>
         </div>

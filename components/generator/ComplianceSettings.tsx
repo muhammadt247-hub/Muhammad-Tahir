@@ -402,7 +402,7 @@ export function ComplianceSettings({
                       <span>Adobe Portal Reminder</span>
                     </div>
                     <p className="text-[11px] leading-snug">
-                      Tick &quot;Created using generative AI tools&quot; for these files in the Adobe Contributor Portal. The checkbox labels them, so DOCTORx removes the phrase &quot;generative AI&quot; from titles and keywords.
+                      Tick &quot;Created using generative AI tools&quot; for these files in the Adobe Contributor Portal. The checkbox labels them, so OrbinexaCSV removes the phrase &quot;generative AI&quot; from titles and keywords.
                     </p>
                   </div>
                 )}

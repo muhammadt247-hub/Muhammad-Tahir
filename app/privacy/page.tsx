@@ -16,7 +16,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Our comprehensive Privacy Policy is coming soon. DOCTORx respects creator privacy: your stock images, custom keywords, and personal Gemini API keys remain securely partitioned in your browser and are never shared or sold.
+            Our comprehensive Privacy Policy is coming soon. OrbinexaCSV respects creator privacy: your stock images, custom keywords, and personal Gemini API keys remain securely partitioned in your browser and are never shared or sold.
           </p>
         </div>
         <div className="pt-2">

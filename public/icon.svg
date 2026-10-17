@@ -1,7 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="112" fill="#D9560B" />
+  <!-- Solid Black Background Circle -->
+  <circle cx="256" cy="256" r="256" fill="#000000" />
+
+  <!-- Outer Slotted Ring with rounded caps -->
+  <path
+    d="M 288 38 A 220 220 0 0 1 288 474"
+    stroke="#ffffff"
+    stroke-width="24"
+    stroke-linecap="round"
+  />
+  <path
+    d="M 224 474 A 220 220 0 0 1 224 38"
+    stroke="#ffffff"
+    stroke-width="24"
+    stroke-linecap="round"
+  />
+
+  <!-- Inner Disc with Arrow Cutout & Curved Stem -->
   <path
     fill="#ffffff"
-    d="M 75 107.5 L 202 107.5 L 256 175.75 L 310 107.5 L 437 107.5 L 319.5 256 L 437 404.5 L 310 404.5 L 256 336.25 L 202 404.5 L 75 404.5 L 192.5 256 Z"
+    fill-rule="evenodd"
+    d="
+      M 114 346
+      A 168 168 0 1 1 230 422
+      C 208 422 186 405 194 372
+      C 202 340 224 312 246 288
+      L 278 348
+      L 326 168
+      L 164 260
+      L 222 268
+      C 204 296 186 324 172 348
+      C 158 368 136 360 114 346
+      Z
+    "
   />
 </svg>

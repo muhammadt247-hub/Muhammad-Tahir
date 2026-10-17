@@ -60,7 +60,7 @@ export function SimilarityClustersDialog({
             </span>
           </div>
           <DialogDescription className="text-xs text-muted-foreground pt-1">
-            Adobe Stock rejects near-duplicate submissions as spam. DOCTORx identifies similar series and automatically keeps only the single best asset per cluster. Excluded images are never exported to CSV or ZIP.
+            Adobe Stock rejects near-duplicate submissions as spam. OrbinexaCSV identifies similar series and automatically keeps only the single best asset per cluster. Excluded images are never exported to CSV or ZIP.
           </DialogDescription>
         </DialogHeader>
 

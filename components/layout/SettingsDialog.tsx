@@ -96,7 +96,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const jsonStr = exportAllDoctorXData();
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const dateStr = new Date().toISOString().slice(0, 10);
-    downloadBlob(blob, `doctorx_backup_${dateStr}.json`);
+    downloadBlob(blob, `orbinexacsv_backup_${dateStr}.json`);
     toast.success('Workspace exported to JSON');
   };
 

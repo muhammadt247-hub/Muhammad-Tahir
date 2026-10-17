@@ -1,6 +1,6 @@
-# DOCTORx — Microstock Research & Metadata Toolkit
+# OrbinexaCSV — Microstock Research & Metadata Toolkit
 
-**DOCTORx** is a high-performance web toolkit for stock contributors (Adobe Stock, Shutterstock, Freepik). It combines a market-research and analytics engine for Adobe Stock (with prompt reverse-engineering and local moodboards) and an AI metadata generator for high-volume batches (up to 200 assets) with CSV exports formatted to platform upload templates.
+**OrbinexaCSV** is a high-performance web toolkit for stock contributors (Adobe Stock, Shutterstock, Freepik). It combines a market-research and analytics engine for Adobe Stock (with prompt reverse-engineering and local moodboards) and an AI metadata generator for high-volume batches (up to 200 assets) with CSV exports formatted to platform upload templates.
 
 ---
 
@@ -10,7 +10,7 @@
   - **Three Search Modes**:
     1. **Search by Keyword**: Explore marketplace keywords, trends, download volume, and AI vs. Non-AI distribution ratios across Adobe Stock.
     2. **Search by File ID**: Inspect an exact asset by numeric ID (`FILE #`) or by pasting any Adobe Stock URL (e.g. `https://stock.adobe.com/stock-photo/id/2063124677` or `.../images/.../2063124677`). Extracts the numeric file ID, queries the official Adobe Stock Search API with `media_id`, and displays that single asset in a centered card (max 420px) without unrelated items. Includes a direct "More from this contributor" button to pivot to the creator's full portfolio. In demo mode, clearly indicates that File ID search requires live data (never shows fake images for specific file IDs). Restores state from `?mode=file&q=<id>`.
-    3. **Search by Contributor ID**: Analyze portfolios by Contributor ID or pasted profile URL (`stock.adobe.com/contributor/ID/name`). If a user inputs a File ID instead, DOCTORx detects it and offers a friendly one-click prompt: *"This looks like a File ID. Search it in the File ID tab?"*.
+    3. **Search by Contributor ID**: Analyze portfolios by Contributor ID or pasted profile URL (`stock.adobe.com/contributor/ID/name`). If a user inputs a File ID instead, OrbinexaCSV detects it and offers a friendly one-click prompt: *"This looks like a File ID. Search it in the File ID tab?"*.
   - Sort by Most Downloads, Relevance, Newest (creation date), Featured, or Undiscovered.
   - Filter by Content Type (Photo, Illustration, Vector, 3D, Video, Template, Audio) and Generative AI status (All, Non-AI only, AI generated only).
   - Live statistics breakdown: total assets found, Non-AI count, AI count.
@@ -73,9 +73,9 @@ To query live Adobe Stock data and inspect specific assets by File ID:
 5. **Add to `.env.local`**:
    ```bash
    ADOBE_STOCK_API_KEY=your_adobe_client_id_here
-   ADOBE_STOCK_PRODUCT_NAME=DOCTORx/1.0
+   ADOBE_STOCK_PRODUCT_NAME=OrbinexaCSV/1.0
    ```
-6. **Restart Dev Server**: Start the application (`npm run dev`). DOCTORx will automatically detect the key, deactivate demo mode badges, and serve live results directly from Adobe Stock.
+6. **Restart Dev Server**: Start the application (`npm run dev`). OrbinexaCSV will automatically detect the key, deactivate demo mode badges, and serve live results directly from Adobe Stock.
 
 ---
 
@@ -88,7 +88,7 @@ Copy `.env.example` to `.env.local` to customize:
 | `GEMINI_API_KEY` | Google Gemini API key. Injected automatically in AI Studio. | Yes (for AI features) |
 | `GEMINI_MODEL` | Gemini model name (default: `gemini-3.8-flash`). | Optional |
 | `ADOBE_STOCK_API_KEY` | Official Adobe Stock API key for live search queries. | Optional (runs in demo mode without it) |
-| `ADOBE_STOCK_PRODUCT_NAME` | Client product header for Adobe Stock API (default: `DOCTORx/1.0`). | Optional |
+| `ADOBE_STOCK_PRODUCT_NAME` | Client product header for Adobe Stock API (default: `OrbinexaCSV/1.0`). | Optional |
 
 ---
 
@@ -145,7 +145,7 @@ types/
 
 ## How to Add a New Tool
 
-DOCTORx is designed with a centralized tool registry:
+OrbinexaCSV is designed with a centralized tool registry:
 
 1. **Add an entry in `config/tools.ts`**:
    ```ts
@@ -171,7 +171,7 @@ DOCTORx is designed with a centralized tool registry:
 
 ## Set up accounts (Supabase Authentication & Profiles)
 
-DOCTORx features full account authentication using Supabase (`@supabase/supabase-js` and `@supabase/ssr`), with email sign-up, email verification, login, password reset, and user profile management.
+OrbinexaCSV features full account authentication using Supabase (`@supabase/supabase-js` and `@supabase/ssr`), with email sign-up, email verification, login, password reset, and user profile management.
 
 ### 1. Environment Variables
 

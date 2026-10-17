@@ -8,8 +8,9 @@ interface LogoProps extends React.SVGProps<SVGSVGElement> {
 }
 
 /**
- * DOCTORx Geometric "X" Brand Logo
- * Matches the official bold geometric X insignia on brand dark orange.
+ * OrbinexaCSV Official Brand Logo Icon
+ * Circular slotted outer ring with dynamic navigation arrow & curved leaf cleft.
+ * Based precisely on official brand icon asset.
  */
 export function Logo({
   className,
@@ -27,16 +28,45 @@ export function Logo({
       height={size}
       className={cn('shrink-0', className)}
       style={style}
-      aria-label="DOCTORx Logo"
+      aria-label="OrbinexaCSV Logo"
       role="img"
       {...props}
     >
       {withBackground && (
-        <rect width="512" height="512" rx="112" fill="#D9560B" />
+        <circle cx="256" cy="256" r="256" fill="#000000" />
       )}
+
+      {/* Outer Slotted Ring with rounded caps */}
       <path
-        fill={withBackground ? '#ffffff' : 'currentColor'}
-        d="M 75 107.5 L 202 107.5 L 256 175.75 L 310 107.5 L 437 107.5 L 319.5 256 L 437 404.5 L 310 404.5 L 256 336.25 L 202 404.5 L 75 404.5 L 192.5 256 Z"
+        d="M 288 38 A 220 220 0 0 1 288 474"
+        stroke="currentColor"
+        strokeWidth="24"
+        strokeLinecap="round"
+      />
+      <path
+        d="M 224 474 A 220 220 0 0 1 224 38"
+        stroke="currentColor"
+        strokeWidth="24"
+        strokeLinecap="round"
+      />
+
+      {/* Inner White Disc with Negative-Space Arrow Cutout & Curved Stem */}
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="
+          M 114 346
+          A 168 168 0 1 1 230 422
+          C 208 422 186 405 194 372
+          C 202 340 224 312 246 288
+          L 278 348
+          L 326 168
+          L 164 260
+          L 222 268
+          C 204 296 186 324 172 348
+          C 158 368 136 360 114 346
+          Z
+        "
       />
     </svg>
   );

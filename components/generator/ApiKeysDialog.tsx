@@ -236,7 +236,7 @@ export function ApiKeysDialog({
             ) : keys.length === 0 ? (
               <div className="p-4 rounded-xl border border-dashed border-border/60 text-center space-y-1">
                 <p className="text-xs text-muted-foreground">
-                  No custom keys added. DOCTORx will use the server default Gemini key.
+                  No custom keys added. OrbinexaCSV will use the server default Gemini key.
                 </p>
                 <p className="text-[11px] text-muted-foreground/80">
                   Add your own free Google Gemini keys to bypass shared rate limits and process batches faster.

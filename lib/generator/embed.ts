@@ -1,5 +1,5 @@
 /**
- * DOCTORx Metadata Embedding Engine
+ * OrbinexaCSV Metadata Embedding Engine
  *
  * Embeds Title, Description, and Keywords into JPEG and PNG image files
  * WITHOUT re-encoding image pixels (ensuring 100% byte-identical pixel fidelity).
@@ -72,7 +72,7 @@ export function buildXmpPacket(title: string, description: string, keywords: str
     .join('\n');
 
   return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
-<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="DOCTORx Toolkit">
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="OrbinexaCSV Toolkit">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
   <rdf:Description rdf:about=""
     xmlns:dc="http://purl.org/dc/elements/1.1/"
@@ -220,7 +220,7 @@ function buildJpegExifSegment(title: string, description: string, keywords: stri
   const descBytes = encoder.encode(description ? description + '\0' : '');
   const xpTitleBytes = title ? toUtf16Le(title) : new Uint8Array(0);
   const xpKeywordsBytes = keywords.length > 0 ? toUtf16Le(keywords.join('; ')) : new Uint8Array(0);
-  const softwareBytes = encoder.encode('DOCTORx\0');
+  const softwareBytes = encoder.encode('OrbinexaCSV\0');
 
   // Build IFD entries (Little-Endian 'II')
   type IfdEntry = { tag: number; type: number; count: number; data: Uint8Array | number };

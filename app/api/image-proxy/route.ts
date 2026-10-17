@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
     const response = await fetch(imageUrl, {
       headers: {
-        'User-Agent': 'DOCTORx-Toolkit/1.0',
+        'User-Agent': 'OrbinexaCSV-Toolkit/1.0',
       },
     });
 

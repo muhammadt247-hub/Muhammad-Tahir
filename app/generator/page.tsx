@@ -15,6 +15,7 @@ import { SimilarityClustersDialog } from '@/components/generator/SimilarityClust
 import { DeleteSimilarDialog } from '@/components/generator/DeleteSimilarDialog';
 import { SimilarityProgressCard } from '@/components/generator/SimilarityProgressCard';
 import { ComplianceReportDialog } from '@/components/generator/ComplianceReportDialog';
+import { OutOfCreditsDialog } from '@/components/generator/OutOfCreditsDialog';
 import { PLATFORM_SPECS } from '@/config/platforms';
 import {
   GeneratorSavedSettings,
@@ -85,6 +86,10 @@ export default function GeneratorPage() {
     skippedCount: 0,
     failedFiles: [],
   });
+
+  // Out of Credits Dialog
+  const [outOfCreditsOpen, setOutOfCreditsOpen] = useState(false);
+  const [outOfCreditsBalance, setOutOfCreditsBalance] = useState(0);
 
   const queueRef = useRef<GeneratorQueue | null>(null);
 
@@ -412,7 +417,7 @@ export default function GeneratorPage() {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const exportFilename =
         settings.platform === 'adobe-stock'
-          ? 'doctorx_adobe-stock_export.csv'
+          ? 'orbinexacsv_adobe-stock_export.csv'
           : `${settings.platform}_metadata_${dateStr}.csv`;
       downloadBlob(blob, exportFilename);
       toast.success(`Exported ${validItems.length} metadata rows for ${settings.platform}`);
@@ -581,6 +586,13 @@ export default function GeneratorPage() {
           window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
           return;
         }
+        if (res.status === 402) {
+          const errData = await res.json().catch(() => ({}));
+          const balance = typeof errData?.error?.balance === 'number' ? errData.error.balance : 0;
+          setOutOfCreditsBalance(balance);
+          setOutOfCreditsOpen(true);
+          return;
+        }
         if (!res.ok) {
           throw new Error('Failed to retitle image');
         }
@@ -696,6 +708,14 @@ export default function GeneratorPage() {
               model: settings.selectedModel,
             }),
           });
+
+          if (res.status === 402) {
+            const errData = await res.json().catch(() => ({}));
+            const balance = typeof errData?.error?.balance === 'number' ? errData.error.balance : 0;
+            setOutOfCreditsBalance(balance);
+            setOutOfCreditsOpen(true);
+            return;
+          }
 
           if (res.ok) {
             const data = await res.json();
@@ -823,6 +843,10 @@ export default function GeneratorPage() {
       onStateChange: (running, paused) => {
         setIsGenerating(running);
         setIsPaused(paused);
+      },
+      onOutOfCredits: (balance: number) => {
+        setOutOfCreditsBalance(balance);
+        setOutOfCreditsOpen(true);
       },
       onComplete: () => {
         setIsGenerating(false);
@@ -1328,6 +1352,13 @@ export default function GeneratorPage() {
         onFixTitle={handleFixTitle}
         onApproveAmbiguous={handleApproveIssue}
         onFixSimilarTitles={handleFixSimilarTitles}
+      />
+
+      {/* Out of Credits Dialog */}
+      <OutOfCreditsDialog
+        open={outOfCreditsOpen}
+        onOpenChange={setOutOfCreditsOpen}
+        balance={outOfCreditsBalance}
       />
     </div>
   );

@@ -117,7 +117,7 @@ export function Header() {
           <Link
             href={isLoggedIn ? '/generator' : '/login'}
             className="flex items-center gap-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-xl shrink-0"
-            aria-label="DOCTORx Home"
+            aria-label="OrbinexaCSV Home"
           >
             {/* Logo Tile: two layers for pop-10 and logo-spin */}
             <div className="pop-10 shrink-0">
@@ -196,7 +196,7 @@ export function Header() {
                   className="w-80 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
                 >
                   <DropdownMenuLabel className="flex items-center justify-between text-xs text-muted-foreground px-2 py-1.5">
-                    <span className="font-semibold text-foreground">DOCTORx Toolkit</span>
+                    <span className="font-semibold text-foreground">OrbinexaCSV Toolkit</span>
                     <Link
                       href="/tools"
                       className="text-[11px] text-primary hover:underline font-semibold"

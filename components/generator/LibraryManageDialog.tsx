@@ -138,7 +138,7 @@ export function LibraryManageDialog({
             </span>
           </div>
           <DialogDescription className="text-xs text-muted-foreground pt-1">
-            DOCTORx saves mathematical fingerprints (never full photos) of files you export. New uploads are checked against this library to prevent submitting near-identical files across different sessions.
+            OrbinexaCSV saves mathematical fingerprints (never full photos) of files you export. New uploads are checked against this library to prevent submitting near-identical files across different sessions.
           </DialogDescription>
         </DialogHeader>
 

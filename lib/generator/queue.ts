@@ -97,6 +97,7 @@ export interface QueueCallbacks {
   onProgress?: (doneCount: number, totalCount: number, failedCount: number) => void;
   onProgressUpdate?: (state: QueueProgressState) => void;
   onStateChange?: (isGenerating: boolean, isPaused: boolean) => void;
+  onOutOfCredits?: (balance: number) => void;
 }
 
 export class GeneratorQueue {
@@ -226,9 +227,11 @@ export class GeneratorQueue {
     this.abortController = new AbortController();
     this.callbacks.onStateChange?.(true, false);
 
-    // Strictly process pending items (queued or failed)
+    // Strictly process pending items (queued or failed), never sending excluded images
     // Done items are preserved without duplication
-    const pendingItems = this.items.filter((i) => i.status === 'queued' || i.status === 'failed');
+    const pendingItems = this.items.filter(
+      (i) => (i.status === 'queued' || i.status === 'failed') && !i.isExcluded
+    );
 
     if (pendingItems.length === 0) {
       this.isRunning = false;
@@ -251,10 +254,8 @@ export class GeneratorQueue {
       this.currentItemIndex = overallIndex !== -1 ? overallIndex + 1 : i + 1;
       this.currentFilename = item.fileData.originalName;
 
-      // Skip AI generation if excluded to save quota
-      if (this.settings.skipAiGenerationForExcluded && item.isExcluded) {
-        item.status = 'queued';
-        this.callbacks.onItemUpdate({ ...item });
+      // Do not charge for or send excluded or skipped images
+      if (item.isExcluded) {
         continue;
       }
 
@@ -435,6 +436,21 @@ export class GeneratorQueue {
         }
 
         const resData = await res.json().catch(() => ({}));
+
+        // Handle 402 Out of credits
+        if (res.status === 402) {
+          const balance =
+            typeof resData?.error?.balance === 'number'
+              ? resData.error.balance
+              : 0;
+          item.status = 'failed';
+          item.httpStatus = 402;
+          item.errorMessage = 'Out of credits. Contact support to add more.';
+          this.callbacks.onItemUpdate({ ...item });
+          this.stop();
+          this.callbacks.onOutOfCredits?.(balance);
+          return false;
+        }
 
         // Handle 429 Rate Limit / Quota Exhaustion
         if (res.status === 429) {

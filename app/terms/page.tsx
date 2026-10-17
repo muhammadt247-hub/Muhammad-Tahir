@@ -17,7 +17,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Our full Terms of Service will be available soon. By using DOCTORx during the preview period, you agree to comply with all applicable stock agency guidelines and fair use policies.
+            Our full Terms of Service will be available soon. By using OrbinexaCSV during the preview period, you agree to comply with all applicable stock agency guidelines and fair use policies.
           </p>
         </div>
         <div className="pt-2">

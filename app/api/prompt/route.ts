@@ -56,7 +56,7 @@ async function getImagePart(imageUrl: string) {
 
   // Remote image URL
   const res = await fetch(imageUrl, {
-    headers: { 'User-Agent': 'DOCTORx-Toolkit/1.0' },
+    headers: { 'User-Agent': 'OrbinexaCSV-Toolkit/1.0' },
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch image thumbnail: HTTP ${res.status}`);
