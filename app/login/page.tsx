@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { isSupabaseConfigured, getSupabaseEnv } from '@/lib/supabase/config';
+import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,7 +40,10 @@ function LoginForm() {
   useEffect(() => {
     const errorParam = searchParams.get('error');
     if (errorParam === 'auth-callback-failed') {
-      setErrorMessage('Verification link was invalid or expired. Please try logging in or request a new link.');
+      setErrorMessage(
+        'This link has expired or was already used. If you already confirmed your email, just log in. Otherwise enter your email below to get a new link.'
+      );
+      setIsUnconfirmed(true);
     }
   }, [searchParams]);
 
@@ -125,11 +128,8 @@ function LoginForm() {
     setIsResending(true);
     try {
       const supabase = createClient();
-      const origin =
-        typeof window !== 'undefined'
-          ? window.location.origin
-          : getSupabaseEnv().siteUrl || '';
-      const emailRedirectTo = `${origin}/auth/callback?next=/generator`;
+      const siteUrl = getSiteUrl();
+      const emailRedirectTo = `${siteUrl}/auth/callback?next=/generator`;
 
       const { error } = await supabase.auth.resend({
         type: 'signup',

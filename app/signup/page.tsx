@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { isSupabaseConfigured, getSupabaseEnv } from '@/lib/supabase/config';
+import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -101,11 +101,8 @@ export default function SignupPage() {
     setIsSubmitting(true);
     try {
       const supabase = createClient();
-      const origin =
-        typeof window !== 'undefined'
-          ? window.location.origin
-          : getSupabaseEnv().siteUrl || '';
-      const emailRedirectTo = `${origin}/auth/callback?next=/generator`;
+      const siteUrl = getSiteUrl();
+      const emailRedirectTo = `${siteUrl}/auth/callback?next=/generator`;
 
       const { data, error } = await supabase.auth.signUp({
         email: cleanEmail,
@@ -141,11 +138,8 @@ export default function SignupPage() {
     setIsResending(true);
     try {
       const supabase = createClient();
-      const origin =
-        typeof window !== 'undefined'
-          ? window.location.origin
-          : getSupabaseEnv().siteUrl || '';
-      const emailRedirectTo = `${origin}/auth/callback?next=/generator`;
+      const siteUrl = getSiteUrl();
+      const emailRedirectTo = `${siteUrl}/auth/callback?next=/generator`;
 
       const { error } = await supabase.auth.resend({
         type: 'signup',

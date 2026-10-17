@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { isSupabaseConfigured, getSupabaseEnv } from '@/lib/supabase/config';
+import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -53,11 +53,8 @@ export default function ForgotPasswordPage() {
     setIsSubmitting(true);
     try {
       const supabase = createClient();
-      const origin =
-        typeof window !== 'undefined'
-          ? window.location.origin
-          : getSupabaseEnv().siteUrl || '';
-      const redirectTo = `${origin}/auth/callback?next=/reset-password`;
+      const siteUrl = getSiteUrl();
+      const redirectTo = `${siteUrl}/auth/callback?next=/reset-password`;
 
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo,
