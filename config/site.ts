@@ -7,7 +7,8 @@ export const SITE_CONFIG = {
   // External links (fill in as needed, menu hides items if empty)
   CHROME_EXTENSION_URL: '', // Set e.g. 'https://chromewebstore.google.com/detail/...'
   HOW_TO_USE_URL: 'https://youtube.com',
-  SUPPORT_URL: 'mailto:fox7mind@gmail.com',
+  SUPPORT_EMAIL: 'support@orbinexacsv.com',
+  SUPPORT_URL: 'mailto:support@orbinexacsv.com',
 
   PAGE_TITLE: 'OrbinexaCSV — Adobe Stock Analytics, Prompt & Metadata Generator',
   PAGE_DESCRIPTION: 'Complete microstock research and metadata generation toolkit for Adobe Stock, Shutterstock, and Freepik contributors. Search, analyze, reverse-engineer prompts, and generate bulk metadata.',

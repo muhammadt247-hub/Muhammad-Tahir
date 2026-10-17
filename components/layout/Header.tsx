@@ -23,6 +23,7 @@ import {
   Zap,
   User as UserIcon,
   LogOut,
+  Coins,
 } from 'lucide-react';
 import { SITE_CONFIG } from '@/config/site';
 import { TOOLS_REGISTRY } from '@/config/tools';
@@ -37,9 +38,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Skeleton } from '@/components/ui/skeleton';
 import { HelpDialog } from './HelpDialog';
 import { SettingsDialog } from './SettingsDialog';
 import { useAuth } from '@/components/AuthProvider';
+import { useCredits } from '@/components/CreditsProvider';
+import { CreditsDialog } from '@/components/credits/CreditsDialog';
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
   Sparkles: <Sparkles className="h-4 w-4" />,
@@ -63,6 +67,33 @@ export function Header() {
 
   const { user, profile, loading: authLoading, signOut } = useAuth();
   const isLoggedIn = !!user;
+  const { balance, received, loading: creditsLoading, isDialogOpen, setIsDialogOpen, openDialog } = useCredits();
+
+  // Credits badge calculation
+  const creditPercent = received > 0 ? Math.min(100, Math.max(0, Math.round((balance / received) * 100))) : balance > 0 ? 100 : 0;
+  const isCreditZero = balance === 0;
+  const isCreditLow = balance > 0 && balance <= 20;
+
+  const creditColors = isCreditZero
+    ? {
+        text: 'text-red-500 dark:text-red-400',
+        bg: 'bg-red-500/10 hover:bg-red-500/15',
+        border: 'border-red-500/30 hover:border-red-500/50',
+        bar: 'bg-red-500',
+      }
+    : isCreditLow
+    ? {
+        text: 'text-amber-600 dark:text-amber-400',
+        bg: 'bg-amber-500/10 hover:bg-amber-500/15',
+        border: 'border-amber-500/30 hover:border-amber-500/50',
+        bar: 'bg-amber-500',
+      }
+    : {
+        text: 'text-orange-600 dark:text-orange-500',
+        bg: 'bg-orange-500/10 hover:bg-orange-500/15',
+        border: 'border-orange-500/30 hover:border-orange-500/50',
+        bar: 'bg-gradient-to-r from-orange-600 to-amber-500',
+      };
 
   // Close mobile menu on Esc key
   useEffect(() => {
@@ -334,6 +365,54 @@ export function Header() {
                   <TooltipContent>{isDark ? 'Light Mode' : 'Dark Mode'}</TooltipContent>
                 </Tooltip>
 
+                {/* Credits Badge (left of avatar button) */}
+                {creditsLoading ? (
+                  <Skeleton className="h-9 w-16 sm:w-24 rounded-full" />
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={openDialog}
+                        className={cn(
+                          'flex flex-col justify-center px-2.5 sm:px-3 h-9 rounded-full border transition-all pop-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer select-none',
+                          creditColors.bg,
+                          creditColors.border,
+                          creditColors.text
+                        )}
+                        aria-label={`Your credits: ${balance} left. Click to view history.`}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold text-xs font-mono leading-none">
+                          <Coins className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+                          {isCreditZero ? (
+                            <>
+                              <span className="sm:hidden font-bold">0</span>
+                              <span className="hidden sm:inline font-sans text-[11px] font-bold">Out of credits</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="sm:hidden">{balance}</span>
+                              <span className="hidden sm:inline">{balance} left</span>
+                            </>
+                          )}
+                        </div>
+                        {/* Thin progress bar showing balance / total received */}
+                        <div className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden mt-1">
+                          <div
+                            className={cn('h-full rounded-full transition-all duration-300', creditColors.bar)}
+                            style={{ width: `${creditPercent}%` }}
+                          />
+                        </div>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isCreditZero
+                        ? 'Out of credits · Click to view history'
+                        : `${balance} credits left · Click to view history`}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+
                 {/* Avatar Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -355,6 +434,18 @@ export function Header() {
                       <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
                     </div>
                     <div className="pt-1">
+                      <DropdownMenuItem
+                        onClick={openDialog}
+                        className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors flex items-center justify-between text-xs font-semibold text-foreground"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Coins className="h-4 w-4 text-orange-500" />
+                          <span>Credits</span>
+                        </div>
+                        <span className={`font-mono text-[11px] font-bold ${creditColors.text}`}>
+                          {balance} left
+                        </span>
+                      </DropdownMenuItem>
                       <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
                         <Link href="/account" className="flex items-center gap-2.5 w-full text-xs font-semibold text-foreground">
                           <UserIcon className="h-4 w-4 text-primary" />
@@ -525,6 +616,24 @@ export function Header() {
             </div>
 
             <div className="pt-2 border-t border-border/40 space-y-1">
+              {/* Credits button in mobile */}
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openDialog();
+                }}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Coins className="h-4 w-4 text-orange-500" />
+                  <span>Credits</span>
+                </div>
+                <span className={`font-mono text-xs font-bold ${creditColors.text}`}>
+                  {balance} left
+                </span>
+              </button>
+
               {/* Account Link in mobile */}
               <Link
                 href="/account"
@@ -581,6 +690,7 @@ export function Header() {
       {/* Global Interactive Dialogs */}
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <CreditsDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
     </>
   );
 }
