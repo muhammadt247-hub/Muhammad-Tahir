@@ -128,7 +128,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
 
       if (event === 'SIGNED_OUT') {
-        router.refresh();
+        const path = typeof window !== 'undefined' ? window.location.pathname : '';
+        const isProtected =
+          path.startsWith('/generator') ||
+          path.startsWith('/adobe-analytics') ||
+          path.startsWith('/tools') ||
+          path.startsWith('/account');
+        if (isProtected) {
+          window.location.assign('/login');
+        } else {
+          router.refresh();
+        }
+      }
+
+      if (event === 'INITIAL_SESSION' && !session) {
+        const path = typeof window !== 'undefined' ? window.location.pathname : '';
+        const isPublic =
+          path === '/login' ||
+          path === '/signup' ||
+          path === '/forgot-password' ||
+          path === '/reset-password' ||
+          path.startsWith('/auth/');
+        if (isPublic) {
+          // do nothing
+        }
       }
     });
 

@@ -13,6 +13,8 @@ export async function updateSession(request: NextRequest) {
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/auth/callback') ||
+    pathname.startsWith('/auth/signout') ||
     pathname === '/icon.svg' ||
     pathname.includes('.')
   ) {

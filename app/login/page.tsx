@@ -44,15 +44,19 @@ function LoginForm() {
     return <AccountsNotConfigured />;
   }
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorMessage(null);
     setIsUnconfirmed(false);
     setResendSuccess(false);
 
-    const cleanEmail = email.trim();
-    if (!cleanEmail || !password) {
-      setErrorMessage('Please enter both email and password.');
+    const formData = new FormData(e.currentTarget);
+    const rawEmail = (formData.get('email') as string) || email;
+    const passwordInput = (formData.get('password') as string) || password;
+    const cleanEmail = rawEmail.trim();
+
+    if (!cleanEmail || !passwordInput) {
+      setErrorMessage('Wrong email or password');
       return;
     }
 
@@ -61,57 +65,51 @@ function LoginForm() {
       const supabase = createClient();
       const { data, error } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
-        password,
+        password: passwordInput,
       });
 
       if (error) {
+        console.error('Login error code:', error.code || error.status);
         const lowerMsg = (error.message || '').toLowerCase();
 
-        // 1. Check if email is not confirmed
         if (
           lowerMsg.includes('email not confirmed') ||
           lowerMsg.includes('not confirmed') ||
-          error.status === 400 && lowerMsg.includes('confirm')
+          (error.status === 400 && lowerMsg.includes('confirm'))
         ) {
           setIsUnconfirmed(true);
-          setErrorMessage('Your email address has not been confirmed yet.');
+          setErrorMessage('Please confirm your email first');
           setIsSubmitting(false);
           return;
         }
 
-        // 2. Check if rate-limited
         if (
           lowerMsg.includes('too many') ||
           lowerMsg.includes('rate limit') ||
           error.status === 429
         ) {
-          setErrorMessage('Too many login attempts. Please wait a few minutes before trying again.');
+          setErrorMessage('Too many attempts, wait a minute');
           setIsSubmitting(false);
           return;
         }
 
-        // 3. Security requirement: No user enumeration!
-        // Same message for wrong password and unknown email
-        setErrorMessage('Invalid email or password.');
+        setErrorMessage('Wrong email or password');
         setIsSubmitting(false);
         return;
       }
 
       toast.success('Logged in successfully!');
 
-      // Safe redirect validation: only allow paths that start with single /
       const nextParam = searchParams.get('next');
       const safeNext =
         nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//')
           ? nextParam
           : '/generator';
 
-      router.push(safeNext);
-      router.refresh();
+      window.location.assign(safeNext);
     } catch (err: unknown) {
-      console.error('Login error:', err);
-      setErrorMessage('An unexpected error occurred. Please try again.');
-    } finally {
+      console.error('Login network error:', err);
+      setErrorMessage('Could not reach the server');
       setIsSubmitting(false);
     }
   };
@@ -197,6 +195,7 @@ function LoginForm() {
             <div className="relative">
               <Input
                 id="login-email"
+                name="email"
                 type="email"
                 required
                 autoComplete="email"
@@ -224,6 +223,7 @@ function LoginForm() {
             <div className="relative">
               <Input
                 id="login-password"
+                name="password"
                 type={showPassword ? 'text' : 'password'}
                 required
                 autoComplete="current-password"
