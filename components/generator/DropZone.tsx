@@ -121,9 +121,10 @@ export function DropZone({
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      data-no-pop
       className={cn(
-        'rounded-2xl border-2 border-dashed border-border/60 bg-accent/20 min-h-[200px] flex flex-col items-center justify-center p-6 text-center transition-all select-none pop-10',
-        isDragOver && 'border-primary bg-primary/5 scale-[0.99]',
+        'dropzone-static rounded-2xl border-2 border-dashed border-border/60 bg-accent/20 min-h-[200px] flex flex-col items-center justify-center p-6 text-center transition-colors select-none overflow-hidden',
+        isDragOver && 'border-primary bg-primary/5',
         disabled && 'opacity-60 cursor-not-allowed'
       )}
     >
@@ -135,28 +136,30 @@ export function DropZone({
         className="hidden"
         onChange={handleFileInputChange}
         disabled={disabled}
+        data-no-pop
       />
 
-      <div className="w-14 h-14 rounded-2xl bg-card shadow-sm flex items-center justify-center text-primary mb-3">
+      <div data-no-pop className="w-14 h-14 rounded-2xl bg-card shadow-sm flex items-center justify-center text-primary mb-3">
         <UploadCloud className="h-7 w-7" />
       </div>
 
-      <div className="flex items-center gap-1.5 mb-3">
-        <span className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
+      <div data-no-pop className="flex items-center gap-1.5 mb-3">
+        <span data-no-pop className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
           <ImageIcon className="h-2.5 w-2.5" /> Images
         </span>
-        <span className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
+        <span data-no-pop className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
           <Video className="h-2.5 w-2.5" /> Videos
         </span>
-        <span className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
+        <span data-no-pop className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
           <FileCode className="h-2.5 w-2.5" /> SVG
         </span>
       </div>
 
-      <p className="text-sm text-foreground">
+      <p data-no-pop className="text-sm text-foreground">
         Drag &amp; drop files here, or{' '}
         <button
           type="button"
+          data-no-pop
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
           className="underline font-semibold text-primary hover:opacity-80 transition-opacity focus:outline-none"
@@ -165,7 +168,7 @@ export function DropZone({
         </button>
       </p>
 
-      <p className="text-[11px] text-muted-foreground mt-1">
+      <p data-no-pop className="text-[11px] text-muted-foreground mt-1">
         Supports image, video &amp; SVG · Large batch ready (up to {maxFiles} files)
       </p>
     </div>

@@ -114,9 +114,10 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
   const updateBalanceLocally = useCallback((creditsRemaining: number) => {
     if (typeof creditsRemaining === 'number') {
       setBalance(creditsRemaining);
+      setUsed(Math.max(0, received - creditsRemaining));
       setHasError(false);
     }
-  }, []);
+  }, [received]);
 
   const openDialog = useCallback(() => {
     setIsDialogOpen(true);

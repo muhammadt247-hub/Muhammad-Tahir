@@ -72,23 +72,17 @@ export async function GET() {
     }
 
     const allRows = txRows || [];
-    let spendSum = 0;
-    let refundSum = 0;
 
     for (const row of allRows) {
       const amt = typeof row.amount === 'number' ? row.amount : Number(row.amount) || 0;
       const kind = (row.kind || '').toLowerCase();
       if (kind === 'bonus' || kind === 'grant') {
         received += amt;
-      } else if (kind === 'spend') {
-        spendSum += amt;
-      } else if (kind === 'refund') {
-        refundSum += amt;
       }
     }
 
-    // used = max(0, (-sum(amount where kind='spend')) + sum(amount where kind='refund'))
-    used = Math.max(0, -spendSum + refundSum);
+    // used = max(0, received - left)
+    used = Math.max(0, received - left);
 
     // Latest 10 transactions
     transactions = allRows.slice(0, 10).map((row) => ({

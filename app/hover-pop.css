@@ -10,3 +10,6 @@
   [role="combobox"]:not([data-no-pop]):hover,
   .pop-10:not([data-no-pop]):hover { scale: 1.1; }
 }
+
+.dropzone-static, .dropzone-static * { scale: none !important; }
+.dropzone-static:hover, .dropzone-static:focus-within, .dropzone-static:active { scale: none !important; transform: none !important; }

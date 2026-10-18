@@ -222,9 +222,10 @@ export function UploadZone({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
-        className={`relative flex flex-col items-center justify-center p-8 sm:p-12 rounded-2xl border-2 border-dashed transition-all cursor-pointer ${
+        data-no-pop
+        className={`dropzone-static relative flex flex-col items-center justify-center p-8 sm:p-12 rounded-2xl border-2 border-dashed transition-colors cursor-pointer overflow-hidden ${
           isDragging
-            ? 'border-primary bg-primary/5 scale-[1.005]'
+            ? 'border-primary bg-primary/5'
             : 'border-border/60 bg-card/40 hover:border-border hover:bg-card/70'
         } ${disabled ? 'pointer-events-none opacity-50' : ''}`}
       >
@@ -240,9 +241,10 @@ export function UploadZone({
             }
           }}
           className="hidden"
+          data-no-pop
         />
 
-        <div className="w-14 h-14 rounded-2xl bg-foreground text-background flex items-center justify-center shadow-md shadow-foreground/10 mb-4 transition-transform group-hover:scale-105">
+        <div data-no-pop className="w-14 h-14 rounded-2xl bg-foreground text-background flex items-center justify-center shadow-md shadow-foreground/10 mb-4">
           {processing ? (
             <RefreshCw className="h-6 w-6 animate-spin text-background" />
           ) : (
