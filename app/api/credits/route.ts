@@ -1,39 +1,54 @@
 import { NextResponse } from 'next/server';
-import { createClient, requireUser } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/supabase/server';
+import { getAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const user = await requireUser();
-  if (!user) {
+  if (user instanceof NextResponse) {
+    return user;
+  }
+  if (!user || !user.id) {
     return NextResponse.json(
       { error: { code: 'unauthorized', message: 'Please log in to view credits.' } },
       { status: 401 }
     );
   }
 
-  const supabase = await createClient();
+  const admin = getAdminClient();
 
-  let balance = 0;
-  let totalReceived = 0;
-  let totalSpent = 0;
-
-  // 1. Call my_credit_summary() RPC using normal logged-in client
+  // 1. Read balance from credit_wallets for user.id
+  let left = 0;
   try {
-    const { data: summaryData, error: summaryError } = await supabase.rpc('my_credit_summary');
-    if (!summaryError && summaryData && summaryData.length > 0) {
-      const row = summaryData[0];
-      balance = typeof row.balance === 'number' ? row.balance : Number(row.balance) || 0;
-      totalReceived = typeof row.total_received === 'number' ? row.total_received : Number(row.total_received) || 0;
-      totalSpent = typeof row.total_spent === 'number' ? row.total_spent : Number(row.total_spent) || 0;
-    } else if (summaryError) {
-      console.warn('my_credit_summary RPC error:', summaryError.message);
+    const { data: walletData, error: walletError } = await admin
+      .from('credit_wallets')
+      .select('balance')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (walletError) {
+      console.error('Failed to read credit_wallets:', walletError);
+      return NextResponse.json(
+        { error: { code: 'credits_unavailable', message: 'Failed to read credit balance.' } },
+        { status: 500 }
+      );
+    }
+
+    if (walletData && typeof walletData.balance === 'number') {
+      left = walletData.balance;
     }
   } catch (err) {
-    console.warn('Failed to call my_credit_summary RPC:', err);
+    console.error('Failed to query credit_wallets:', err);
+    return NextResponse.json(
+      { error: { code: 'credits_unavailable', message: 'Failed to query credit_wallets.' } },
+      { status: 500 }
+    );
   }
 
-  // 2. Read latest 10 rows of credit_transactions for the logged-in user
+  // 2. Read rows from credit_transactions for user.id
+  let received = 0;
+  let used = 0;
   let transactions: Array<{
     createdAt: string;
     amount: number;
@@ -42,30 +57,61 @@ export async function GET() {
   }> = [];
 
   try {
-    const { data: txData, error: txError } = await supabase
+    const { data: txRows, error: txError } = await admin
       .from('credit_transactions')
       .select('created_at, amount, kind, reason')
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
-    if (!txError && Array.isArray(txData)) {
-      transactions = txData.map((row) => ({
-        createdAt: row.created_at || new Date().toISOString(),
-        amount: typeof row.amount === 'number' ? row.amount : Number(row.amount) || 0,
-        kind: row.kind || 'transaction',
-        reason: row.reason || '',
-      }));
-    } else if (txError) {
-      console.warn('credit_transactions query error:', txError.message);
+    if (txError) {
+      console.error('Failed to read credit_transactions:', txError);
+      return NextResponse.json(
+        { error: { code: 'credits_unavailable', message: 'Failed to read credit transactions.' } },
+        { status: 500 }
+      );
     }
+
+    const allRows = txRows || [];
+    let spendSum = 0;
+    let refundSum = 0;
+
+    for (const row of allRows) {
+      const amt = typeof row.amount === 'number' ? row.amount : Number(row.amount) || 0;
+      const kind = (row.kind || '').toLowerCase();
+      if (kind === 'bonus' || kind === 'grant') {
+        received += amt;
+      } else if (kind === 'spend') {
+        spendSum += amt;
+      } else if (kind === 'refund') {
+        refundSum += amt;
+      }
+    }
+
+    // used = max(0, (-sum(amount where kind='spend')) + sum(amount where kind='refund'))
+    used = Math.max(0, -spendSum + refundSum);
+
+    // Latest 10 transactions
+    transactions = allRows.slice(0, 10).map((row) => ({
+      createdAt: row.created_at || new Date().toISOString(),
+      amount: typeof row.amount === 'number' ? row.amount : Number(row.amount) || 0,
+      kind: row.kind || 'transaction',
+      reason: row.reason || '',
+    }));
   } catch (err) {
-    console.warn('Failed to query credit_transactions:', err);
+    console.error('Failed to query credit_transactions:', err);
+    return NextResponse.json(
+      { error: { code: 'credits_unavailable', message: 'Failed to query credit transactions.' } },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({
-    balance,
-    totalReceived,
-    totalSpent,
+    left,
+    balance: left,
+    received,
+    totalReceived: received,
+    used,
+    totalSpent: used,
     transactions,
   });
 }

@@ -67,10 +67,24 @@ export function Header() {
 
   const { user, profile, loading: authLoading, signOut } = useAuth();
   const isLoggedIn = !!user;
-  const { balance, received, loading: creditsLoading, isDialogOpen, setIsDialogOpen, openDialog } = useCredits();
+  const {
+    balance,
+    received,
+    loading: creditsLoading,
+    hasError: creditsError,
+    isDialogOpen,
+    setIsDialogOpen,
+    openDialog,
+    refresh: refreshCredits,
+  } = useCredits();
 
   // Credits badge calculation
-  const creditPercent = received > 0 ? Math.min(100, Math.max(0, Math.round((balance / received) * 100))) : balance > 0 ? 100 : 0;
+  const creditPercent =
+    received > 0
+      ? Math.min(100, Math.max(0, (balance / received) * 100))
+      : balance > 0
+      ? 100
+      : 0;
   const isCreditZero = balance === 0;
   const isCreditLow = balance > 0 && balance <= 20;
 
@@ -367,7 +381,25 @@ export function Header() {
 
                 {/* Credits Badge (left of avatar button) */}
                 {creditsLoading ? (
-                  <Skeleton className="h-9 w-16 sm:w-24 rounded-full" />
+                  <Skeleton className="h-9 w-24 sm:w-28 rounded-full" />
+                ) : creditsError ? (
+                  <div
+                    className="flex items-center gap-1.5 px-3 h-9 rounded-full border border-border/60 bg-muted/40 text-muted-foreground text-xs select-none"
+                    aria-label="Credits unavailable"
+                  >
+                    <Coins className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="font-medium text-[11px] whitespace-nowrap">Credits unavailable</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        refreshCredits();
+                      }}
+                      className="ml-1 text-[11px] font-semibold underline text-foreground/80 hover:text-foreground cursor-pointer"
+                    >
+                      Retry
+                    </button>
+                  </div>
                 ) : (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -380,7 +412,7 @@ export function Header() {
                           creditColors.border,
                           creditColors.text
                         )}
-                        aria-label={`Your credits: ${balance} left. Click to view history.`}
+                        aria-label={`Your credits: ${balance} left of ${received}. Click to view history.`}
                       >
                         <div className="flex items-center gap-1.5 font-bold text-xs font-mono leading-none">
                           <Coins className="h-3.5 w-3.5 shrink-0 text-orange-500" />
@@ -391,12 +423,12 @@ export function Header() {
                             </>
                           ) : (
                             <>
-                              <span className="sm:hidden">{balance}</span>
-                              <span className="hidden sm:inline">{balance} left</span>
+                              <span className="sm:hidden">{received > 0 ? `${balance}/${received}` : `${balance}`}</span>
+                              <span className="hidden sm:inline">{received > 0 ? `${balance} left of ${received}` : `${balance} left`}</span>
                             </>
                           )}
                         </div>
-                        {/* Thin progress bar showing balance / total received */}
+                        {/* Thin progress bar showing left divided by received */}
                         <div className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden mt-1">
                           <div
                             className={cn('h-full rounded-full transition-all duration-300', creditColors.bar)}
@@ -408,7 +440,7 @@ export function Header() {
                     <TooltipContent>
                       {isCreditZero
                         ? 'Out of credits · Click to view history'
-                        : `${balance} credits left · Click to view history`}
+                        : `${balance} left of ${received} credits · Click to view history`}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -442,8 +474,14 @@ export function Header() {
                           <Coins className="h-4 w-4 text-orange-500" />
                           <span>Credits</span>
                         </div>
-                        <span className={`font-mono text-[11px] font-bold ${creditColors.text}`}>
-                          {balance} left
+                        <span className={`font-mono text-[11px] font-bold ${creditsError ? 'text-muted-foreground' : creditColors.text}`}>
+                          {creditsError
+                            ? 'Unavailable'
+                            : isCreditZero
+                            ? 'Out of credits'
+                            : received > 0
+                            ? `${balance} left of ${received}`
+                            : `${balance} left`}
                         </span>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
@@ -629,8 +667,14 @@ export function Header() {
                   <Coins className="h-4 w-4 text-orange-500" />
                   <span>Credits</span>
                 </div>
-                <span className={`font-mono text-xs font-bold ${creditColors.text}`}>
-                  {balance} left
+                <span className={`font-mono text-xs font-bold ${creditsError ? 'text-muted-foreground' : creditColors.text}`}>
+                  {creditsError
+                    ? 'Unavailable'
+                    : isCreditZero
+                    ? 'Out of credits'
+                    : received > 0
+                    ? `${balance} left of ${received}`
+                    : `${balance} left`}
                 </span>
               </button>
 

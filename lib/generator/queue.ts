@@ -98,6 +98,16 @@ export interface QueueCallbacks {
   onProgressUpdate?: (state: QueueProgressState) => void;
   onStateChange?: (isGenerating: boolean, isPaused: boolean) => void;
   onOutOfCredits?: (balance: number) => void;
+  onCreditsRemaining?: (creditsRemaining: number) => void;
+}
+
+export function isItemExcluded(item: GeneratorItemState): boolean {
+  if (item.isExcluded) return true;
+  if (item.fileData.width > 0 && item.fileData.height > 0) {
+    const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
+    if (mp < 4.0) return true;
+  }
+  return false;
 }
 
 export class GeneratorQueue {
@@ -183,7 +193,7 @@ export class GeneratorQueue {
     ).length;
     const failed = this.items.filter((i) => i.status === 'failed').length;
     const pending = this.items.filter(
-      (i) => i.status === 'queued' || i.status === 'working'
+      (i) => (i.status === 'queued' || i.status === 'working') && !isItemExcluded(i)
     ).length;
 
     let msg = overrideMessage;
@@ -230,7 +240,7 @@ export class GeneratorQueue {
     // Strictly process pending items (queued or failed), never sending excluded images
     // Done items are preserved without duplication
     const pendingItems = this.items.filter(
-      (i) => (i.status === 'queued' || i.status === 'failed') && !i.isExcluded
+      (i) => (i.status === 'queued' || i.status === 'failed') && !isItemExcluded(i)
     );
 
     if (pendingItems.length === 0) {
@@ -255,7 +265,7 @@ export class GeneratorQueue {
       this.currentFilename = item.fileData.originalName;
 
       // Do not charge for or send excluded or skipped images
-      if (item.isExcluded) {
+      if (item.isExcluded || isItemExcluded(item)) {
         continue;
       }
 
@@ -436,6 +446,9 @@ export class GeneratorQueue {
         }
 
         const resData = await res.json().catch(() => ({}));
+        if (typeof resData?.creditsRemaining === 'number') {
+          this.callbacks.onCreditsRemaining?.(resData.creditsRemaining);
+        }
 
         // Handle 402 Out of credits
         if (res.status === 402) {

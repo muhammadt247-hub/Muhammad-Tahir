@@ -32,7 +32,7 @@ import {
   deleteSavedBatchItem,
   clearSavedBatchItems,
 } from '@/lib/generator/db';
-import { GeneratorItemState, GeneratorQueue, QueueProgressState } from '@/lib/generator/queue';
+import { GeneratorItemState, GeneratorQueue, QueueProgressState, isItemExcluded } from '@/lib/generator/queue';
 import { processFileForGenerator } from '@/lib/generator/compress';
 import { generateMarketplaceCsv, generatePromptCsv, GeneratorResultExportItem } from '@/lib/generator/csv';
 import { embedJpegMetadata, embedPngMetadata, isMetadataEmbeddable } from '@/lib/generator/embed';
@@ -48,9 +48,17 @@ import {
   SimilarityProgress,
 } from '@/lib/similarity/pipeline';
 import { SimilarityCluster } from '@/types/similarity';
+import { useCredits } from '@/components/CreditsProvider';
 import { toast } from 'sonner';
 
 export default function GeneratorPage() {
+  const {
+    balance: creditBalance,
+    loading: creditsLoading,
+    hasError: creditsError,
+    updateBalanceLocally,
+  } = useCredits();
+
   const [settings, setSettings] = useState<GeneratorSavedSettings>(DEFAULT_GENERATOR_SETTINGS);
   const [items, setItems] = useState<GeneratorItemState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -598,6 +606,9 @@ export default function GeneratorPage() {
         }
 
         const data = await res.json();
+        if (typeof data.creditsRemaining === 'number') {
+          updateBalanceLocally(data.creditsRemaining);
+        }
         const newTitle = data.metadataSets?.[0]?.title || data.title;
         if (newTitle) {
           handleUpdateItem(id, { title: newTitle });
@@ -608,7 +619,7 @@ export default function GeneratorPage() {
         toast.error('Could not automatically fix title. Please edit manually.');
       }
     },
-    [items, settings, handleUpdateItem]
+    [items, settings, handleUpdateItem, updateBalanceLocally]
   );
 
   // Fix all flagged similar titles & rewrite repetitive title openings (>3 in batch)
@@ -719,6 +730,9 @@ export default function GeneratorPage() {
 
           if (res.ok) {
             const data = await res.json();
+            if (typeof data.creditsRemaining === 'number') {
+              updateBalanceLocally(data.creditsRemaining);
+            }
             const newTitle = data.metadataSets?.[0]?.title || data.title;
             if (newTitle) {
               handleUpdateItem(item.id, { title: newTitle, similarTo: [] });
@@ -733,7 +747,7 @@ export default function GeneratorPage() {
     } else if (openingFixedCount === 0) {
       toast.info('No repeated opening words or similar titles found to adjust');
     }
-  }, [items, settings, handleUpdateItem]);
+  }, [items, settings, handleUpdateItem, updateBalanceLocally]);
 
   // Approve ambiguous term
   const handleApproveIssue = useCallback(
@@ -848,6 +862,9 @@ export default function GeneratorPage() {
         setOutOfCreditsBalance(balance);
         setOutOfCreditsOpen(true);
       },
+      onCreditsRemaining: (creditsRemaining: number) => {
+        updateBalanceLocally(creditsRemaining);
+      },
       onComplete: () => {
         setIsGenerating(false);
         setIsPaused(false);
@@ -873,7 +890,7 @@ export default function GeneratorPage() {
 
     queueRef.current = queue;
     queue.start();
-  }, [items, settings, handleExportCsv, handleEmbedMetadata]);
+  }, [items, settings, handleExportCsv, handleEmbedMetadata, updateBalanceLocally]);
 
   const handlePause = useCallback(() => {
     if (queueRef.current) {
@@ -1136,6 +1153,36 @@ export default function GeneratorPage() {
   );
 
   const handleGenerateAll = () => {
+    // 1. Excluded images count
+    const excludedCount = items.filter((it) => isItemExcluded(it)).length;
+
+    // 2. Needed items: items that are queued or failed and NOT excluded
+    const neededItems = items.filter(
+      (it) => (it.status === 'queued' || it.status === 'failed') && !isItemExcluded(it)
+    );
+    const needed = neededItems.length;
+
+    if (needed === 0) {
+      if (excludedCount > 0) {
+        toast.info(`Skipped ${excludedCount} excluded files`);
+      } else {
+        toast.info('All images are already generated.');
+      }
+      return;
+    }
+
+    // 3. Block before it starts only when credit balance loaded successfully and needed > creditBalance
+    if (!creditsLoading && !creditsError && needed > creditBalance) {
+      toast.error(`This batch needs ${needed} credits but you have ${creditBalance}.`);
+      return;
+    }
+
+    // 4. Show skipped notice if any excluded files
+    if (excludedCount > 0) {
+      toast.info(`Skipped ${excludedCount} excluded files`);
+    }
+
+    // 5. Start queue
     startQueue();
   };
 
@@ -1145,7 +1192,7 @@ export default function GeneratorPage() {
   ).length;
   const failedCount = items.filter((i) => i.status === 'failed').length;
   const pendingCount = items.filter(
-    (i) => (i.status === 'queued' || i.status === 'working') && !i.isExcluded
+    (i) => (i.status === 'queued' || i.status === 'working') && !isItemExcluded(i)
   ).length;
   const hasResults = doneCount > 0;
   const currentSpec = PLATFORM_SPECS[settings.platform] || PLATFORM_SPECS['adobe-stock'];
@@ -1168,7 +1215,7 @@ export default function GeneratorPage() {
   }, [items]);
 
   const totalSimilarExcluded = useMemo(() => {
-    return items.filter((i) => i.isExcluded).length;
+    return items.filter((i) => isItemExcluded(i)).length;
   }, [items]);
 
   const libraryExcludedCount = useMemo(() => {
@@ -1186,7 +1233,7 @@ export default function GeneratorPage() {
   }, [items, libraryExcludedCount]);
 
   const generatingCount = useMemo(() => {
-    return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !i.isExcluded)).length;
+    return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !isItemExcluded(i))).length;
   }, [items]);
 
   return (
