@@ -583,7 +583,7 @@ export default function GeneratorPage() {
 
         if (res.status === 401) {
           toast.error('Session expired or unauthorized. Please log in.');
-          window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+          window.location.assign('/login');
           return;
         }
         if (res.status === 402) {

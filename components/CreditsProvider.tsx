@@ -45,6 +45,7 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    setLoading(true);
     try {
       const res = await fetch('/api/credits', {
         headers: { 'Cache-Control': 'no-cache' },
@@ -67,17 +68,10 @@ export function CreditsProvider({ children }: { children: React.ReactNode }) {
 
   // Load once after login
   useEffect(() => {
-    if (user) {
-      setLoading(true);
+    queueMicrotask(() => {
       fetchCredits();
-    } else {
-      setBalance(0);
-      setReceived(0);
-      setSpent(0);
-      setTransactions([]);
-      setLoading(false);
-    }
-  }, [user, fetchCredits]);
+    });
+  }, [fetchCredits]);
 
   // Refresh when the browser tab regains focus
   useEffect(() => {

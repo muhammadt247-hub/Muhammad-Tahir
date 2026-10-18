@@ -1,11 +1,12 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { isSupabaseConfigured, getSupabaseEnv } from './config';
+import { NextResponse } from 'next/server';
+import type { User } from '@supabase/supabase-js';
+import { isSupabaseConfigured, getSupabaseEnv } from '@/lib/supabase/config';
 
 export async function createClient() {
   const cookieStore = await cookies();
   const { url, anonKey } = getSupabaseEnv();
-
   if (!isSupabaseConfigured()) {
     return createServerClient(
       'https://dummy-project.supabase.co',
@@ -20,7 +21,6 @@ export async function createClient() {
       }
     );
   }
-
   return createServerClient(url, anonKey, {
     cookies: {
       getAll() {
@@ -39,9 +39,12 @@ export async function createClient() {
   });
 }
 
-export async function requireUser() {
+export async function requireUser(): Promise<User | NextResponse> {
   if (!isSupabaseConfigured()) {
-    return null;
+    return NextResponse.json(
+      { error: { code: 'unauthorized', message: 'Please log in.' } },
+      { status: 401, headers: { 'Cache-Control': 'no-store' } }
+    );
   }
   try {
     const supabase = await createClient();
@@ -49,12 +52,17 @@ export async function requireUser() {
       data: { user },
       error,
     } = await supabase.auth.getUser();
-
     if (error || !user) {
-      return null;
+      return NextResponse.json(
+        { error: { code: 'unauthorized', message: 'Please log in.' } },
+        { status: 401, headers: { 'Cache-Control': 'no-store' } }
+      );
     }
     return user;
   } catch {
-    return null;
+    return NextResponse.json(
+      { error: { code: 'unauthorized', message: 'Please log in.' } },
+      { status: 401, headers: { 'Cache-Control': 'no-store' } }
+    );
   }
 }

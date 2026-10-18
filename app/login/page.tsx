@@ -31,21 +31,14 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isUnconfirmed, setIsUnconfirmed] = useState(false);
-  const [isResending, setIsResending] = useState(false);
-  const [resendSuccess, setResendSuccess] = useState(false);
-
-  // Check if routed with error or verified toast
-  useEffect(() => {
-    const errorParam = searchParams.get('error');
-    if (errorParam === 'auth-callback-failed') {
-      setErrorMessage(
-        'This link has expired or was already used. If you already confirmed your email, just log in. Otherwise enter your email below to get a new link.'
-      );
-      setIsUnconfirmed(true);
-    }
-  }, [searchParams]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(() => {
+    return searchParams.get('error') === 'auth-callback-failed'
+      ? 'This link has expired or was already used. If you already confirmed your email, just log in. Otherwise enter your email below to get a new link.'
+      : null;
+  });
+  const [isUnconfirmed, setIsUnconfirmed] = useState(() => {
+    return searchParams.get('error') === 'auth-callback-failed';
+  });
 
   if (!configured) {
     return <AccountsNotConfigured />;

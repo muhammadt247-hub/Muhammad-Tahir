@@ -62,7 +62,7 @@ export function ApiKeysDialog({
   const [newLabel, setNewLabel] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [customDelayInput, setCustomDelayInput] = useState('');
 
   // Periodically refresh countdown for resting keys
@@ -80,7 +80,9 @@ export function ApiKeysDialog({
 
   useEffect(() => {
     if (open) {
-      loadKeys();
+      queueMicrotask(() => {
+        loadKeys();
+      });
     }
   }, [open]);
 

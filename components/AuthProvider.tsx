@@ -40,8 +40,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
   const isConfigured = isSupabaseConfigured();
+  const [loading, setLoading] = useState(isConfigured);
 
   const fetchProfile = useCallback(async (currentUser: User) => {
     if (!isConfigured) return;
@@ -94,7 +94,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isConfigured) {
-      setLoading(false);
       return;
     }
 

@@ -30,7 +30,9 @@ export default function AccountPage() {
   const configured = isSupabaseConfigured();
   const { user, profile, loading: authLoading, signOut, updateProfileName } = useAuth();
 
-  const [displayName, setDisplayName] = useState('');
+  const [displayName, setDisplayName] = useState(
+    () => profile?.display_name || user?.email?.split('@')[0] || ''
+  );
   const [isSavingName, setIsSavingName] = useState(false);
 
   // Change Password state
@@ -40,14 +42,6 @@ export default function AccountPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   const [passwordError, setPasswordError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (profile?.display_name) {
-      setDisplayName(profile.display_name);
-    } else if (user?.email) {
-      setDisplayName(user.email.split('@')[0]);
-    }
-  }, [profile, user]);
 
   if (!configured) {
     return <AccountsNotConfigured />;

@@ -50,11 +50,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    if (profile?.display_name) {
-      setName(profile.display_name);
-    }
-  }, [profile?.display_name]);
+
 
   const handleSave = async () => {
     setIsSaving(true);

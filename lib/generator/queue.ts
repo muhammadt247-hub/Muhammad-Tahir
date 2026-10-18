@@ -430,7 +430,7 @@ export class GeneratorQueue {
           this.callbacks.onItemUpdate({ ...item });
           this.stop();
           if (typeof window !== 'undefined') {
-            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+            window.location.assign('/login');
           }
           return false;
         }
