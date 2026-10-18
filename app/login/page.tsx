@@ -31,6 +31,10 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [resendError, setResendError] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(() => {
     return searchParams.get('error') === 'auth-callback-failed'
       ? 'This link has expired or was already used. If you already confirmed your email, just log in. Otherwise enter your email below to get a new link.'
@@ -49,6 +53,7 @@ function LoginForm() {
     setErrorMessage(null);
     setIsUnconfirmed(false);
     setResendSuccess(false);
+    setResendError('');
 
     const formData = new FormData(e.currentTarget);
     const rawEmail = (formData.get('email') as string) || email;
@@ -115,8 +120,22 @@ function LoginForm() {
   };
 
   const handleResendConfirmation = async () => {
-    if (isResending || !email.trim()) return;
+    const inputEmail =
+      email.trim() ||
+      ((typeof document !== 'undefined'
+        ? (document.getElementById('login-email') as HTMLInputElement)?.value
+        : '') || '').trim();
+
+    if (isResending || resendLoading || !inputEmail) {
+      if (!inputEmail) {
+        toast.error('Please enter your email address first.');
+      }
+      return;
+    }
+
     setIsResending(true);
+    setResendLoading(true);
+    setResendError('');
     try {
       const supabase = createClient();
       const siteUrl = getSiteUrl();
@@ -124,22 +143,25 @@ function LoginForm() {
 
       const { error } = await supabase.auth.resend({
         type: 'signup',
-        email: email.trim(),
+        email: inputEmail,
         options: {
           emailRedirectTo,
         },
       });
 
       if (error) {
+        setResendError(error.message);
         toast.error(error.message);
       } else {
         setResendSuccess(true);
         toast.success('Confirmation email resent!');
       }
     } catch {
+      setResendError('Failed to resend confirmation email.');
       toast.error('Failed to resend confirmation email.');
     } finally {
       setIsResending(false);
+      setResendLoading(false);
     }
   };
 
