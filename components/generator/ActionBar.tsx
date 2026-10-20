@@ -34,6 +34,8 @@ interface ActionBarProps {
   similarCount?: number;
   similarClusterCount?: number;
   similarExcludedCount?: number;
+  under4MpExcludedCount?: number;
+  totalExcludedCount?: number;
   libraryExcludedCount?: number;
   similarDeleteCount?: number;
   blockedCount?: number;
@@ -71,6 +73,8 @@ export function ActionBar({
   similarCount = 0,
   similarClusterCount = 0,
   similarExcludedCount = 0,
+  under4MpExcludedCount = 0,
+  totalExcludedCount,
   libraryExcludedCount = 0,
   similarDeleteCount = 0,
   blockedCount = 0,
@@ -95,9 +99,32 @@ export function ActionBar({
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
 
+  const excludedTotal = totalExcludedCount !== undefined ? totalExcludedCount : similarExcludedCount;
   const pendingCount =
     explicitPendingCount ??
-    Math.max(0, totalFiles - doneCount - failedCount - similarExcludedCount);
+    Math.max(0, totalFiles - doneCount - failedCount - excludedTotal);
+
+  let generateDisabledReason: string | undefined = undefined;
+  if (totalFiles === 0) {
+    generateDisabledReason = 'Upload files to begin.';
+  } else if (isAnalyzingSimilarity) {
+    generateDisabledReason = 'Checking for similar images...';
+  } else if (pendingCount === 0) {
+    if (excludedTotal > 0) {
+      if (under4MpExcludedCount > 0 && under4MpExcludedCount === excludedTotal) {
+        generateDisabledReason = `0 ready: ${excludedTotal} excluded (below 4 MP). Change the size check or click Include all.`;
+      } else if (under4MpExcludedCount > 0) {
+        const otherExcluded = Math.max(0, excludedTotal - under4MpExcludedCount);
+        generateDisabledReason = `0 ready: ${excludedTotal} excluded (below 4 MP: ${under4MpExcludedCount}, similar: ${otherExcluded}). Change the size check or click Include all.`;
+      } else {
+        generateDisabledReason = `0 ready: ${excludedTotal} excluded (similar). Click Include all.`;
+      }
+    } else if (doneCount === totalFiles) {
+      generateDisabledReason = 'All images are already generated.';
+    } else {
+      generateDisabledReason = 'No pending images ready to generate.';
+    }
+  }
 
   // Status text determination
   let statusText = 'Upload files to begin.';
@@ -121,15 +148,21 @@ export function ActionBar({
           ? `Image ${imgNum} of ${totalFiles}: ${currentFilename}`
           : `Processing Image ${imgNum} of ${totalFiles}...`;
       }
+    } else if (pendingCount === 0 && excludedTotal > 0 && doneCount === 0) {
+      statusText = generateDisabledReason || `0 ready: ${excludedTotal} excluded. Change the size check or click Include all.`;
     } else if (doneCount > 0) {
       const parts: string[] = [`${doneCount} completed`];
       if (pendingCount > 0) parts.push(`${pendingCount} pending`);
       if (failedCount > 0) parts.push(`${failedCount} failed`);
-      if (similarExcludedCount > 0) parts.push(`${similarExcludedCount} skipped`);
+      if (excludedTotal > 0) parts.push(`${excludedTotal} skipped`);
       statusText = parts.join(' · ');
     } else {
-      const activeReady = Math.max(0, totalFiles - similarExcludedCount);
-      statusText = `${activeReady} ready to process sequentially`;
+      const activeReady = Math.max(0, totalFiles - excludedTotal);
+      if (activeReady === 0 && excludedTotal > 0) {
+        statusText = generateDisabledReason || `0 ready: ${excludedTotal} excluded. Change the size check or click Include all.`;
+      } else {
+        statusText = `${activeReady} ready to process sequentially`;
+      }
     }
   }
 
@@ -367,20 +400,21 @@ export function ActionBar({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={onGenerateAll}
-              disabled={totalFiles === 0 || isAnalyzingSimilarity || pendingCount === 0}
-              title={similarityTooltip}
-              className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50 disabled:pointer-events-none"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>
-                {doneCount > 0 && pendingCount > 0
-                  ? `Resume (${pendingCount} pending)`
-                  : 'Generate All'}
-              </span>
-            </button>
+            <div title={generateDisabledReason} className="inline-block">
+              <button
+                type="button"
+                onClick={onGenerateAll}
+                disabled={totalFiles === 0 || isAnalyzingSimilarity || pendingCount === 0}
+                className="h-10 px-3.5 sm:px-4 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 bg-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>
+                  {doneCount > 0 && pendingCount > 0
+                    ? `Resume (${pendingCount} pending)`
+                    : 'Generate All'}
+                </span>
+              </button>
+            </div>
           )}
 
           {/* Embed Metadata (Metadata mode only) */}

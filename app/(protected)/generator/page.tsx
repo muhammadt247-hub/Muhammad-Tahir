@@ -16,6 +16,7 @@ import { DeleteSimilarDialog } from '@/components/generator/DeleteSimilarDialog'
 import { SimilarityProgressCard } from '@/components/generator/SimilarityProgressCard';
 import { ComplianceReportDialog } from '@/components/generator/ComplianceReportDialog';
 import { OutOfCreditsDialog } from '@/components/generator/OutOfCreditsDialog';
+import { BatchCreditsDialog } from '@/components/generator/BatchCreditsDialog';
 import { PLATFORM_SPECS } from '@/config/platforms';
 import {
   GeneratorSavedSettings,
@@ -99,6 +100,13 @@ export default function GeneratorPage() {
   const [outOfCreditsOpen, setOutOfCreditsOpen] = useState(false);
   const [outOfCreditsBalance, setOutOfCreditsBalance] = useState(0);
 
+  // Batch Needs More Credits Dialog (Requirement 5)
+  const [batchCreditsDialogOpen, setBatchCreditsDialogOpen] = useState(false);
+  const [batchCreditsInfo, setBatchCreditsInfo] = useState<{ needed: number; balance: number }>({
+    needed: 0,
+    balance: 0,
+  });
+
   const queueRef = useRef<GeneratorQueue | null>(null);
 
   const checkCustomKeys = useCallback(async () => {
@@ -146,6 +154,40 @@ export default function GeneratorPage() {
       }
       return updated;
     });
+
+    if (partial.minSizeCheck !== undefined) {
+      const newCheck = partial.minSizeCheck;
+      setItems((prev) => {
+        const next = prev.map((it) => {
+          const width = it.fileData.width || 0;
+          const height = it.fileData.height || 0;
+          const mp = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
+          const isUnder4 = width > 0 && height > 0 && mp < 4.0;
+
+          if (newCheck === 'exclude') {
+            if (isUnder4 && !it.isExcluded && it.excludedReason !== 'manual_override') {
+              return {
+                ...it,
+                isExcluded: true,
+                excludedReason: "Below Adobe's 4 MP minimum, likely refused",
+              };
+            }
+          } else {
+            // 'warn' or 'off': restore files that were excluded solely for under 4 MP
+            if (it.isExcluded && it.excludedReason === "Below Adobe's 4 MP minimum, likely refused") {
+              return {
+                ...it,
+                isExcluded: false,
+                excludedReason: undefined,
+              };
+            }
+          }
+          return it;
+        });
+        saveAllBatchItems(next);
+        return next;
+      });
+    }
   }, []);
 
   // Deep Similarity Pipeline runner
@@ -273,6 +315,8 @@ export default function GeneratorPage() {
         const fileData = await processFileForGenerator(file);
         const mp = fileData.width > 0 && fileData.height > 0 ? (fileData.width * fileData.height) / 1_000_000 : 0;
         const isUnder4Mp = fileData.width > 0 && fileData.height > 0 && mp < 4.0;
+        const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+        const shouldExclude4Mp = activeMinSizeCheck === 'exclude' && isUnder4Mp;
 
         newItems.push({
           id: fileData.id,
@@ -283,8 +327,8 @@ export default function GeneratorPage() {
           keywords: [],
           prompt: '',
           retryCount: 0,
-          isExcluded: isUnder4Mp,
-          excludedReason: isUnder4Mp ? "Below Adobe's 4 MP minimum, likely refused" : undefined,
+          isExcluded: shouldExclude4Mp,
+          excludedReason: shouldExclude4Mp ? "Below Adobe's 4 MP minimum, likely refused" : undefined,
         });
       } catch (err) {
         console.error(`Failed to process ${file.name}:`, err);
@@ -383,15 +427,17 @@ export default function GeneratorPage() {
 
   // Pre-export report computation
   const currentReport: PreExportReport = useMemo(() => {
-    return buildPreExportReport(items);
-  }, [items]);
+    const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+    return buildPreExportReport(items, activeMinSizeCheck);
+  }, [items, settings.minSizeCheck, settings.platform]);
 
   // Execute CSV Export (strictly excludes similar, resolution-refused, and hard-blocked items)
   const executeActualCsvExport = useCallback(() => {
+    const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
     const doneItems = items.filter((i) => {
-      if (i.status !== 'done' || i.isExcluded) return false;
+      if (i.status !== 'done' || isItemExcluded(i, activeMinSizeCheck)) return false;
       const mp = (i.fileData.width * i.fileData.height) / 1_000_000;
-      if (i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
+      if (activeMinSizeCheck === 'exclude' && i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
       if (mp > 100 || (i.fileData.originalSize || 0) > 45 * 1024 * 1024) return false;
       return true;
     });
@@ -818,7 +864,7 @@ export default function GeneratorPage() {
   );
 
   // Sequential Queue Generation Engine
-  const startQueue = useCallback((customItems?: GeneratorItemState[]) => {
+  const startQueue = useCallback((customItems?: GeneratorItemState[], limit?: number) => {
     const targetItems = customItems || items;
     if (targetItems.length === 0) return;
 
@@ -889,7 +935,7 @@ export default function GeneratorPage() {
     });
 
     queueRef.current = queue;
-    queue.start();
+    queue.start(limit);
   }, [items, settings, handleExportCsv, handleEmbedMetadata, updateBalanceLocally]);
 
   const handlePause = useCallback(() => {
@@ -1152,13 +1198,72 @@ export default function GeneratorPage() {
     [items, startQueue]
   );
 
+  const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+
+  const under4MpExcludedCount = useMemo(() => {
+    if (activeMinSizeCheck !== 'exclude') return 0;
+    return items.filter(
+      (it) =>
+        isItemExcluded(it, activeMinSizeCheck) &&
+        (it.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
+          ((it.fileData.width || 0) > 0 &&
+            (it.fileData.height || 0) > 0 &&
+            ((it.fileData.width * it.fileData.height) / 1_000_000) < 4.0 &&
+            !it.excludedReason?.startsWith('Similar') &&
+            !it.excludedReason?.startsWith('Already exported')))
+    ).length;
+  }, [items, activeMinSizeCheck]);
+
+  const totalExcludedCount = useMemo(() => {
+    return items.filter((i) => isItemExcluded(i, activeMinSizeCheck)).length;
+  }, [items, activeMinSizeCheck]);
+
+  const similarExcludedCount = useMemo(() => {
+    return Math.max(0, totalExcludedCount - under4MpExcludedCount);
+  }, [totalExcludedCount, under4MpExcludedCount]);
+
+  const handleIncludeAll = useCallback(() => {
+    setItems((prev) => {
+      const next = prev.map((it) =>
+        isItemExcluded(it, activeMinSizeCheck)
+          ? { ...it, isExcluded: false, excludedReason: 'manual_override' }
+          : it
+      );
+      saveAllBatchItems(next);
+      return next;
+    });
+    toast.success(`Included all ${totalExcludedCount} excluded files in batch generation.`);
+  }, [activeMinSizeCheck, totalExcludedCount]);
+
+  const handleIncludeBelow4MpOnly = useCallback(() => {
+    setItems((prev) => {
+      const next = prev.map((it) => {
+        const isBelow4Mp =
+          (it.fileData.width || 0) > 0 &&
+          (it.fileData.height || 0) > 0 &&
+          ((it.fileData.width * it.fileData.height) / 1_000_000) < 4.0;
+        const isExcludedUnder4Mp =
+          it.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
+          (isBelow4Mp && !it.excludedReason?.startsWith('Similar') && !it.excludedReason?.startsWith('Already exported'));
+
+        if (isItemExcluded(it, activeMinSizeCheck) && isExcludedUnder4Mp) {
+          return { ...it, isExcluded: false, excludedReason: 'manual_override' };
+        }
+        return it;
+      });
+      saveAllBatchItems(next);
+      return next;
+    });
+    toast.success(`Included ${under4MpExcludedCount} file(s) below 4 MP in batch generation.`);
+  }, [activeMinSizeCheck, under4MpExcludedCount]);
+
   const handleGenerateAll = () => {
     // 1. Excluded images count
-    const excludedCount = items.filter((it) => isItemExcluded(it)).length;
+    const excludedCount = items.filter((it) => isItemExcluded(it, activeMinSizeCheck)).length;
 
     // 2. Needed items: items that are queued or failed and NOT excluded
     const neededItems = items.filter(
-      (it) => (it.status === 'queued' || it.status === 'failed') && !isItemExcluded(it)
+      (it) => (it.status === 'queued' || it.status === 'failed') && !isItemExcluded(it, activeMinSizeCheck)
     );
     const needed = neededItems.length;
 
@@ -1171,9 +1276,15 @@ export default function GeneratorPage() {
       return;
     }
 
-    // 3. Block before it starts only when credit balance loaded successfully and needed > creditBalance
+    // 3. Before Generate All starts, if the batch needs more credits than the balance, show dialog
     if (!creditsLoading && !creditsError && needed > creditBalance) {
-      toast.error(`This batch needs ${needed} credits but you have ${creditBalance}.`);
+      if (creditBalance === 0) {
+        setOutOfCreditsBalance(0);
+        setOutOfCreditsOpen(true);
+        return;
+      }
+      setBatchCreditsInfo({ needed, balance: creditBalance });
+      setBatchCreditsDialogOpen(true);
       return;
     }
 
@@ -1186,13 +1297,21 @@ export default function GeneratorPage() {
     startQueue();
   };
 
+  const handleGenerateFirstFromDialog = (count: number) => {
+    const excludedCount = items.filter((it) => isItemExcluded(it, activeMinSizeCheck)).length;
+    if (excludedCount > 0) {
+      toast.info(`Skipped ${excludedCount} excluded files`);
+    }
+    startQueue(undefined, count);
+  };
+
   // Counts & status
   const doneCount = items.filter(
     (i) => i.status === 'done' && Boolean(i.title?.trim()) && i.title.trim() !== i.fileData.originalName
   ).length;
   const failedCount = items.filter((i) => i.status === 'failed').length;
   const pendingCount = items.filter(
-    (i) => (i.status === 'queued' || i.status === 'working') && !isItemExcluded(i)
+    (i) => (i.status === 'queued' || i.status === 'working') && !isItemExcluded(i, activeMinSizeCheck)
   ).length;
   const hasResults = doneCount > 0;
   const currentSpec = PLATFORM_SPECS[settings.platform] || PLATFORM_SPECS['adobe-stock'];
@@ -1214,9 +1333,7 @@ export default function GeneratorPage() {
     ).length;
   }, [items]);
 
-  const totalSimilarExcluded = useMemo(() => {
-    return items.filter((i) => isItemExcluded(i)).length;
-  }, [items]);
+  const totalSimilarExcluded = totalExcludedCount;
 
   const libraryExcludedCount = useMemo(() => {
     return items.filter((i) => i.isExcluded && i.excludedReason?.startsWith('Already exported')).length;
@@ -1233,8 +1350,8 @@ export default function GeneratorPage() {
   }, [items, libraryExcludedCount]);
 
   const generatingCount = useMemo(() => {
-    return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !isItemExcluded(i))).length;
-  }, [items]);
+    return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !isItemExcluded(i, activeMinSizeCheck))).length;
+  }, [items, activeMinSizeCheck]);
 
   return (
     <div className="space-y-6">
@@ -1306,7 +1423,9 @@ export default function GeneratorPage() {
             mode={settings.mode}
             similarCount={similarTitleCount}
             similarClusterCount={similarityClusters.length}
-            similarExcludedCount={totalSimilarExcluded}
+            similarExcludedCount={similarExcludedCount}
+            under4MpExcludedCount={under4MpExcludedCount}
+            totalExcludedCount={totalExcludedCount}
             libraryExcludedCount={libraryExcludedCount}
             similarDeleteCount={similarDeleteCount}
             generatingCount={generatingCount}
@@ -1335,8 +1454,14 @@ export default function GeneratorPage() {
             items={items}
             mode={settings.mode}
             platformSpec={currentSpec}
+            minSizeCheck={activeMinSizeCheck}
             showSimilarityScores={settings.showSimilarityScores}
             alreadyExportedCount={libraryExcludedCount}
+            totalExcludedCount={totalExcludedCount}
+            under4MpExcludedCount={under4MpExcludedCount}
+            similarExcludedCount={similarExcludedCount}
+            onIncludeAll={handleIncludeAll}
+            onIncludeBelow4MpOnly={handleIncludeBelow4MpOnly}
             onIgnoreLibraryAndGenerate={handleIgnoreLibraryAndGenerate}
             onClearLibrary={handleClearLibraryBatch}
             onUpdateItem={handleUpdateItem}
@@ -1406,6 +1531,16 @@ export default function GeneratorPage() {
         open={outOfCreditsOpen}
         onOpenChange={setOutOfCreditsOpen}
         balance={outOfCreditsBalance}
+      />
+
+      {/* Batch Needs More Credits Dialog (Requirement 5) */}
+      <BatchCreditsDialog
+        open={batchCreditsDialogOpen}
+        onOpenChange={setBatchCreditsDialogOpen}
+        needed={batchCreditsInfo.needed}
+        balance={batchCreditsInfo.balance}
+        onGenerateFirst={handleGenerateFirstFromDialog}
+        onCancel={() => setBatchCreditsDialogOpen(false)}
       />
     </div>
   );

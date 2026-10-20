@@ -37,6 +37,7 @@ interface ResultCardProps {
   item: GeneratorItemState;
   mode: 'metadata' | 'prompt';
   platformSpec: PlatformConfig;
+  minSizeCheck?: 'exclude' | 'warn' | 'off';
   showSimilarityScores?: boolean;
   onUpdate: (updated: Partial<GeneratorItemState>) => void;
   onDelete: () => void;
@@ -58,6 +59,7 @@ export function ResultCard({
   item,
   mode,
   platformSpec,
+  minSizeCheck = 'exclude',
   showSimilarityScores = false,
   onUpdate,
   onDelete,
@@ -153,7 +155,9 @@ export function ResultCard({
   const width = item.fileData.width || 0;
   const height = item.fileData.height || 0;
   const megapixels = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
-  const isUnder4Mp = width > 0 && height > 0 && megapixels < 4.0;
+  const isUnder4MpRaw = width > 0 && height > 0 && megapixels < 4.0;
+  const isUnder4MpExcluded = minSizeCheck === 'exclude' && isUnder4MpRaw;
+  const isUnder4MpWarn = minSizeCheck === 'warn' && isUnder4MpRaw;
   const isOver100Mp = megapixels > 100;
   const isOver45Mb = (item.fileData.originalSize || 0) > 45 * 1024 * 1024;
   const isAlreadyExported = item.excludedReason?.startsWith('Already exported');
@@ -168,7 +172,7 @@ export function ResultCard({
 
   // Determine Excluded Reason Text for status chip
   let excludedReasonText = item.excludedReason || 'Similar to another image';
-  if (isUnder4Mp) {
+  if (isUnder4MpExcluded) {
     excludedReasonText = "Below Adobe's 4 MP minimum, likely refused";
   } else if (isOver100Mp) {
     excludedReasonText = `Over Adobe's 100 MP limit (${megapixels.toFixed(1)} MP)`;
@@ -180,7 +184,12 @@ export function ResultCard({
     excludedReasonText = item.excludedReason || 'Already exported';
   }
 
-  const isAnyExclusion = isExcluded || isUnder4Mp || isOver100Mp || isOver45Mb || hardBlockedTerms.length > 0;
+  const itemIsEffectivelyExcluded =
+    item.isExcluded &&
+    !(minSizeCheck !== 'exclude' && item.excludedReason === "Below Adobe's 4 MP minimum, likely refused");
+
+  const isAnyExclusion =
+    itemIsEffectivelyExcluded || isUnder4MpExcluded || isOver100Mp || isOver45Mb || hardBlockedTerms.length > 0;
   const isReadyForExport = hasGeneratedContent && !isAnyExclusion;
 
   return (
@@ -206,11 +215,17 @@ export function ResultCard({
           referrerPolicy="no-referrer"
         />
 
-        {/* Badges on Image: Excluded and Best of group (Top-Left) */}
+        {/* Badges on Image: Excluded, Amber Warn Chip, and Best of group (Top-Left) */}
         <div className="absolute top-3 left-3 z-20 flex flex-col gap-1 items-start max-w-[70%]">
-          {(isExcluded || isUnder4Mp) && (
+          {isUnder4MpWarn && !itemIsEffectivelyExcluded && (
+            <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-xs truncate max-w-full">
+              Below 4 MP, Adobe may refuse
+            </span>
+          )}
+
+          {(itemIsEffectivelyExcluded || isUnder4MpExcluded) && (
             <span className="px-2 py-0.5 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold shadow-xs truncate max-w-full">
-              {isUnder4Mp
+              {isUnder4MpExcluded
                 ? '< 4 MP (Excluded)'
                 : isAlreadyExported
                 ? item.excludedReason
@@ -218,7 +233,7 @@ export function ResultCard({
             </span>
           )}
 
-          {isKeptBest && !isExcluded && !isUnder4Mp && (
+          {isKeptBest && !itemIsEffectivelyExcluded && !isUnder4MpExcluded && (
             <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
               <Check className="h-3 w-3" />
               <span>Best of group</span>
@@ -266,7 +281,11 @@ export function ResultCard({
               <span
                 className={cn(
                   'font-medium',
-                  isUnder4Mp || isOver100Mp ? 'text-destructive font-bold' : 'text-foreground'
+                  isUnder4MpExcluded || isOver100Mp
+                    ? 'text-destructive font-bold'
+                    : isUnder4MpWarn
+                    ? 'text-amber-600 dark:text-amber-400 font-bold'
+                    : 'text-foreground'
                 )}
               >
                 {width} × {height} ({megapixels.toFixed(1)} MP)
@@ -337,7 +356,7 @@ export function ResultCard({
         {item.status !== 'working' && item.status !== 'failed' && (
           <div className="space-y-2.5">
             {/* Exclusion Override / Keep Banner */}
-            {isExcluded && (
+            {itemIsEffectivelyExcluded && (
               <div className="flex flex-wrap items-center justify-between p-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -373,7 +392,7 @@ export function ResultCard({
             )}
 
             {/* Resolution Check Red Alerts */}
-            {isUnder4Mp && (
+            {isUnder4MpExcluded && (
               <div className="flex items-center justify-between p-2 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-xs">
                 <div className="flex items-center gap-1.5 min-w-0 pr-2">
                   <ShieldAlert className="h-4 w-4 shrink-0" />
@@ -383,6 +402,21 @@ export function ResultCard({
                 </div>
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-destructive text-destructive-foreground uppercase shrink-0">
                   Refused
+                </span>
+              </div>
+            )}
+
+            {/* Resolution Check Amber Warning (Warn only mode) */}
+            {isUnder4MpWarn && (
+              <div className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 text-xs">
+                <div className="flex items-center gap-1.5 min-w-0 pr-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                  <span className="font-semibold text-[11px]">
+                    Below 4 MP, Adobe may refuse ({width} × {height} = {megapixels.toFixed(1)} MP)
+                  </span>
+                </div>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-800 dark:text-amber-300 uppercase shrink-0">
+                  Warning
                 </span>
               </div>
             )}

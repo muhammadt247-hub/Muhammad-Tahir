@@ -97,7 +97,10 @@ export interface PreExportReport {
 /**
  * Builds a comprehensive pre-export compliance report for all items in the batch.
  */
-export function buildPreExportReport(items: GeneratorItemState[]): PreExportReport {
+export function buildPreExportReport(
+  items: GeneratorItemState[],
+  minSizeCheck: 'exclude' | 'warn' | 'off' = 'exclude'
+): PreExportReport {
   const doneItems = items.filter((i) => i.status === 'done');
   const excludedItems = items.filter((i) => i.isExcluded).length;
   const activeItems = doneItems.filter((i) => !i.isExcluded);
@@ -115,18 +118,19 @@ export function buildPreExportReport(items: GeneratorItemState[]): PreExportRepo
     const mp = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
     const fileBytes = item.fileData.originalSize || item.fileData.file?.size || 0;
 
-    // Check under 4 MP: Red issue "Below Adobe's 4 MP minimum, likely refused"
-    if (width > 0 && height > 0 && mp < 4.0) {
+    // Check under 4 MP according to minSizeCheck setting
+    if (width > 0 && height > 0 && mp < 4.0 && minSizeCheck !== 'off') {
+      const isRed = minSizeCheck === 'exclude';
       resolutionIssues.push({
         itemId: item.id,
         filename: item.fileData.originalName,
         type: 'under_4mp',
-        message: "Below Adobe's 4 MP minimum, likely refused",
+        message: isRed ? "Below Adobe's 4 MP minimum, likely refused" : "Below 4 MP, Adobe may refuse",
         width,
         height,
         megapixels: Number(mp.toFixed(2)),
         fileSizeBytes: fileBytes,
-        isRed: true,
+        isRed,
       });
     }
 
@@ -307,10 +311,12 @@ export function buildPreExportReport(items: GeneratorItemState[]): PreExportRepo
     const isOver45Mb = (item.fileData.originalSize || 0) > 45 * 1024 * 1024;
     const hasHardBlocked = item.blockedTermsFound?.some((b) => !b.isAmbiguous);
 
+    const isExcludedBySize = minSizeCheck === 'exclude' && isUnder4Mp;
+
     const willExport =
       item.status === 'done' &&
       !item.isExcluded &&
-      !isUnder4Mp &&
+      !isExcludedBySize &&
       !isOver100Mp &&
       !isOver45Mb &&
       !hasHardBlocked &&
@@ -322,7 +328,7 @@ export function buildPreExportReport(items: GeneratorItemState[]): PreExportRepo
         reason = `Generation failed: ${item.errorMessage || 'Error'}`;
       } else if (item.status === 'queued' || item.status === 'working') {
         reason = 'Pending generation';
-      } else if (isUnder4Mp) {
+      } else if (isExcludedBySize) {
         reason = "Below Adobe's 4 MP minimum, likely refused";
       } else if (isOver100Mp) {
         reason = `Over Adobe's 100 MP limit (${mp.toFixed(1)} MP)`;
@@ -357,12 +363,15 @@ export function buildPreExportReport(items: GeneratorItemState[]): PreExportRepo
     (r) => r.isRed && !items.find((i) => i.id === r.itemId)?.isExcluded
   );
 
+  const resolutionWarnings = resolutionIssues.filter((r) => !r.isRed);
+
   const warningItemsCount =
     ambiguousTermIssues.length +
     visualFlagIssues.length +
     similarTitleIssues.length +
     repetitiveFirstWords.length +
-    overusedKeywords.length;
+    overusedKeywords.length +
+    resolutionWarnings.length;
 
   // Safe to export if no hard blocked terms, no unexcluded resolution errors, and at least 1 valid export row
   const canExportSafely =

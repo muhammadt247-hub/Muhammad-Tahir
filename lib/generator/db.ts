@@ -56,6 +56,7 @@ export interface GeneratorSavedSettings {
   contributorLanguage: string;
   isAiBatch: boolean;
   customBlockedWords: string[];
+  minSizeCheck?: 'exclude' | 'warn' | 'off';
   // Step 8 Deep Similarity Guard
   similarityStrictness: SimilarityStrictness;
   deepAiCheck: boolean;
@@ -101,6 +102,7 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   contributorLanguage: 'en',
   isAiBatch: false,
   customBlockedWords: [],
+  minSizeCheck: 'exclude',
   // Step 8 Similarity Guard Defaults
   similarityStrictness: 'strict',
   deepAiCheck: true,

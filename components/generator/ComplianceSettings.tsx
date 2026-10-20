@@ -30,6 +30,7 @@ import {
   BrainCircuit,
   Zap,
   Sliders,
+  Maximize2,
 } from 'lucide-react';
 import { GeneratorSavedSettings, getLibraryEntries, clearLibraryStore } from '@/lib/generator/db';
 import { CONTRIBUTOR_LANGUAGES } from '@/config/compliance';
@@ -113,6 +114,8 @@ export function ComplianceSettings({
   };
 
   const strictness = settings.similarityStrictness || 'strict';
+  const defaultSizeCheck = settings.platform === 'adobe-stock' ? 'exclude' : 'warn';
+  const minSizeCheck = settings.minSizeCheck || defaultSizeCheck;
 
   return (
     <>
@@ -352,7 +355,42 @@ export function ComplianceSettings({
                 </div>
               </div>
 
-              {/* 5. Contributor Language */}
+              {/* 5. Minimum size check (4 MP) */}
+              <div className="space-y-1.5 pt-2 border-t border-border/40">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="min-size-check-select" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Maximize2 className="h-3.5 w-3.5 text-primary" />
+                    <span>Minimum size check (4 MP)</span>
+                  </label>
+                  <span className="text-[10px] text-muted-foreground">
+                    {minSizeCheck === 'exclude'
+                      ? 'Exclude'
+                      : minSizeCheck === 'warn'
+                      ? 'Warn only'
+                      : 'Off'}
+                  </span>
+                </div>
+                <select
+                  id="min-size-check-select"
+                  value={minSizeCheck}
+                  onChange={(e) => onUpdate({ minSizeCheck: e.target.value as 'exclude' | 'warn' | 'off' })}
+                  disabled={disabled}
+                  className="w-full px-3 py-1.5 rounded-xl bg-accent/30 border border-border/50 text-xs text-foreground focus:ring-2 focus:ring-primary/20 focus:outline-none"
+                >
+                  <option value="exclude">Exclude files below 4 MP</option>
+                  <option value="warn">Warn only (still generate)</option>
+                  <option value="off">Off</option>
+                </select>
+                <p className="text-[10px] text-muted-foreground">
+                  {minSizeCheck === 'exclude'
+                    ? 'Exclude files below 4 MP (default for Adobe Stock).'
+                    : minSizeCheck === 'warn'
+                    ? 'Warn only (still generate) — files stay in batch and CSV.'
+                    : 'Size check disabled.'}
+                </p>
+              </div>
+
+              {/* 6. Contributor Language */}
               <div className="space-y-1.5 pt-2 border-t border-border/40">
                 <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                   <Languages className="h-3.5 w-3.5 opacity-70" />

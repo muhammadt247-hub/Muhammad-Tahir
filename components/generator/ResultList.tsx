@@ -4,15 +4,21 @@ import React, { useState } from 'react';
 import { ResultCard } from './ResultCard';
 import { GeneratorItemState } from '@/lib/generator/queue';
 import { PlatformConfig } from '@/config/platforms';
-import { Image as ImageIcon, ChevronLeft, ChevronRight, Database } from 'lucide-react';
+import { Image as ImageIcon, ChevronLeft, ChevronRight, Database, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface ResultListProps {
   items: GeneratorItemState[];
   mode: 'metadata' | 'prompt';
   platformSpec: PlatformConfig;
+  minSizeCheck?: 'exclude' | 'warn' | 'off';
   showSimilarityScores?: boolean;
   alreadyExportedCount?: number;
+  totalExcludedCount?: number;
+  under4MpExcludedCount?: number;
+  similarExcludedCount?: number;
+  onIncludeAll?: () => void;
+  onIncludeBelow4MpOnly?: () => void;
   onIgnoreLibraryAndGenerate?: () => void;
   onClearLibrary?: () => void;
   onUpdateItem: (id: string, updated: Partial<GeneratorItemState>) => void;
@@ -29,8 +35,14 @@ export function ResultList({
   items,
   mode,
   platformSpec,
+  minSizeCheck = 'exclude',
   showSimilarityScores = false,
   alreadyExportedCount = 0,
+  totalExcludedCount = 0,
+  under4MpExcludedCount = 0,
+  similarExcludedCount = 0,
+  onIncludeAll,
+  onIncludeBelow4MpOnly,
   onIgnoreLibraryAndGenerate,
   onClearLibrary,
   onUpdateItem,
@@ -105,6 +117,41 @@ export function ResultList({
         </div>
       )}
 
+      {/* Requirement 3: Excluded files banner */}
+      {(totalExcludedCount ?? 0) > 0 && onIncludeAll && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-destructive/10 border border-destructive/25 text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-foreground font-medium">
+            <ShieldAlert className="h-4 w-4 text-destructive shrink-0" />
+            <span>
+              <span className="font-bold">{totalExcludedCount}</span>{' '}
+              {totalExcludedCount === 1 ? 'file is' : 'files are'} excluded (below 4 MP: {under4MpExcludedCount ?? 0}, similar: {similarExcludedCount ?? 0})
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              onClick={onIncludeAll}
+              className="h-7 text-xs font-semibold px-3"
+            >
+              Include all
+            </Button>
+            {(under4MpExcludedCount ?? 0) > 0 && onIncludeBelow4MpOnly && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onIncludeBelow4MpOnly}
+                className="h-7 text-xs px-3 font-semibold border-destructive/30 hover:bg-destructive/10 text-destructive"
+              >
+                Include only the below-4 MP ones
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Cards list (vertical stack of side-by-side cards) */}
       <div className="space-y-4">
         {displayedItems.map((item) => (
@@ -113,6 +160,7 @@ export function ResultList({
             item={item}
             mode={mode}
             platformSpec={platformSpec}
+            minSizeCheck={minSizeCheck}
             showSimilarityScores={showSimilarityScores}
             onUpdate={(updated) => onUpdateItem(item.id, updated)}
             onDelete={() => onDeleteItem(item.id)}

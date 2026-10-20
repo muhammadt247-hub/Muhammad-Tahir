@@ -42,10 +42,13 @@ export function MetadataSettings({
     const newTitleLength = Math.min(settings.titleLength, spec.maxTitleLength);
     const newKeywordsCount = Math.min(settings.keywordsCount, spec.maxKeywordsCount);
 
+    const defaultMinSizeCheck = platform === 'adobe-stock' ? 'exclude' : 'warn';
+
     onUpdate({
       platform,
       titleLength: newTitleLength,
       keywordsCount: newKeywordsCount,
+      minSizeCheck: defaultMinSizeCheck,
     });
   };
 

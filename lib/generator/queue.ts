@@ -101,9 +101,15 @@ export interface QueueCallbacks {
   onCreditsRemaining?: (creditsRemaining: number) => void;
 }
 
-export function isItemExcluded(item: GeneratorItemState): boolean {
+export function isItemExcluded(
+  item: GeneratorItemState,
+  minSizeCheck: 'exclude' | 'warn' | 'off' = 'exclude'
+): boolean {
+  if (minSizeCheck !== 'exclude' && item.excludedReason === "Below Adobe's 4 MP minimum, likely refused") {
+    return false;
+  }
   if (item.isExcluded) return true;
-  if (item.fileData.width > 0 && item.fileData.height > 0) {
+  if (minSizeCheck === 'exclude' && item.fileData.width > 0 && item.fileData.height > 0) {
     const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
     if (mp < 4.0) return true;
   }
@@ -230,7 +236,7 @@ export class GeneratorQueue {
     this.callbacks.onProgressUpdate?.(state);
   }
 
-  async start(): Promise<void> {
+  async start(limit?: number): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
     this.isPaused = false;
@@ -239,9 +245,11 @@ export class GeneratorQueue {
 
     // Strictly process pending items (queued or failed), never sending excluded images
     // Done items are preserved without duplication
-    const pendingItems = this.items.filter(
-      (i) => (i.status === 'queued' || i.status === 'failed') && !isItemExcluded(i)
+    const activeMinSizeCheck = this.settings.minSizeCheck || (this.settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+    const allPending = this.items.filter(
+      (i) => (i.status === 'queued' || i.status === 'failed') && !isItemExcluded(i, activeMinSizeCheck)
     );
+    const pendingItems = limit !== undefined && limit > 0 ? allPending.slice(0, limit) : allPending;
 
     if (pendingItems.length === 0) {
       this.isRunning = false;
@@ -265,7 +273,7 @@ export class GeneratorQueue {
       this.currentFilename = item.fileData.originalName;
 
       // Do not charge for or send excluded or skipped images
-      if (item.isExcluded || isItemExcluded(item)) {
+      if (item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
         continue;
       }
 
