@@ -26,20 +26,26 @@ export function DropZone({
     const valid: File[] = [];
 
     for (const f of rawFiles) {
-      const ext = f.name.slice(f.name.lastIndexOf('.')).toLowerCase();
-      if (ext === '.eps' || ext === '.ai') {
-        toast.error('EPS/AI is not supported. Export a JPG or PNG preview first.');
+      const isAcceptedVector =
+        f.type === 'image/svg+xml' ||
+        f.type === 'application/postscript' ||
+        f.type === 'application/illustrator' ||
+        /\.(svg|eps|ai)$/i.test(f.name);
+
+      if (isAcceptedVector && f.size > 100 * 1024 * 1024) {
+        toast.error(`${f.name} exceeds 100 MB limit for vector files.`);
         continue;
       }
 
       const isAcceptedImage =
         f.type.startsWith('image/') ||
-        /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(f.name);
+        /\.(jpg|jpeg|png|webp|gif)$/i.test(f.name);
+
       const isAcceptedVideo =
         f.type.startsWith('video/') ||
         /\.(mp4|mov|webm)$/i.test(f.name);
 
-      if (isAcceptedImage || isAcceptedVideo) {
+      if (isAcceptedImage || isAcceptedVideo || isAcceptedVector) {
         valid.push(f);
       } else {
         toast.error(`Unsupported file type: ${f.name}`);
@@ -107,7 +113,7 @@ export function DropZone({
         const filtered = validateAndFilterFiles(pastedFiles);
         if (filtered.length > 0) {
           onFilesSelected(filtered);
-          toast.success(`Pasted ${filtered.length} image(s) from clipboard`);
+          toast.success(`Pasted ${filtered.length} file(s) from clipboard`);
         }
       }
     };
@@ -132,7 +138,7 @@ export function DropZone({
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,video/mp4,video/quicktime,video/webm"
+        accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,.svg,.eps,.ai,application/postscript,application/illustrator,video/mp4,video/quicktime,video/webm"
         className="hidden"
         onChange={handleFileInputChange}
         disabled={disabled}
@@ -151,7 +157,7 @@ export function DropZone({
           <Video className="h-2.5 w-2.5" /> Videos
         </span>
         <span data-no-pop className="rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1 flex items-center gap-1">
-          <FileCode className="h-2.5 w-2.5" /> SVG
+          <FileCode className="h-2.5 w-2.5" /> Vectors
         </span>
       </div>
 
@@ -169,7 +175,7 @@ export function DropZone({
       </p>
 
       <p data-no-pop className="text-[11px] text-muted-foreground mt-1">
-        Supports image, video &amp; SVG · Large batch ready (up to {maxFiles} files)
+        Supports image, video &amp; vector (SVG, EPS, AI) · up to 1000 files
       </p>
     </div>
   );

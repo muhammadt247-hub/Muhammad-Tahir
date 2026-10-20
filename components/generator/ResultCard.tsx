@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Image from 'next/image';
 import {
   GeneratorItemState,
@@ -25,6 +25,8 @@ import {
   ShieldAlert,
   Wand2,
   Loader2,
+  RefreshCw,
+  FileQuestion,
 } from 'lucide-react';
 import { FlagChips } from './FlagChips';
 import { ScoreBadge } from './ScoreBadge';
@@ -47,6 +49,8 @@ interface ResultCardProps {
   onScrollToItem?: (targetId: string) => void;
   onKeepInstead?: (id: string) => void;
   onIncludeAnyway?: (id: string) => void;
+  onAttachPreview?: (id: string, file: File) => void;
+  onRetrySvgRaster?: (id: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -69,7 +73,10 @@ export function ResultCard({
   onScrollToItem,
   onKeepInstead,
   onIncludeAnyway,
+  onAttachPreview,
+  onRetrySvgRaster,
 }: ResultCardProps) {
+  const previewInputRef = useRef<HTMLInputElement>(null);
   const [newKeywordInput, setNewKeywordInput] = useState('');
   const [copiedTitle, setCopiedTitle] = useState(false);
   const [copiedKeywords, setCopiedKeywords] = useState(false);
@@ -151,14 +158,21 @@ export function ResultCard({
   const hardBlockedTerms = (item.blockedTermsFound || []).filter((b) => !b.isAmbiguous);
   const ambiguousTerms = (item.blockedTermsFound || []).filter((b) => b.isAmbiguous);
 
-  // Resolution & Adobe Limits Check
+  // Vector check
+  const isVector = !!(
+    item.isVector ||
+    item.fileData.isVector ||
+    /\.(svg|eps|ai)$/i.test(item.fileData.originalName)
+  );
+
+  // Resolution & Adobe Limits Check (Vector files NEVER subject to 4 MP size check or size exclusions)
   const width = item.fileData.width || 0;
   const height = item.fileData.height || 0;
   const megapixels = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
-  const isUnder4MpRaw = width > 0 && height > 0 && megapixels < 4.0;
-  const isUnder4MpExcluded = minSizeCheck === 'exclude' && isUnder4MpRaw;
-  const isUnder4MpWarn = minSizeCheck === 'warn' && isUnder4MpRaw;
-  const isOver100Mp = megapixels > 100;
+  const isUnder4MpRaw = !isVector && width > 0 && height > 0 && megapixels < 4.0;
+  const isUnder4MpExcluded = !isVector && minSizeCheck === 'exclude' && isUnder4MpRaw;
+  const isUnder4MpWarn = !isVector && minSizeCheck === 'warn' && isUnder4MpRaw;
+  const isOver100Mp = !isVector && megapixels > 100;
   const isOver45Mb = (item.fileData.originalSize || 0) > 45 * 1024 * 1024;
   const isAlreadyExported = item.excludedReason?.startsWith('Already exported');
   const hasGeneratedContent =
@@ -197,7 +211,11 @@ export function ResultCard({
       id={`result-card-${item.id}`}
       className={cn(
         'flex flex-col md:flex-row rounded-2xl bg-card shadow-md overflow-hidden border transition-all duration-300 relative scroll-mt-20',
-        isAnyExclusion
+        item.needsPreview
+          ? 'border-amber-500/50 bg-amber-500/[0.04]'
+          : item.svgRasterFailed
+          ? 'border-destructive/40 bg-destructive/5'
+          : isAnyExclusion
           ? 'border-destructive/40 bg-muted/20 opacity-95'
           : isKeptBest
           ? 'border-emerald-500/50 shadow-emerald-500/5'
@@ -206,17 +224,40 @@ export function ResultCard({
     >
       {/* 1. LEFT PICTURE AREA (Desktop: side-by-side left; Mobile: stacked top) */}
       <div className="relative aspect-video md:aspect-auto md:w-64 lg:w-72 md:shrink-0 bg-muted/40 border-b md:border-b-0 md:border-r border-border/40 overflow-hidden flex items-center justify-center min-h-[220px] md:min-h-0">
-        <Image
-          src={item.fileData.previewUrl || item.fileData.aiDataUrl}
-          alt={item.fileData.originalName}
-          fill
-          className="object-contain p-2"
-          unoptimized
-          referrerPolicy="no-referrer"
-        />
+        {item.needsPreview ? (
+          <div className="flex flex-col items-center justify-center p-6 text-center text-amber-600 dark:text-amber-400 gap-2">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <FileQuestion className="h-6 w-6" />
+            </div>
+            <span className="text-xs font-semibold">Needs Preview</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">
+              {item.fileData.originalName.slice(item.fileData.originalName.lastIndexOf('.') + 1)}
+            </span>
+          </div>
+        ) : item.fileData.previewUrl || item.fileData.aiDataUrl ? (
+          <Image
+            src={item.fileData.previewUrl || item.fileData.aiDataUrl}
+            alt={item.fileData.originalName}
+            fill
+            className="object-contain p-2"
+            unoptimized
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center p-6 text-center text-muted-foreground gap-2">
+            <AlertCircle className="h-6 w-6 text-destructive" />
+            <span className="text-xs font-semibold">Preview unavailable</span>
+          </div>
+        )}
 
-        {/* Badges on Image: Excluded, Amber Warn Chip, and Best of group (Top-Left) */}
+        {/* Badges on Image: Excluded, Amber Warn Chip, Low-Res Chip, and Best of group (Top-Left) */}
         <div className="absolute top-3 left-3 z-20 flex flex-col gap-1 items-start max-w-[70%]">
+          {item.isLowResPreview && (
+            <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-xs truncate max-w-full">
+              Preview from file (low resolution)
+            </span>
+          )}
+
           {isUnder4MpWarn && !itemIsEffectivelyExcluded && (
             <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-xs truncate max-w-full">
               Below 4 MP, Adobe may refuse
@@ -277,7 +318,11 @@ export function ResultCard({
             {item.fileData.originalName}
           </p>
           <div className="text-[11px] font-mono flex items-center gap-1.5 text-muted-foreground">
-            {width > 0 && height > 0 ? (
+            {isVector ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/25">
+                Vector
+              </span>
+            ) : width > 0 && height > 0 ? (
               <span
                 className={cn(
                   'font-medium',
@@ -297,6 +342,73 @@ export function ResultCard({
             </span>
           </div>
         </div>
+
+        {/* Needs a preview image state (EPS / AI) */}
+        {item.needsPreview && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                  Needs a preview image
+                </h4>
+                <p className="text-xs text-amber-700 dark:text-amber-400/90 leading-relaxed">
+                  {item.needsPreviewMessage ||
+                    'Add a JPG or PNG preview with the same name, for example logo.jpg'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                ref={previewInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file && onAttachPreview) {
+                    onAttachPreview(item.id, file);
+                  }
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => previewInputRef.current?.click()}
+                className="h-8 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shadow-xs"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" /> Add preview
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* SVG Rasterization Failure Banner */}
+        {item.svgRasterFailed && (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3.5 space-y-2 text-destructive text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>Failed to rasterize SVG image</span>
+              </div>
+              {onRetrySvgRaster && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onRetrySvgRaster(item.id)}
+                  className="h-7 text-xs border-destructive/40 hover:bg-destructive/10 text-destructive"
+                >
+                  <RefreshCw className="h-3 w-3 mr-1" /> Retry
+                </Button>
+              )}
+            </div>
+            <p className="text-[11px] opacity-90">
+              {item.errorMessage || 'Browser could not render this SVG onto a canvas.'}
+            </p>
+          </div>
+        )}
 
         {/* Working Progress & Stage Indicator */}
         {item.status === 'working' && (

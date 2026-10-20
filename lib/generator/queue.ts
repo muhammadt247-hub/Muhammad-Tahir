@@ -58,11 +58,22 @@ export interface GeneratorItemState {
   flagReasons?: string[];
   dhash?: string;
   isExcluded?: boolean;
+  manualInclude?: boolean;
   approvedIssues?: string[];
   seoScore?: number;
   seoChecklist?: SeoCheckItem[];
   similarTo?: SimilarTitleMatch[];
   blockedTermsFound?: BlockedTermMatch[];
+
+  // Vector support fields
+  isVector?: boolean;
+  vectorType?: 'svg' | 'eps' | 'ai';
+  needsPreview?: boolean;
+  needsPreviewMessage?: string;
+  previewSource?: 'paired' | 'embedded' | 'pdf' | 'svg';
+  isLowResPreview?: boolean;
+  pairedPreviewName?: string;
+  svgRasterFailed?: boolean;
 
   // Deep Similarity Guard fields
   fingerprint?: ImageFingerprint;
@@ -105,6 +116,11 @@ export function isItemExcluded(
   item: GeneratorItemState,
   minSizeCheck: 'exclude' | 'warn' | 'off' = 'exclude'
 ): boolean {
+  if (item.manualInclude) return false;
+  // Vector files are NEVER subject to the 4 MP size check or any size-based exclusion
+  const isVector = item.isVector || item.fileData?.isVector;
+  if (isVector) return false;
+
   if (minSizeCheck !== 'exclude' && item.excludedReason === "Below Adobe's 4 MP minimum, likely refused") {
     return false;
   }
@@ -244,10 +260,14 @@ export class GeneratorQueue {
     this.callbacks.onStateChange?.(true, false);
 
     // Strictly process pending items (queued or failed), never sending excluded images
-    // Done items are preserved without duplication
+    // Done items are preserved without duplication; vector items without preview are skipped until attached
     const activeMinSizeCheck = this.settings.minSizeCheck || (this.settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
     const allPending = this.items.filter(
-      (i) => (i.status === 'queued' || i.status === 'failed') && !isItemExcluded(i, activeMinSizeCheck)
+      (i) =>
+        (i.status === 'queued' || i.status === 'failed') &&
+        !i.needsPreview &&
+        !i.svgRasterFailed &&
+        !isItemExcluded(i, activeMinSizeCheck)
     );
     const pendingItems = limit !== undefined && limit > 0 ? allPending.slice(0, limit) : allPending;
 
@@ -272,8 +292,8 @@ export class GeneratorQueue {
       this.currentItemIndex = overallIndex !== -1 ? overallIndex + 1 : i + 1;
       this.currentFilename = item.fileData.originalName;
 
-      // Do not charge for or send excluded or skipped images
-      if (item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
+      // Do not charge for or send excluded or skipped images, or vectors without preview
+      if (item.needsPreview || item.svgRasterFailed || item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
         continue;
       }
 
@@ -592,9 +612,11 @@ export class GeneratorQueue {
               item.keywords = item.keywords.filter((k) => !aiTerms.has(k.toLowerCase().trim()));
             }
 
-            // Resolution check
+            // Resolution check (skipped for vector items)
+            const isVector = item.isVector || item.fileData?.isVector;
+            const activeMinSizeCheck = this.settings.minSizeCheck || (this.settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
             const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
-            if (item.fileData.width > 0 && item.fileData.height > 0 && mp < 4.0) {
+            if (!isVector && !item.manualInclude && activeMinSizeCheck === 'exclude' && item.fileData.width > 0 && item.fileData.height > 0 && mp < 4.0) {
               item.isExcluded = true;
               item.excludedReason = "Below Adobe's 4 MP minimum, likely refused";
             }

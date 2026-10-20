@@ -102,7 +102,7 @@ export function EmbedDialog({
                 {stats.successCount === 1 ? '' : 's'}.
                 {stats.skippedCount > 0 && (
                   <span className="block mt-1 text-muted-foreground/80">
-                    ({stats.skippedCount} file{stats.skippedCount === 1 ? '' : 's'} were skipped)
+                    ({stats.skippedCount} file{stats.skippedCount === 1 ? '' : 's'} were skipped. Vector files cannot embed metadata. Use the CSV.)
                   </span>
                 )}
               </DialogDescription>
@@ -146,9 +146,8 @@ export function EmbedDialog({
                 No Compatible Files
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-1">
+                Vector files cannot embed metadata. Use the CSV.
                 Currently, metadata embedding is only supported for JPG, JPEG and PNG images.
-                Vector files like SVG cannot embed metadata directly. Please download the CSV file
-                to use alongside your vectors.
               </DialogDescription>
             </DialogHeader>
 

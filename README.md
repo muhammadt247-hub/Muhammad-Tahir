@@ -210,3 +210,10 @@ The reference SQL migration for creating the `public.profiles` table with Row Le
 - **/account**: Email verified badge, live editable display name saved to `public.profiles`, password change, and sign out.
 - **Route & API Protection**: Next.js App Router `middleware.ts` automatically refreshes sessions and guards `/generator`, `/adobe-analytics`, `/tools`, `/account`, and all `/api/*` endpoints.
 - **Data Partitioning**: User moodboards, settings, and personal Gemini API keys in the browser are namespaced per user ID to keep multi-user workstation data completely isolated.
+
+---
+
+## Third-Party Libraries & Licenses
+
+- **pdfjs-dist**: Apache-2.0 License (Mozilla Foundation) — Client-side rendering and vector rasterization for PDF and Adobe Illustrator (.ai) files in the browser.
+- **utif**: MIT License (Photopea / Ivan Kuckir) — Client-side decoding of embedded TIFF preview images inside Encapsulated PostScript (.eps) binary headers.

@@ -35,6 +35,8 @@ import {
 } from '@/lib/generator/db';
 import { GeneratorItemState, GeneratorQueue, QueueProgressState, isItemExcluded } from '@/lib/generator/queue';
 import { processFileForGenerator } from '@/lib/generator/compress';
+import { getBaseName, isVectorFileName, getVectorType, processRasterPreview } from '@/lib/generator/vector-preview';
+import { rasterizeSvgToPng } from '@/lib/generator/svg-raster';
 import { generateMarketplaceCsv, generatePromptCsv, GeneratorResultExportItem } from '@/lib/generator/csv';
 import { embedJpegMetadata, embedPngMetadata, isMetadataEmbeddable } from '@/lib/generator/embed';
 import { downloadEmbeddedFilesZip, EmbeddedFileEntry } from '@/lib/generator/zip';
@@ -292,7 +294,7 @@ export default function GeneratorPage() {
     return () => clearTimeout(timer);
   }, [items, settings.titleUniqueness]);
 
-  // Handle uploaded files (Supports up to 1000 files for large batches)
+  // Handle uploaded files (Supports up to 1000 files for large batches, with EPS/AI preview pairing)
   const handleFilesSelected = async (newFiles: File[]) => {
     const maxCapacity = 1000;
     const remainingSlots = maxCapacity - items.length;
@@ -309,24 +311,146 @@ export default function GeneratorPage() {
 
     toast.info(`Preparing ${filesToProcess.length} file${filesToProcess.length === 1 ? '' : 's'}...`);
 
-    const newItems: GeneratorItemState[] = [];
+    const consumedRasters = new Set<string>();
+    const updatedExistingItems: GeneratorItemState[] = [...items];
+    let existingModified = false;
+
+    // 1. Check if any new raster file matches existing vector items in the list
     for (const file of filesToProcess) {
+      if (!isVectorFileName(file.name) && /\.(jpg|jpeg|png|webp)$/i.test(file.name)) {
+        const fileBase = getBaseName(file.name);
+        const matchIdx = updatedExistingItems.findIndex(
+          (it) =>
+            (it.isVector || it.fileData.isVector) &&
+            (it.vectorType === 'eps' || it.vectorType === 'ai' || it.fileData.vectorType === 'eps' || it.fileData.vectorType === 'ai') &&
+            getBaseName(it.fileData.originalName) === fileBase
+        );
+
+        if (matchIdx !== -1) {
+          try {
+            const rasterRes = await processRasterPreview(file);
+            const target = updatedExistingItems[matchIdx];
+            updatedExistingItems[matchIdx] = {
+              ...target,
+              fileData: {
+                ...target.fileData,
+                previewUrl: rasterRes.previewUrl,
+                aiDataUrl: rasterRes.aiDataUrl,
+                width: rasterRes.width,
+                height: rasterRes.height,
+                compressedSize: rasterRes.compressedSize,
+                needsPreview: false,
+                needsPreviewMessage: undefined,
+                previewSource: 'paired',
+                isLowResPreview: false,
+                pairedPreviewName: file.name,
+              },
+              needsPreview: false,
+              needsPreviewMessage: undefined,
+              previewSource: 'paired',
+              isLowResPreview: false,
+              pairedPreviewName: file.name,
+            };
+            consumedRasters.add(file.name);
+            existingModified = true;
+            toast.success(`Paired preview ${file.name} to ${target.fileData.originalName}`);
+          } catch (err) {
+            console.error(`Failed to pair raster preview ${file.name}:`, err);
+          }
+        }
+      }
+    }
+
+    // 2. Separate vectors and rasters in current batch for batch-internal pairing
+    const rasterMap = new Map<string, File>();
+    for (const f of filesToProcess) {
+      if (!consumedRasters.has(f.name) && !isVectorFileName(f.name) && /\.(jpg|jpeg|png|webp)$/i.test(f.name)) {
+        rasterMap.set(getBaseName(f.name), f);
+      }
+    }
+
+    const newItems: GeneratorItemState[] = [];
+    const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+
+    for (const file of filesToProcess) {
+      if (consumedRasters.has(file.name)) continue;
+
+      const isVector = isVectorFileName(file.name);
+      const vectorType = getVectorType(file.name);
+
       try {
+        // A. Vector file with paired raster preview
+        if (isVector && (vectorType === 'eps' || vectorType === 'ai')) {
+          const baseName = getBaseName(file.name);
+          const pairedRaster = rasterMap.get(baseName);
+
+          if (pairedRaster) {
+            consumedRasters.add(pairedRaster.name);
+            const pairedResult = await processRasterPreview(pairedRaster);
+            const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+            newItems.push({
+              id: assetId,
+              fileData: {
+                id: assetId,
+                file,
+                originalName: file.name, // Keep original vector name (e.g. logo.eps)
+                originalSize: file.size,
+                compressedSize: pairedResult.compressedSize,
+                mimeType: file.type || (vectorType === 'ai' ? 'application/illustrator' : 'application/postscript'),
+                previewUrl: pairedResult.previewUrl,
+                aiDataUrl: pairedResult.aiDataUrl,
+                hasAlphaChannel: false,
+                width: pairedResult.width,
+                height: pairedResult.height,
+                isVector: true,
+                vectorType,
+                previewSource: 'paired',
+                needsPreview: false,
+                isLowResPreview: false,
+                pairedPreviewName: pairedRaster.name,
+              },
+              status: 'queued',
+              title: '',
+              description: '',
+              keywords: [],
+              prompt: '',
+              retryCount: 0,
+              isVector: true,
+              vectorType,
+              previewSource: 'paired',
+              needsPreview: false,
+              isLowResPreview: false,
+              pairedPreviewName: pairedRaster.name,
+              isExcluded: false, // Vector files are NEVER subject to 4 MP size check
+            });
+            continue;
+          }
+        }
+
+        // B. SVG, unpaired AI/EPS, or general raster/video
         const fileData = await processFileForGenerator(file);
         const mp = fileData.width > 0 && fileData.height > 0 ? (fileData.width * fileData.height) / 1_000_000 : 0;
         const isUnder4Mp = fileData.width > 0 && fileData.height > 0 && mp < 4.0;
-        const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
-        const shouldExclude4Mp = activeMinSizeCheck === 'exclude' && isUnder4Mp;
+        const shouldExclude4Mp = !fileData.isVector && activeMinSizeCheck === 'exclude' && isUnder4Mp;
 
         newItems.push({
           id: fileData.id,
           fileData,
-          status: 'queued',
+          status: fileData.svgRasterFailed ? 'failed' : 'queued',
           title: '',
           description: '',
           keywords: [],
           prompt: '',
           retryCount: 0,
+          isVector: fileData.isVector,
+          vectorType: fileData.vectorType,
+          needsPreview: fileData.needsPreview,
+          needsPreviewMessage: fileData.needsPreviewMessage,
+          isLowResPreview: fileData.isLowResPreview,
+          previewSource: fileData.previewSource,
+          svgRasterFailed: fileData.svgRasterFailed,
+          errorMessage: fileData.svgRasterFailed ? 'Failed to rasterize SVG' : undefined,
           isExcluded: shouldExclude4Mp,
           excludedReason: shouldExclude4Mp ? "Below Adobe's 4 MP minimum, likely refused" : undefined,
         });
@@ -338,14 +462,101 @@ export default function GeneratorPage() {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
-    if (newItems.length > 0) {
-      const combined = [...items, ...newItems];
-      setItems(combined);
-      await saveAllBatchItems(combined);
-      toast.success(`Added ${newItems.length} file${newItems.length === 1 ? '' : 's'} to queue`);
-      runSimilarityCheck(combined);
+    const finalItems = existingModified ? [...updatedExistingItems, ...newItems] : [...items, ...newItems];
+
+    if (newItems.length > 0 || existingModified) {
+      setItems(finalItems);
+      await saveAllBatchItems(finalItems);
+      if (newItems.length > 0) {
+        toast.success(`Added ${newItems.length} file${newItems.length === 1 ? '' : 's'} to queue`);
+      }
+      runSimilarityCheck(finalItems);
     }
   };
+
+  // Attach a preview to an EPS/AI item needing a preview
+  const handleAttachPreview = useCallback(
+    async (itemId: string, previewFile: File) => {
+      try {
+        const rasterRes = await processRasterPreview(previewFile);
+        setItems((prev) => {
+          const next = prev.map((it) => {
+            if (it.id !== itemId) return it;
+            return {
+              ...it,
+              fileData: {
+                ...it.fileData,
+                previewUrl: rasterRes.previewUrl,
+                aiDataUrl: rasterRes.aiDataUrl,
+                width: rasterRes.width,
+                height: rasterRes.height,
+                compressedSize: rasterRes.compressedSize,
+                needsPreview: false,
+                needsPreviewMessage: undefined,
+                previewSource: 'paired' as const,
+                isLowResPreview: false,
+                pairedPreviewName: previewFile.name,
+              },
+              needsPreview: false,
+              needsPreviewMessage: undefined,
+              previewSource: 'paired' as const,
+              isLowResPreview: false,
+              pairedPreviewName: previewFile.name,
+            };
+          });
+          saveAllBatchItems(next);
+          return next;
+        });
+        toast.success(`Attached preview image from ${previewFile.name}`);
+      } catch (err) {
+        console.error('Failed to attach preview:', err);
+        toast.error('Could not process preview image');
+      }
+    },
+    []
+  );
+
+  // Retry browser SVG rasterization
+  const handleRetrySvgRaster = useCallback(
+    async (itemId: string) => {
+      const item = items.find((it) => it.id === itemId);
+      if (!item) return;
+
+      toast.info(`Retrying SVG rasterization for ${item.fileData.originalName}...`);
+      try {
+        const { pngDataUrl, width, height } = await rasterizeSvgToPng(item.fileData.file);
+        const compressedSize = Math.round((pngDataUrl.length * 3) / 4);
+        setItems((prev) => {
+          const next = prev.map((it) => {
+            if (it.id !== itemId) return it;
+            return {
+              ...it,
+              fileData: {
+                ...it.fileData,
+                previewUrl: pngDataUrl,
+                aiDataUrl: pngDataUrl,
+                width,
+                height,
+                compressedSize,
+                svgRasterFailed: false,
+              },
+              svgRasterFailed: false,
+              errorMessage: undefined,
+              status: 'queued' as const,
+            };
+          });
+          saveAllBatchItems(next);
+          return next;
+        });
+        toast.success(`Successfully rasterized ${item.fileData.originalName}`);
+      } catch (err: unknown) {
+        console.error('Failed to retry SVG rasterization:', err);
+        const msg = err instanceof Error ? err.message : 'Could not rasterize SVG';
+        toast.error(`Retry failed: ${msg}`);
+      }
+    },
+    [items]
+  );
 
   // Item management callbacks
   const handleUpdateItem = useCallback(
@@ -436,9 +647,11 @@ export default function GeneratorPage() {
     const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
     const doneItems = items.filter((i) => {
       if (i.status !== 'done' || isItemExcluded(i, activeMinSizeCheck)) return false;
+      const isVector = i.isVector || i.fileData.isVector;
       const mp = (i.fileData.width * i.fileData.height) / 1_000_000;
-      if (activeMinSizeCheck === 'exclude' && i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
-      if (mp > 100 || (i.fileData.originalSize || 0) > 45 * 1024 * 1024) return false;
+      if (!isVector && activeMinSizeCheck === 'exclude' && i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
+      if (!isVector && mp > 100) return false;
+      if ((i.fileData.originalSize || 0) > 45 * 1024 * 1024) return false;
       return true;
     });
 
@@ -502,7 +715,7 @@ export default function GeneratorPage() {
     executeActualCsvExport();
   }, [currentReport.blockedItemsCount, executeActualCsvExport]);
 
-  // Metadata Embedding Engine
+  // Metadata Embedding Engine (Skips vector files)
   const executeActualMetadataEmbed = useCallback(async () => {
     const doneItems = items.filter((i) => i.status === 'done' && !i.isExcluded);
     const validItems = doneItems.filter(
@@ -514,7 +727,9 @@ export default function GeneratorPage() {
       return;
     }
 
+    // Skip vector files (Vector files cannot embed metadata. Use the CSV.)
     const compatibleItems = validItems.filter((i) => {
+      if (i.isVector || i.fileData.isVector) return false;
       const kind = isMetadataEmbeddable(i.fileData.originalName, i.fileData.mimeType);
       return kind !== null;
     });
@@ -1261,14 +1476,21 @@ export default function GeneratorPage() {
     // 1. Excluded images count
     const excludedCount = items.filter((it) => isItemExcluded(it, activeMinSizeCheck)).length;
 
-    // 2. Needed items: items that are queued or failed and NOT excluded
+    // 2. Needed items: items that are queued or failed and NOT excluded, and NOT needing preview, and NOT failed SVG raster
     const neededItems = items.filter(
-      (it) => (it.status === 'queued' || it.status === 'failed') && !isItemExcluded(it, activeMinSizeCheck)
+      (it) =>
+        (it.status === 'queued' || it.status === 'failed') &&
+        !it.needsPreview &&
+        !it.svgRasterFailed &&
+        !isItemExcluded(it, activeMinSizeCheck)
     );
     const needed = neededItems.length;
+    const needsPreviewCount = items.filter((it) => it.needsPreview).length;
 
     if (needed === 0) {
-      if (excludedCount > 0) {
+      if (needsPreviewCount > 0) {
+        toast.info(`${needsPreviewCount} vector file(s) need a preview image. Add preview to generate.`);
+      } else if (excludedCount > 0) {
         toast.info(`Skipped ${excludedCount} excluded files`);
       } else {
         toast.info('All images are already generated.');
@@ -1310,8 +1532,13 @@ export default function GeneratorPage() {
     (i) => i.status === 'done' && Boolean(i.title?.trim()) && i.title.trim() !== i.fileData.originalName
   ).length;
   const failedCount = items.filter((i) => i.status === 'failed').length;
+  const needsPreviewCount = items.filter((i) => i.needsPreview).length;
   const pendingCount = items.filter(
-    (i) => (i.status === 'queued' || i.status === 'working') && !isItemExcluded(i, activeMinSizeCheck)
+    (i) =>
+      (i.status === 'queued' || i.status === 'working') &&
+      !i.needsPreview &&
+      !i.svgRasterFailed &&
+      !isItemExcluded(i, activeMinSizeCheck)
   ).length;
   const hasResults = doneCount > 0;
   const currentSpec = PLATFORM_SPECS[settings.platform] || PLATFORM_SPECS['adobe-stock'];
@@ -1426,6 +1653,7 @@ export default function GeneratorPage() {
             similarExcludedCount={similarExcludedCount}
             under4MpExcludedCount={under4MpExcludedCount}
             totalExcludedCount={totalExcludedCount}
+            needsPreviewCount={needsPreviewCount}
             libraryExcludedCount={libraryExcludedCount}
             similarDeleteCount={similarDeleteCount}
             generatingCount={generatingCount}
@@ -1472,6 +1700,8 @@ export default function GeneratorPage() {
             onScrollToItem={handleScrollToItem}
             onKeepInstead={handleKeepInstead}
             onIncludeAnyway={handleOverrideInclude}
+            onAttachPreview={handleAttachPreview}
+            onRetrySvgRaster={handleRetrySvgRaster}
           />
         </div>
       </div>

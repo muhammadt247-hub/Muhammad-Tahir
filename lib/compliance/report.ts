@@ -118,8 +118,10 @@ export function buildPreExportReport(
     const mp = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
     const fileBytes = item.fileData.originalSize || item.fileData.file?.size || 0;
 
-    // Check under 4 MP according to minSizeCheck setting
-    if (width > 0 && height > 0 && mp < 4.0 && minSizeCheck !== 'off') {
+    const isVector = item.isVector || item.fileData.isVector;
+
+    // Check under 4 MP according to minSizeCheck setting (Vector files are NEVER subject to 4 MP size check)
+    if (!isVector && width > 0 && height > 0 && mp < 4.0 && minSizeCheck !== 'off') {
       const isRed = minSizeCheck === 'exclude';
       resolutionIssues.push({
         itemId: item.id,

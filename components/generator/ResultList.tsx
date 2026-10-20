@@ -29,6 +29,8 @@ interface ResultListProps {
   onScrollToItem?: (targetId: string) => void;
   onKeepInstead?: (id: string) => void;
   onIncludeAnyway?: (id: string) => void;
+  onAttachPreview?: (id: string, file: File) => void;
+  onRetrySvgRaster?: (id: string) => void;
 }
 
 export function ResultList({
@@ -53,6 +55,8 @@ export function ResultList({
   onScrollToItem,
   onKeepInstead,
   onIncludeAnyway,
+  onAttachPreview,
+  onRetrySvgRaster,
 }: ResultListProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 50;
@@ -170,6 +174,8 @@ export function ResultList({
             onScrollToItem={onScrollToItem}
             onKeepInstead={onKeepInstead}
             onIncludeAnyway={onIncludeAnyway}
+            onAttachPreview={onAttachPreview}
+            onRetrySvgRaster={onRetrySvgRaster}
           />
         ))}
       </div>

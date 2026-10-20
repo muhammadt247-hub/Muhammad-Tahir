@@ -36,6 +36,7 @@ interface ActionBarProps {
   similarExcludedCount?: number;
   under4MpExcludedCount?: number;
   totalExcludedCount?: number;
+  needsPreviewCount?: number;
   libraryExcludedCount?: number;
   similarDeleteCount?: number;
   blockedCount?: number;
@@ -75,6 +76,7 @@ export function ActionBar({
   similarExcludedCount = 0,
   under4MpExcludedCount = 0,
   totalExcludedCount,
+  needsPreviewCount = 0,
   libraryExcludedCount = 0,
   similarDeleteCount = 0,
   blockedCount = 0,
@@ -110,7 +112,9 @@ export function ActionBar({
   } else if (isAnalyzingSimilarity) {
     generateDisabledReason = 'Checking for similar images...';
   } else if (pendingCount === 0) {
-    if (excludedTotal > 0) {
+    if (needsPreviewCount > 0) {
+      generateDisabledReason = `${needsPreviewCount} vector file(s) need a preview image. Add preview to generate.`;
+    } else if (excludedTotal > 0) {
       if (under4MpExcludedCount > 0 && under4MpExcludedCount === excludedTotal) {
         generateDisabledReason = `0 ready: ${excludedTotal} excluded (below 4 MP). Change the size check or click Include all.`;
       } else if (under4MpExcludedCount > 0) {
@@ -148,6 +152,8 @@ export function ActionBar({
           ? `Image ${imgNum} of ${totalFiles}: ${currentFilename}`
           : `Processing Image ${imgNum} of ${totalFiles}...`;
       }
+    } else if (pendingCount === 0 && needsPreviewCount > 0 && doneCount === 0) {
+      statusText = generateDisabledReason || `${needsPreviewCount} vector file(s) need a preview image.`;
     } else if (pendingCount === 0 && excludedTotal > 0 && doneCount === 0) {
       statusText = generateDisabledReason || `0 ready: ${excludedTotal} excluded. Change the size check or click Include all.`;
     } else if (doneCount > 0) {
@@ -155,10 +161,13 @@ export function ActionBar({
       if (pendingCount > 0) parts.push(`${pendingCount} pending`);
       if (failedCount > 0) parts.push(`${failedCount} failed`);
       if (excludedTotal > 0) parts.push(`${excludedTotal} skipped`);
+      if (needsPreviewCount > 0) parts.push(`${needsPreviewCount} need preview`);
       statusText = parts.join(' · ');
     } else {
-      const activeReady = Math.max(0, totalFiles - excludedTotal);
-      if (activeReady === 0 && excludedTotal > 0) {
+      const activeReady = pendingCount;
+      if (activeReady === 0 && needsPreviewCount > 0) {
+        statusText = generateDisabledReason || `${needsPreviewCount} vector file(s) need a preview image.`;
+      } else if (activeReady === 0 && excludedTotal > 0) {
         statusText = generateDisabledReason || `0 ready: ${excludedTotal} excluded. Change the size check or click Include all.`;
       } else {
         statusText = `${activeReady} ready to process sequentially`;
