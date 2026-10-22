@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import initGS from '@jspawn/ghostscript-wasm';
+import initGS from '@jspawn/ghostscript-wasm/gs.js';
 
 export interface ConvertRequestMessage {
   id: string;
