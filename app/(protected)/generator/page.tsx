@@ -413,6 +413,7 @@ export default function GeneratorPage() {
       }
     }
 
+    const unpairedVectorTasks: { assetId: string; vectorFile: File }[] = [];
     const newItems: GeneratorItemState[] = [];
     const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
     const handledVectorNames = new Set<string>();
@@ -483,8 +484,6 @@ export default function GeneratorPage() {
       }
 
       // Unpaired vectors for this base name (AI and EPS)
-      const unpairedVectorTasks: { assetId: string; vectorFile: File }[] = [];
-
       for (let i = pairCount; i < vectorList.length; i++) {
         const vectorFile = vectorList[i];
         handledVectorNames.add(vectorFile.name);
@@ -584,70 +583,96 @@ export default function GeneratorPage() {
 
     if (unpairedVectorTasks.length > 0) {
       (async () => {
-        for (const task of unpairedVectorTasks) {
-          try {
-            const processed = await processFileForGenerator(task.vectorFile);
-            setItems((prev) => {
-              const next = prev.map((it) => {
-                if (it.id !== task.assetId) return it;
-                if (processed.needsPreview) {
+        try {
+          for (const task of unpairedVectorTasks) {
+            try {
+              const processed = await processFileForGenerator(task.vectorFile);
+              setItems((prev) => {
+                const next = prev.map((it) => {
+                  if (it.id !== task.assetId) return it;
                   const errReason = processed.needsPreviewMessage || 'Could not convert this file';
-                  console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
+                  if (processed.needsPreview || processed.svgRasterFailed || !processed.previewUrl) {
+                    console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
+                    return {
+                      ...it,
+                      fileData: {
+                        ...it.fileData,
+                        ...processed,
+                        isConverting: false,
+                        needsPreview: true,
+                        needsPreviewMessage: errReason,
+                      },
+                      needsPreview: true,
+                      needsPreviewMessage: errReason,
+                      isConverting: false,
+                    };
+                  } else {
+                    return {
+                      ...it,
+                      fileData: {
+                        ...it.fileData,
+                        ...processed,
+                        isConverting: false,
+                        needsPreview: false,
+                      },
+                      needsPreview: false,
+                      isConverting: false,
+                    };
+                  }
+                });
+                saveAllBatchItems(next);
+                runSimilarityCheck(next);
+                return next;
+              });
+            } catch (err: unknown) {
+              const errReason = err instanceof Error ? err.message : 'Could not convert this file';
+              console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
+              setItems((prev) => {
+                const next = prev.map((it) => {
+                  if (it.id !== task.assetId) return it;
                   return {
                     ...it,
                     fileData: {
                       ...it.fileData,
-                      ...processed,
                       isConverting: false,
                       needsPreview: true,
-                      needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                      needsPreviewMessage: errReason,
                     },
                     needsPreview: true,
-                    needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                    needsPreviewMessage: errReason,
                     isConverting: false,
                   };
-                } else {
-                  return {
-                    ...it,
-                    fileData: {
-                      ...it.fileData,
-                      ...processed,
-                      isConverting: false,
-                      needsPreview: false,
-                    },
-                    needsPreview: false,
-                    isConverting: false,
-                  };
-                }
+                });
+                saveAllBatchItems(next);
+                runSimilarityCheck(next);
+                return next;
               });
-              saveAllBatchItems(next);
-              runSimilarityCheck(next);
-              return next;
-            });
-          } catch (err: unknown) {
-            const errReason = err instanceof Error ? err.message : 'Unknown error';
-            console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
-            setItems((prev) => {
-              const next = prev.map((it) => {
-                if (it.id !== task.assetId) return it;
+            }
+          }
+        } catch (outerErr: unknown) {
+          const outerReason = outerErr instanceof Error ? outerErr.message : 'Could not convert vector files';
+          console.error('Vector conversion batch error:', outerReason);
+          setItems((prev) => {
+            const next = prev.map((it) => {
+              if (it.isConverting || it.fileData?.isConverting) {
                 return {
                   ...it,
                   fileData: {
                     ...it.fileData,
                     isConverting: false,
                     needsPreview: true,
-                    needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                    needsPreviewMessage: outerReason,
                   },
                   needsPreview: true,
-                  needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                  needsPreviewMessage: outerReason,
                   isConverting: false,
                 };
-              });
-              saveAllBatchItems(next);
-              runSimilarityCheck(next);
-              return next;
+              }
+              return it;
             });
-          }
+            saveAllBatchItems(next);
+            return next;
+          });
         }
       })();
     }
