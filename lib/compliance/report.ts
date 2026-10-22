@@ -119,9 +119,10 @@ export function buildPreExportReport(
     const fileBytes = item.fileData.originalSize || item.fileData.file?.size || 0;
 
     const isVector = item.isVector || item.fileData.isVector;
+    const isVideo = item.isVideo || item.fileData.isVideo;
 
-    // Check under 4 MP according to minSizeCheck setting (Vector files are NEVER subject to 4 MP size check)
-    if (!isVector && width > 0 && height > 0 && mp < 4.0 && minSizeCheck !== 'off') {
+    // Check under 4 MP according to minSizeCheck setting (Vector files and video files are NEVER subject to 4 MP size check)
+    if (!isVector && !isVideo && width > 0 && height > 0 && mp < 4.0 && minSizeCheck !== 'off') {
       const isRed = minSizeCheck === 'exclude';
       resolutionIssues.push({
         itemId: item.id,
@@ -136,8 +137,8 @@ export function buildPreExportReport(
       });
     }
 
-    // Check over 100 MP: Red issue (vectors excluded from size limits)
-    if (!isVector && mp > 100) {
+    // Check over 100 MP: Red issue (vectors and videos excluded from size limits)
+    if (!isVector && !isVideo && mp > 100) {
       resolutionIssues.push({
         itemId: item.id,
         filename: item.fileData.originalName,

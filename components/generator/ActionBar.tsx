@@ -37,6 +37,7 @@ interface ActionBarProps {
   under4MpExcludedCount?: number;
   totalExcludedCount?: number;
   needsPreviewCount?: number;
+  convertingVectorCount?: number;
   libraryExcludedCount?: number;
   similarDeleteCount?: number;
   blockedCount?: number;
@@ -77,6 +78,7 @@ export function ActionBar({
   under4MpExcludedCount = 0,
   totalExcludedCount,
   needsPreviewCount = 0,
+  convertingVectorCount = 0,
   libraryExcludedCount = 0,
   similarDeleteCount = 0,
   blockedCount = 0,
@@ -109,6 +111,8 @@ export function ActionBar({
   let generateDisabledReason: string | undefined = undefined;
   if (totalFiles === 0) {
     generateDisabledReason = 'Upload files to begin.';
+  } else if (convertingVectorCount > 0) {
+    generateDisabledReason = `Converting ${convertingVectorCount} vector file${convertingVectorCount === 1 ? '' : 's'}... Please wait.`;
   } else if (isAnalyzingSimilarity) {
     generateDisabledReason = 'Checking for similar images...';
   } else if (pendingCount === 0) {
@@ -137,7 +141,9 @@ export function ActionBar({
   if (totalFiles > 0) {
     progressPercent = Math.min(100, Math.round(((doneCount + failedCount) / totalFiles) * 100));
 
-    if (isAnalyzingSimilarity) {
+    if (convertingVectorCount > 0) {
+      statusText = `Converting ${convertingVectorCount} vector file${convertingVectorCount === 1 ? '' : 's'}...`;
+    } else if (isAnalyzingSimilarity) {
       statusText = 'Checking for similar images...';
     } else if (cooldownText) {
       statusText = cooldownText;

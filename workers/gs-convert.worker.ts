@@ -35,13 +35,25 @@ function getGsModule(): Promise<any> {
             return res.arrayBuffer();
           })
           .then((buf) => WebAssembly.instantiate(buf, imports))
-          .then((output) => successCallback(output.instance, output.module))
+          .then((output) => {
+            console.log('Ghostscript ready');
+            successCallback(output.instance, output.module);
+          })
           .catch((err) => {
             console.error('Failed to instantiate Ghostscript WASM:', err);
+            throw err;
           });
         return {};
       },
-    });
+    })
+      .then((mod) => {
+        console.log('Ghostscript ready');
+        return mod;
+      })
+      .catch((err) => {
+        console.error('Failed to initialize Ghostscript WASM:', err);
+        throw err;
+      });
   }
   return gsModulePromise;
 }

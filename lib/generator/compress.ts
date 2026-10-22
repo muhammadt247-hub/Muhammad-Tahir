@@ -1,7 +1,6 @@
 import { detectImageAlpha } from './alpha';
 import { extractVideoFrame } from './video-frame';
 import { rasterizeSvgToPng } from './svg-raster';
-import { extractAiPreview, createUnpairedEpsResult } from './vector-preview';
 import { getVectorConverter, computeDpiFromBoundingBox } from './vector-convert-client';
 
 export interface ProcessedAssetFile {
@@ -26,6 +25,12 @@ export interface ProcessedAssetFile {
   isLowResPreview?: boolean;
   pairedPreviewName?: string;
   svgRasterFailed?: boolean;
+  isConverting?: boolean;
+
+  // Video support fields
+  isVideo?: boolean;
+  videoFrameFailed?: boolean;
+  errorMessage?: string;
 }
 
 export async function processFileForGenerator(file: File): Promise<ProcessedAssetFile> {
@@ -39,22 +44,44 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
 
   // 1. Video files
   if (isVideo) {
-    const { frameDataUrl, width, height } = await extractVideoFrame(file);
-    const compressedSize = Math.round((frameDataUrl.length * 3) / 4);
+    try {
+      const { frameDataUrl, width, height } = await extractVideoFrame(file);
+      const compressedSize = Math.round((frameDataUrl.length * 3) / 4);
 
-    return {
-      id,
-      file,
-      originalName: file.name,
-      originalSize: file.size,
-      compressedSize,
-      mimeType: file.type || 'video/mp4',
-      previewUrl: frameDataUrl,
-      aiDataUrl: frameDataUrl,
-      hasAlphaChannel: false,
-      width,
-      height,
-    };
+      return {
+        id,
+        file,
+        originalName: file.name,
+        originalSize: file.size,
+        compressedSize,
+        mimeType: file.type || 'video/mp4',
+        previewUrl: frameDataUrl,
+        aiDataUrl: frameDataUrl,
+        hasAlphaChannel: false,
+        width,
+        height,
+        isVideo: true,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load video';
+      console.error(`Failed to extract video frame ${file.name}:`, msg);
+      return {
+        id,
+        file,
+        originalName: file.name,
+        originalSize: file.size,
+        compressedSize: 0,
+        mimeType: file.type || 'video/mp4',
+        previewUrl: '',
+        aiDataUrl: '',
+        hasAlphaChannel: false,
+        width: 0,
+        height: 0,
+        isVideo: true,
+        videoFrameFailed: true,
+        errorMessage: 'This video format could not be read by the browser. Try MP4 (H.264).',
+      };
+    }
   }
 
   // 2. SVG files (Vector)
@@ -106,51 +133,53 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
   if (isAi || isEps) {
     const vectorType = isAi ? 'ai' : 'eps';
     const dpi = await computeDpiFromBoundingBox(file);
-    const conv = await getVectorConverter().enqueue(file, vectorType, dpi);
+    try {
+      const conv = await getVectorConverter().enqueue(file, vectorType, dpi);
 
-    if (conv.success) {
-      return {
-        id,
-        file,
-        originalName: file.name,
-        originalSize: file.size,
-        compressedSize: conv.compressedSize,
-        mimeType: vectorType === 'ai' ? 'application/illustrator' : 'application/postscript',
-        previewUrl: conv.previewUrl,
-        aiDataUrl: conv.aiDataUrl,
-        hasAlphaChannel: false,
-        width: conv.width,
-        height: conv.height,
-        isVector: true,
-        vectorType,
-        needsPreview: false,
-        previewSource: 'pdf',
-      };
-    } else {
-      if (isAi) {
-        const aiResult = await extractAiPreview(file);
-        if (!aiResult.needsPreview) {
-          const compressedSize = Math.round((aiResult.aiDataUrl.length * 3) / 4);
-          return {
-            id,
-            file,
-            originalName: file.name,
-            originalSize: file.size,
-            compressedSize,
-            mimeType: 'application/illustrator',
-            previewUrl: aiResult.previewUrl,
-            aiDataUrl: aiResult.aiDataUrl,
-            hasAlphaChannel: false,
-            width: aiResult.width,
-            height: aiResult.height,
-            isVector: true,
-            vectorType: 'ai',
-            needsPreview: false,
-            previewSource: 'pdf',
-          };
-        }
+      if (conv.success) {
+        return {
+          id,
+          file,
+          originalName: file.name,
+          originalSize: file.size,
+          compressedSize: conv.compressedSize,
+          mimeType: vectorType === 'ai' ? 'application/illustrator' : 'application/postscript',
+          previewUrl: conv.previewUrl,
+          aiDataUrl: conv.aiDataUrl,
+          hasAlphaChannel: false,
+          width: conv.width,
+          height: conv.height,
+          isVector: true,
+          vectorType,
+          needsPreview: false,
+          previewSource: 'pdf',
+        };
+      } else {
+        const reason = conv.error || 'Unknown conversion error';
+        console.error(`Could not convert vector file ${file.name}: ${reason}`);
+        return {
+          id,
+          file,
+          originalName: file.name,
+          originalSize: file.size,
+          compressedSize: 0,
+          mimeType: vectorType === 'ai' ? 'application/illustrator' : 'application/postscript',
+          previewUrl: '',
+          aiDataUrl: '',
+          hasAlphaChannel: false,
+          width: 0,
+          height: 0,
+          isVector: true,
+          vectorType,
+          needsPreview: true,
+          needsPreviewMessage: `Could not convert this file: ${reason}`,
+          previewSource: 'paired',
+          isLowResPreview: false,
+        };
       }
-
+    } catch (err: unknown) {
+      const reason = err instanceof Error ? err.message : 'Unknown error';
+      console.error(`Could not convert vector file ${file.name}: ${reason}`);
       return {
         id,
         file,
@@ -166,7 +195,7 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
         isVector: true,
         vectorType,
         needsPreview: true,
-        needsPreviewMessage: 'Could not convert this file',
+        needsPreviewMessage: `Could not convert this file: ${reason}`,
         previewSource: 'paired',
         isLowResPreview: false,
       };
@@ -210,11 +239,9 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
       let hasAlpha = false;
 
       if (isPng) {
-        // Draw first to check alpha
         ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
         hasAlpha = detectImageAlpha(ctx, canvasWidth, canvasHeight);
 
-        // If it has alpha or for AI request, draw on white background
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, canvasWidth, canvasHeight);
@@ -223,11 +250,9 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
         ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
       }
 
-      // 1024px JPEG quality 0.8 for AI
       const aiDataUrl = canvas.toDataURL('image/jpeg', 0.8);
       const compressedSize = Math.round((aiDataUrl.length * 3) / 4);
 
-      // Create a 160px thumbnail for clean preview
       const thumbCanvas = document.createElement('canvas');
       const thumbScale = Math.min(160 / canvasWidth, 160 / canvasHeight, 1);
       thumbCanvas.width = Math.max(1, Math.round(canvasWidth * thumbScale));

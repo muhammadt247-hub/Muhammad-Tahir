@@ -293,7 +293,31 @@ class VectorConversionManager {
       });
     }
 
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
+      try {
+        const headRes = await fetch('/gs/gs.wasm', { method: 'HEAD' });
+        if (!headRes.ok) {
+          return resolve({
+            success: false,
+            previewUrl: '',
+            aiDataUrl: '',
+            width: 0,
+            height: 0,
+            compressedSize: 0,
+            error: 'Converter file missing on server',
+          });
+        }
+      } catch {
+        return resolve({
+          success: false,
+          previewUrl: '',
+          aiDataUrl: '',
+          width: 0,
+          height: 0,
+          compressedSize: 0,
+          error: 'Converter file missing on server',
+        });
+      }
       const id = `convert_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
       this.queue.push({
         id,

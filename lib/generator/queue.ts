@@ -75,7 +75,12 @@ export interface GeneratorItemState {
   pairedPreviewName?: string;
   svgRasterFailed?: boolean;
   isConvertingVector?: boolean;
+  isConverting?: boolean;
   convertingProgress?: string;
+
+  // Video support fields
+  isVideo?: boolean;
+  videoFrameFailed?: boolean;
 
   // Deep Similarity Guard fields
   fingerprint?: ImageFingerprint;
@@ -119,9 +124,10 @@ export function isItemExcluded(
   minSizeCheck: 'exclude' | 'warn' | 'off' = 'exclude'
 ): boolean {
   if (item.manualInclude) return false;
-  // Vector files are NEVER subject to the 4 MP size check or any size-based exclusion
+  // Vector files and video files are NEVER subject to the 4 MP size check or any size-based exclusion
   const isVector = item.isVector || item.fileData?.isVector;
-  if (isVector) return false;
+  const isVideo = item.isVideo || item.fileData?.isVideo;
+  if (isVector || isVideo) return false;
 
   const isUnder4MpReason =
     item.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||

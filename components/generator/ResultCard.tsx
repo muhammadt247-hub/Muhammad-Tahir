@@ -231,7 +231,17 @@ export function ResultCard({
     >
       {/* 1. LEFT PICTURE AREA (Desktop: side-by-side left; Mobile: stacked top) */}
       <div className="relative aspect-video md:aspect-auto md:w-64 lg:w-72 md:shrink-0 bg-muted/40 border-b md:border-b-0 md:border-r border-border/40 overflow-hidden flex items-center justify-center min-h-[220px] md:min-h-0">
-        {item.needsPreview ? (
+        {item.isConverting || item.fileData.isConverting ? (
+          <div className="flex flex-col items-center justify-center p-6 text-center text-primary gap-2">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+            <span className="text-xs font-semibold">Converting...</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-mono">
+              {item.fileData.originalName.slice(item.fileData.originalName.lastIndexOf('.') + 1)}
+            </span>
+          </div>
+        ) : item.needsPreview ? (
           <div className="flex flex-col items-center justify-center p-6 text-center text-amber-600 dark:text-amber-400 gap-2">
             <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center">
               <FileQuestion className="h-6 w-6" />
@@ -329,6 +339,10 @@ export function ResultCard({
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-500/15 text-violet-700 dark:text-violet-300 border border-violet-500/25">
                 Vector
               </span>
+            ) : item.isVideo || item.fileData.isVideo ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/25">
+                Video
+              </span>
             ) : width > 0 && height > 0 ? (
               <span
                 className={cn(
@@ -413,6 +427,30 @@ export function ResultCard({
             </div>
             <p className="text-[11px] opacity-90">
               {item.errorMessage || 'Browser could not render this SVG onto a canvas.'}
+            </p>
+          </div>
+        )}
+
+        {/* Video Frame Extraction Failure Banner */}
+        {item.fileData.videoFrameFailed && (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3.5 space-y-2 text-destructive text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>Video frame extraction failed</span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onRegenerate}
+                className="h-7 text-xs border-destructive/40 hover:bg-destructive/10 text-destructive"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" /> Retry
+              </Button>
+            </div>
+            <p className="text-[11px] opacity-90">
+              {item.fileData.errorMessage || 'This video format could not be read by the browser. Try MP4 (H.264).'}
             </p>
           </div>
         )}

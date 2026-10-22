@@ -482,98 +482,49 @@ export default function GeneratorPage() {
         pairedBatchVectors++;
       }
 
-      // Unpaired vectors for this base name
+      // Unpaired vectors for this base name (AI and EPS)
+      const unpairedVectorTasks: { assetId: string; vectorFile: File }[] = [];
+
       for (let i = pairCount; i < vectorList.length; i++) {
         const vectorFile = vectorList[i];
         handledVectorNames.add(vectorFile.name);
         const vectorType = getVectorType(vectorFile.name) || 'eps';
+        const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-        if (vectorType === 'ai') {
-          // AI file: try %PDF rendering
-          const aiRes = await extractAiPreview(vectorFile);
-          const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-          newItems.push({
+        newItems.push({
+          id: assetId,
+          fileData: {
             id: assetId,
-            fileData: {
-              id: assetId,
-              file: vectorFile,
-              originalName: vectorFile.name,
-              originalSize: vectorFile.size,
-              compressedSize: Math.round((aiRes.aiDataUrl.length * 3) / 4),
-              mimeType: 'application/illustrator',
-              previewUrl: aiRes.previewUrl,
-              aiDataUrl: aiRes.aiDataUrl,
-              hasAlphaChannel: false,
-              width: aiRes.width,
-              height: aiRes.height,
-              isVector: true,
-              vectorType: 'ai',
-              needsPreview: aiRes.needsPreview,
-              needsPreviewMessage: aiRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
-              previewSource: 'pdf',
-              isLowResPreview: false,
-            },
-            status: 'queued',
-            title: '',
-            description: '',
-            keywords: [],
-            prompt: '',
-            retryCount: 0,
+            file: vectorFile,
+            originalName: vectorFile.name,
+            originalSize: vectorFile.size,
+            compressedSize: 0,
+            mimeType: vectorType === 'ai' ? 'application/illustrator' : 'application/postscript',
+            previewUrl: '',
+            aiDataUrl: '',
+            hasAlphaChannel: false,
+            width: 0,
+            height: 0,
             isVector: true,
-            vectorType: 'ai',
-            needsPreview: aiRes.needsPreview,
-            needsPreviewMessage: aiRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
+            vectorType,
+            needsPreview: false,
+            isConverting: true,
             previewSource: 'pdf',
-            isLowResPreview: false,
-            isExcluded: false,
-          });
+          },
+          status: 'queued',
+          title: '',
+          description: '',
+          keywords: [],
+          prompt: '',
+          retryCount: 0,
+          isVector: true,
+          vectorType,
+          needsPreview: false,
+          isConverting: true,
+          isExcluded: false,
+        });
 
-          if (!aiRes.needsPreview) {
-            pairedBatchVectors++;
-          } else {
-            needPreviewBatchVectors++;
-          }
-        } else {
-          // EPS file: Do NOT try to extract from inside the file.
-          const epsRes = createUnpairedEpsResult(vectorFile);
-          const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-          newItems.push({
-            id: assetId,
-            fileData: {
-              id: assetId,
-              file: vectorFile,
-              originalName: vectorFile.name,
-              originalSize: vectorFile.size,
-              compressedSize: 0,
-              mimeType: 'application/postscript',
-              previewUrl: '',
-              aiDataUrl: '',
-              hasAlphaChannel: false,
-              width: 0,
-              height: 0,
-              isVector: true,
-              vectorType: 'eps',
-              needsPreview: true,
-              needsPreviewMessage: epsRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
-              previewSource: 'paired',
-              isLowResPreview: false,
-            },
-            status: 'queued',
-            title: '',
-            description: '',
-            keywords: [],
-            prompt: '',
-            retryCount: 0,
-            isVector: true,
-            vectorType: 'eps',
-            needsPreview: true,
-            needsPreviewMessage: epsRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
-            previewSource: 'paired',
-            isLowResPreview: false,
-            isExcluded: false,
-          });
-          needPreviewBatchVectors++;
-        }
+        unpairedVectorTasks.push({ assetId, vectorFile });
       }
     }
 
@@ -629,6 +580,76 @@ export default function GeneratorPage() {
         toast.success(`Added ${newItems.length} file${newItems.length === 1 ? '' : 's'} to queue`);
       }
       runSimilarityCheck(finalItems);
+    }
+
+    if (unpairedVectorTasks.length > 0) {
+      (async () => {
+        for (const task of unpairedVectorTasks) {
+          try {
+            const processed = await processFileForGenerator(task.vectorFile);
+            setItems((prev) => {
+              const next = prev.map((it) => {
+                if (it.id !== task.assetId) return it;
+                if (processed.needsPreview) {
+                  const errReason = processed.needsPreviewMessage || 'Could not convert this file';
+                  console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
+                  return {
+                    ...it,
+                    fileData: {
+                      ...it.fileData,
+                      ...processed,
+                      isConverting: false,
+                      needsPreview: true,
+                      needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                    },
+                    needsPreview: true,
+                    needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                    isConverting: false,
+                  };
+                } else {
+                  return {
+                    ...it,
+                    fileData: {
+                      ...it.fileData,
+                      ...processed,
+                      isConverting: false,
+                      needsPreview: false,
+                    },
+                    needsPreview: false,
+                    isConverting: false,
+                  };
+                }
+              });
+              saveAllBatchItems(next);
+              runSimilarityCheck(next);
+              return next;
+            });
+          } catch (err: unknown) {
+            const errReason = err instanceof Error ? err.message : 'Unknown error';
+            console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
+            setItems((prev) => {
+              const next = prev.map((it) => {
+                if (it.id !== task.assetId) return it;
+                return {
+                  ...it,
+                  fileData: {
+                    ...it.fileData,
+                    isConverting: false,
+                    needsPreview: true,
+                    needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                  },
+                  needsPreview: true,
+                  needsPreviewMessage: `Could not convert this file: ${errReason}`,
+                  isConverting: false,
+                };
+              });
+              saveAllBatchItems(next);
+              runSimilarityCheck(next);
+              return next;
+            });
+          }
+        }
+      })();
     }
   };
 
@@ -1748,6 +1769,10 @@ export default function GeneratorPage() {
     return items.filter((i) => i.status === 'working' || (i.status === 'queued' && !isItemExcluded(i, activeMinSizeCheck))).length;
   }, [items, activeMinSizeCheck]);
 
+  const convertingVectorCount = useMemo(() => {
+    return items.filter((i) => i.isConverting || i.fileData?.isConverting).length;
+  }, [items]);
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 items-start">
@@ -1822,6 +1847,7 @@ export default function GeneratorPage() {
             under4MpExcludedCount={under4MpExcludedCount}
             totalExcludedCount={totalExcludedCount}
             needsPreviewCount={needsPreviewCount}
+            convertingVectorCount={convertingVectorCount}
             libraryExcludedCount={libraryExcludedCount}
             similarDeleteCount={similarDeleteCount}
             generatingCount={generatingCount}
