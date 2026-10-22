@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Type } from '@google/genai';
 import { getGeminiClient } from '@/lib/gemini';
-import { AI_CONFIG } from '@/config/ai';
+import { AI_CONFIG, isFallbackEligibleError } from '@/config/ai';
 
 const RequestSchema = z.object({
   imageUrl: z.string().min(1),
@@ -177,35 +177,52 @@ Rules:
       required: ['detailedPrompt', 'shortPrompt'],
     };
 
-    let attempt = 0;
+    const baseModel = modelName;
+    const modelsToTry = [baseModel, ...AI_CONFIG.MODEL_FALLBACKS.filter((m) => m !== baseModel)];
+
+    let lastError: unknown;
+    let success = false;
     let finalJson = '';
 
-    while (attempt < 2) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: {
-            parts: [imagePart, { text: userPrompt }],
-          },
-          config: {
-            systemInstruction,
-            temperature: 0.2,
-            responseMimeType: 'application/json',
-            responseSchema,
-          },
-        });
+    for (const curModel of modelsToTry) {
+      let modelSuccess = false;
+      let attempt = 0;
+      while (attempt < 2) {
+        try {
+          const response = await ai.models.generateContent({
+            model: curModel,
+            contents: {
+              parts: [imagePart, { text: userPrompt }],
+            },
+            config: {
+              systemInstruction,
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+              responseSchema,
+            },
+          });
 
-        finalJson = response.text?.trim() || '';
-        const parsedData = JSON.parse(finalJson);
-        const validated = PromptResponseSchema.parse(parsedData);
-        return NextResponse.json(validated);
-      } catch (callErr) {
-        attempt++;
-        if (attempt >= 2) throw callErr;
+          finalJson = response.text?.trim() || '';
+          const parsedData = JSON.parse(finalJson);
+          const validated = PromptResponseSchema.parse(parsedData);
+          return NextResponse.json(validated);
+        } catch (callErr: unknown) {
+          lastError = callErr;
+          attempt++;
+          if (!isFallbackEligibleError(callErr)) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 600));
+          }
+        }
+      }
+      if (lastError && !isFallbackEligibleError(lastError)) {
+        break;
       }
     }
 
-    throw new Error('Failed to generate prompt after retry');
+    throw lastError || new Error('Failed to generate prompt after retries');
   } catch (err: unknown) {
     console.error('[Prompt API Error]:', err);
     const message = err instanceof Error ? err.message : 'Prompt Generation Failed';

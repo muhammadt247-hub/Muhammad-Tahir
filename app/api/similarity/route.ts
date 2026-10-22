@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import { z } from 'zod';
-import { AI_CONFIG } from '@/config/ai';
+import { AI_CONFIG, isFallbackEligibleError } from '@/config/ai';
 
 const SimilarityRequestSchema = z.object({
   contactSheet: z.string().min(10), // Base64 data URI of contact sheet
@@ -126,30 +126,63 @@ YOUR MISSION:
 
 Strictly adhere to the JSON schema output.`;
 
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: promptText },
-            {
-              inlineData: {
-                mimeType,
-                data: base64Data,
-              },
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: SimilarityGeminiSchema,
-        temperature: 0.2,
-      },
-    });
+    const baseModel = requestedModel || process.env.GEMINI_MODEL || AI_CONFIG.DEFAULT_MODEL;
+    const modelsToTry = [baseModel, ...AI_CONFIG.MODEL_FALLBACKS.filter((m) => m !== baseModel)];
 
-    const responseText = response.text || '{}';
+    let lastError: unknown;
+    let success = false;
+    let responseText = '{}';
+
+    for (const curModel of modelsToTry) {
+      let modelSuccess = false;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: curModel,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: promptText },
+                  {
+                    inlineData: {
+                      mimeType,
+                      data: base64Data,
+                    },
+                  },
+                ],
+              },
+            ],
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: SimilarityGeminiSchema,
+              temperature: 0.2,
+            },
+          });
+
+          responseText = response.text || '{}';
+          modelSuccess = true;
+          success = true;
+          break;
+        } catch (err: unknown) {
+          lastError = err;
+          if (!isFallbackEligibleError(err)) {
+            break;
+          }
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 600));
+          }
+        }
+      }
+      if (modelSuccess) break;
+      if (lastError && !isFallbackEligibleError(lastError)) {
+        break;
+      }
+    }
+
+    if (!success) {
+      throw lastError;
+    }
     let rawJson: unknown;
     try {
       rawJson = JSON.parse(responseText);

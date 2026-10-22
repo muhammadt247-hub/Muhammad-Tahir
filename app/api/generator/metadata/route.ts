@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Type } from '@google/genai';
 import { getGeminiClient } from '@/lib/gemini';
-import { AI_CONFIG } from '@/config/ai';
+import { AI_CONFIG, isFallbackEligibleError } from '@/config/ai';
 
 const MetadataRequestSchema = z.object({
   filename: z.string(),
@@ -137,52 +137,70 @@ STRICT GUIDELINES:
       required: ['title', 'description', 'keywords'],
     };
 
-    let attempt = 0;
-    while (attempt < 2) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: { parts: parts as any },
-          config: {
-            systemInstruction,
-            temperature: 0.3,
-            responseMimeType: 'application/json',
-            responseSchema,
-          },
-        });
+    const baseModel = modelName;
+    const modelsToTry = [baseModel, ...AI_CONFIG.MODEL_FALLBACKS.filter((m) => m !== baseModel)];
 
-        const rawJson = response.text?.trim() || '';
-        const parsedJson = JSON.parse(rawJson);
+    let lastError: unknown;
+    let success = false;
 
-        // Deduplicate and clean keywords
-        if (Array.isArray(parsedJson.keywords)) {
-          const uniqueKeywords = Array.from(
-            new Set(
-              parsedJson.keywords
-                .map((k: string) => k.toLowerCase().trim())
-                .filter(Boolean)
-            )
-          );
-          parsedJson.keywords = uniqueKeywords;
+    for (const curModel of modelsToTry) {
+      let modelSuccess = false;
+      let attempt = 0;
+      while (attempt < 2) {
+        try {
+          const response = await ai.models.generateContent({
+            model: curModel,
+            contents: { parts: parts as any },
+            config: {
+              systemInstruction,
+              temperature: 0.3,
+              responseMimeType: 'application/json',
+              responseSchema,
+            },
+          });
+
+          const rawJson = response.text?.trim() || '';
+          const parsedJson = JSON.parse(rawJson);
+
+          // Deduplicate and clean keywords
+          if (Array.isArray(parsedJson.keywords)) {
+            const uniqueKeywords = Array.from(
+              new Set(
+                parsedJson.keywords
+                  .map((k: string) => k.toLowerCase().trim())
+                  .filter(Boolean)
+              )
+            );
+            parsedJson.keywords = uniqueKeywords;
+          }
+
+          // Apply prefixes/suffixes if requested
+          if (titlePrefix && !parsedJson.title.startsWith(titlePrefix)) {
+            parsedJson.title = `${titlePrefix} ${parsedJson.title}`.trim();
+          }
+          if (titleSuffix && !parsedJson.title.endsWith(titleSuffix)) {
+            parsedJson.title = `${parsedJson.title} ${titleSuffix}`.trim();
+          }
+
+          const validated = MetadataResponseSchema.parse(parsedJson);
+          return NextResponse.json(validated);
+        } catch (callErr: unknown) {
+          lastError = callErr;
+          attempt++;
+          if (!isFallbackEligibleError(callErr)) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 600));
+          }
         }
-
-        // Apply prefixes/suffixes if requested
-        if (titlePrefix && !parsedJson.title.startsWith(titlePrefix)) {
-          parsedJson.title = `${titlePrefix} ${parsedJson.title}`.trim();
-        }
-        if (titleSuffix && !parsedJson.title.endsWith(titleSuffix)) {
-          parsedJson.title = `${parsedJson.title} ${titleSuffix}`.trim();
-        }
-
-        const validated = MetadataResponseSchema.parse(parsedJson);
-        return NextResponse.json(validated);
-      } catch (callErr) {
-        attempt++;
-        if (attempt >= 2) throw callErr;
+      }
+      if (lastError && !isFallbackEligibleError(lastError)) {
+        break;
       }
     }
 
-    throw new Error('Failed to generate metadata after retry');
+    throw lastError || new Error('Failed to generate metadata after retries');
   } catch (err: unknown) {
     console.error('[Metadata Generation Error]:', err);
     const message = err instanceof Error ? err.message : 'Metadata generation failed';

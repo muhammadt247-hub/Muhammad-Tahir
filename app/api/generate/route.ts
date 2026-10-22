@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
-import { AI_CONFIG } from '@/config/ai';
+import { AI_CONFIG, isFallbackEligibleError } from '@/config/ai';
 import { postProcessMetadata, postProcessPrompt } from '@/lib/generator/post-process';
 import { requireUser } from '@/lib/supabase/server';
 import { CREDIT_COSTS, MAX_IMAGES_PER_REQUEST } from '@/config/credits';
@@ -358,114 +358,137 @@ CRITICAL RULES:
       responseSchema = PromptResponseSchema;
     }
 
-    // Call Gemini with retry on invalid JSON
+    // Call Gemini with model fallbacks (404, 429, 503) and 2 attempts per model
+    const baseModel = requestedModel || process.env.GEMINI_MODEL || AI_CONFIG.DEFAULT_MODEL;
+    const modelsToTry = [baseModel, ...AI_CONFIG.MODEL_FALLBACKS.filter((m) => m !== baseModel)];
+
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: {
-            parts: [...imageParts, { text: userPromptText }],
-          },
-          config: {
-            systemInstruction,
-            temperature: 0.3,
-            responseMimeType: 'application/json',
-            responseSchema,
-          },
-        });
+    let success = false;
+    let parsedJson: any = null;
 
-        const textOutput = response.text?.trim() || '{}';
-        const parsedJson = JSON.parse(textOutput);
-
-        if (mode === 'metadata' || mode === 'retitle') {
-          const validated = ZodMetadataOutput.parse(parsedJson);
-          // Post-process each item to guarantee client-side limits & rules
-          const processedSets = validated.metadataSets.map((item, idx) => {
-            return postProcessMetadata(item, {
-              titleMaxLength: platform === 'freepik' ? Math.min(100, titleMaxLength) : titleMaxLength,
-              keywordsMaxCount,
-              hasAlphaChannel: hasAlphaChannel[idx] || false,
-              isPrefixEnabled,
-              titlePrefix,
-              isSuffixEnabled,
-              titleSuffix,
-              isNegativeTitleWordsEnabled,
-              negativeTitleWords,
-              isNegativeKeywordsEnabled,
-              negativeKeywords,
-              isAdditionalKeywordsEnabled,
-              additionalKeywords,
-            });
+    for (const curModel of modelsToTry) {
+      let modelSuccess = false;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model: curModel,
+            contents: {
+              parts: [...imageParts, { text: userPromptText }],
+            },
+            config: {
+              systemInstruction,
+              temperature: 0.3,
+              responseMimeType: 'application/json',
+              responseSchema,
+            },
           });
 
-          // Check if any image failed or came back empty
-          const successfulCount = processedSets.filter(
-            (s) => s && typeof s.title === 'string' && s.title.trim().length > 0
-          ).length;
-          const failedCount = Math.max(0, imageCount - successfulCount);
-
-          if (failedCount > 0) {
-            await refundHelper(failedCount, 'refund_failed_images');
+          const textOutput = response.text?.trim() || '{}';
+          parsedJson = JSON.parse(textOutput);
+          modelSuccess = true;
+          success = true;
+          break;
+        } catch (err: unknown) {
+          lastError = err;
+          if (!isFallbackEligibleError(err)) {
+            // Do NOT fall back on 400, 401, 403, blocked content, etc. Throw/stop immediately.
+            break;
           }
-
-          const actualSuccessCount = imageCount - failedCount;
-          const creditsCharged = actualSuccessCount * CREDIT_COSTS.generatePerImage;
-
-          return NextResponse.json({
-            metadataSets: processedSets,
-            creditsCharged,
-            creditsRemaining,
-          });
-        } else {
-          const validated = ZodPromptOutput.parse(parsedJson);
-          // Post-process prompts
-          const processedPrompts = validated.prompts.map((p) => {
-            return {
-              prompt: postProcessPrompt(p.prompt, {
-                promptMaxLength,
-                promptPrefix,
-                isPromptPrefixEnabled,
-                promptSuffix,
-                isPromptSuffixEnabled,
-                negativePromptWords,
-                isNegativePromptWordsEnabled,
-                whiteBackground,
-                cameraParams,
-              }),
-            };
-          });
-
-          // Check if any prompt failed or came back empty
-          const successfulCount = processedPrompts.filter(
-            (p) => p && typeof p.prompt === 'string' && p.prompt.trim().length > 0
-          ).length;
-          const failedCount = Math.max(0, imageCount - successfulCount);
-
-          if (failedCount > 0) {
-            await refundHelper(failedCount, 'refund_failed_images');
+          console.warn(`Model ${curModel} attempt ${attempt} failed with fallback-eligible error:`, err);
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 600));
           }
-
-          const actualSuccessCount = imageCount - failedCount;
-          const creditsCharged = actualSuccessCount * CREDIT_COSTS.generatePerImage;
-
-          return NextResponse.json({
-            prompts: processedPrompts,
-            creditsCharged,
-            creditsRemaining,
-          });
         }
-      } catch (err: unknown) {
-        lastError = err;
-        console.warn(`Gemini generation attempt ${attempt} failed`);
-        if (attempt === 1) {
-          await new Promise((r) => setTimeout(r, 600));
-        }
+      }
+      if (modelSuccess) break;
+      if (lastError && !isFallbackEligibleError(lastError)) {
+        break;
       }
     }
 
-    // Both attempts failed: refund all charged credits once
-    await refundHelper(imageCount, 'refund_failed_generation');
+    if (!success) {
+      // All models failed: refund all charged credits once
+      await refundHelper(imageCount, 'refund_failed_generation');
+      throw lastError;
+    }
+
+    if (mode === 'metadata' || mode === 'retitle') {
+      const validated = ZodMetadataOutput.parse(parsedJson);
+      // Post-process each item to guarantee client-side limits & rules
+      const processedSets = validated.metadataSets.map((item, idx) => {
+        return postProcessMetadata(item, {
+          titleMaxLength: platform === 'freepik' ? Math.min(100, titleMaxLength) : titleMaxLength,
+          keywordsMaxCount,
+          hasAlphaChannel: hasAlphaChannel[idx] || false,
+          isPrefixEnabled,
+          titlePrefix,
+          isSuffixEnabled,
+          titleSuffix,
+          isNegativeTitleWordsEnabled,
+          negativeTitleWords,
+          isNegativeKeywordsEnabled,
+          negativeKeywords,
+          isAdditionalKeywordsEnabled,
+          additionalKeywords,
+        });
+      });
+
+      // Check if any image failed or came back empty
+      const successfulCount = processedSets.filter(
+        (s) => s && typeof s.title === 'string' && s.title.trim().length > 0
+      ).length;
+      const failedCount = Math.max(0, imageCount - successfulCount);
+
+      if (failedCount > 0) {
+        await refundHelper(failedCount, 'refund_failed_images');
+      }
+
+      const actualSuccessCount = imageCount - failedCount;
+      const creditsCharged = actualSuccessCount * CREDIT_COSTS.generatePerImage;
+
+      return NextResponse.json({
+        metadataSets: processedSets,
+        creditsCharged,
+        creditsRemaining,
+      });
+    } else {
+      const validated = ZodPromptOutput.parse(parsedJson);
+      // Post-process prompts
+      const processedPrompts = validated.prompts.map((p) => {
+        return {
+          prompt: postProcessPrompt(p.prompt, {
+            promptMaxLength,
+            promptPrefix,
+            isPromptPrefixEnabled,
+            promptSuffix,
+            isPromptSuffixEnabled,
+            negativePromptWords,
+            isNegativePromptWordsEnabled,
+            whiteBackground,
+            cameraParams,
+          }),
+        };
+      });
+
+      // Check if any prompt failed or came back empty
+      const successfulCount = processedPrompts.filter(
+        (p) => p && typeof p.prompt === 'string' && p.prompt.trim().length > 0
+      ).length;
+      const failedCount = Math.max(0, imageCount - successfulCount);
+
+      if (failedCount > 0) {
+        await refundHelper(failedCount, 'refund_failed_images');
+      }
+
+      const actualSuccessCount = imageCount - failedCount;
+      const creditsCharged = actualSuccessCount * CREDIT_COSTS.generatePerImage;
+
+      return NextResponse.json({
+        prompts: processedPrompts,
+        creditsCharged,
+        creditsRemaining,
+      });
+    }
 
     // If both attempts failed, format error with detailed quota diagnostics
     const errMessage = lastError instanceof Error ? lastError.message : 'Gemini generation failed';
