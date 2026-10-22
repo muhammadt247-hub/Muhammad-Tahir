@@ -1216,6 +1216,155 @@ export default function GeneratorPage() {
     }
   }, [items, settings, handleUpdateItem, updateBalanceLocally]);
 
+  // Fix all issues across items (blocked terms locally, similar titles with retitle, re-run compliance, summary)
+  const handleFixAllIssues = useCallback(async () => {
+    let fixedCount = 0;
+    let stillBlockedCount = 0;
+
+    const updatedItems = [...items];
+
+    for (let i = 0; i < updatedItems.length; i++) {
+      const item = updatedItems[i];
+      if (item.status !== 'done') continue;
+
+      // Rule 4: Do NOT touch items excluded for near-duplicate pictures, size limits, or a visible logo
+      const isDuplicate = item.similarityClusterId && !item.isKeptBest;
+      const isSizeExcluded = item.fileData && (item.fileData.width < 800 || item.fileData.height < 800);
+      const hasVisibleLogo = item.flags?.visibleLogoOrBrand || item.blockedTermsFound?.some(b => b.category.toLowerCase().includes('logo') || b.term.toLowerCase().includes('logo') || b.category.toLowerCase().includes('trademark'));
+      
+      const hasBlocked = item.blockedTermsFound?.some(b => !b.isAmbiguous);
+      const hasSimilar = item.similarTo && item.similarTo.length > 0;
+
+      if (!hasBlocked && !hasSimilar) {
+        continue;
+      }
+
+      if (isDuplicate || isSizeExcluded || hasVisibleLogo) {
+        if (hasBlocked || hasSimilar) {
+          stillBlockedCount++;
+        }
+        continue;
+      }
+
+      let itemChanged = false;
+
+      // 1. Blocked-term issue items: local fix (no AI call, no credits)
+      if (hasBlocked) {
+        const nonAmbiguousBlocked = (item.blockedTermsFound || []).filter(b => !b.isAmbiguous);
+        let newTitle = item.title;
+        let newKeywords = [...(item.keywords || [])];
+
+        for (const b of nonAmbiguousBlocked) {
+          const termRegex = new RegExp(`\\b${b.term}\\b`, 'gi');
+          newTitle = newTitle.replace(termRegex, '').replace(/\s+/g, ' ').trim();
+          newKeywords = newKeywords.filter(kw => !kw.toLowerCase().includes(b.term.toLowerCase()));
+        }
+
+        // Fill missing keywords with safe alternatives (no brands, no names)
+        const safeAlternatives = ['commercial', 'studio', 'editorial', 'professional', 'minimalist', 'clean', 'modern', 'creative', 'concept', 'abstract', 'isolated', 'background', 'digital', 'graphic'];
+        const targetCount = settings.keywordCount || 30;
+        for (const alt of safeAlternatives) {
+          if (newKeywords.length >= targetCount) break;
+          if (!newKeywords.some(kw => kw.toLowerCase() === alt)) {
+            newKeywords.push(alt);
+          }
+        }
+
+        newTitle = newTitle.replace(/^[^a-zA-Z0-9]+/, '').trim();
+        if (!newTitle) newTitle = 'Commercial stock asset';
+
+        item.title = newTitle;
+        item.keywords = newKeywords;
+        itemChanged = true;
+      }
+
+      // 2. Similar title items: rewrite title using existing retitle logic, charged once per item
+      if (hasSimilar) {
+        try {
+          const avoidList = (item.similarTo || []).map(s => s.otherFilename).filter(Boolean);
+          const keyInfo = await keyRotator.getNextKey();
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'retitle',
+              images: [item.fileData.aiDataUrl],
+              currentTitle: item.title,
+              reason: 'Rewrite with a distinct opening and perspective to eliminate batch similarity',
+              avoidTitles: avoidList,
+              platform: settings.platform,
+              titleMaxLength: settings.titleLength,
+              contributorLanguage: settings.contributorLanguage || 'en',
+              isAiBatch: settings.isAiBatch || false,
+              customBlockedWords: settings.customBlockedWords || [],
+              apiKey: keyInfo?.apiKey,
+              model: settings.selectedModel,
+            }),
+          });
+
+          if (res.status === 402) {
+            const errData = await res.json().catch(() => ({}));
+            const balance = typeof errData?.error?.balance === 'number' ? errData.error.balance : 0;
+            setOutOfCreditsBalance(balance);
+            setOutOfCreditsOpen(true);
+            break;
+          }
+
+          if (res.ok) {
+            const data = await res.json();
+            if (typeof data.creditsRemaining === 'number') {
+              updateBalanceLocally(data.creditsRemaining);
+            }
+            const newTitle = data.metadataSets?.[0]?.title || data.title;
+            if (newTitle) {
+              item.title = newTitle;
+              item.similarTo = [];
+              itemChanged = true;
+            }
+          }
+        } catch (e) {
+          console.error('Error fixing similar title in fix all:', e);
+        }
+      }
+
+      // 3. After each fix, run the existing compliance check again
+      if (itemChanged) {
+        const comp = scanItemCompliance(
+          item.title,
+          item.keywords,
+          item.description,
+          settings.customBlockedWords || [],
+          item.approvedIssues || [],
+          settings.isAiBatch || false
+        );
+        item.blockedTermsFound = comp.blockedTerms;
+        const seo = calculateItemSeoScore(item);
+        item.seoScore = seo.score;
+        item.seoChecklist = seo.checklist;
+
+        if (!comp.hasErrors && (!item.similarTo || item.similarTo.length === 0)) {
+          // Passes: remove excluded tag
+          item.isExcluded = false;
+          item.excludedReason = undefined;
+          fixedCount++;
+        } else {
+          // Still fails: keep excluded and show real reason
+          item.isExcluded = true;
+          item.excludedReason = comp.hasErrors ? `Blocked terms: ${comp.blockedTerms.map(b => b.term).join(', ')}` : 'Similar title issue remains';
+          stillBlockedCount++;
+        }
+      } else {
+        stillBlockedCount++;
+      }
+
+      saveBatchItem(item);
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    setItems([...updatedItems]);
+    toast.success(`Fixed ${fixedCount}, still blocked ${stillBlockedCount}`);
+  }, [items, settings, updateBalanceLocally]);
+
   // Approve ambiguous term
   const handleApproveIssue = useCallback(
     (id: string, term: string) => {
@@ -1893,6 +2042,7 @@ export default function GeneratorPage() {
             onExportCsv={handleExportCsv}
             onEmbedMetadata={handleEmbedMetadata}
             onFixSimilarTitles={handleFixSimilarTitles}
+            onFixAllIssues={handleFixAllIssues}
             onReviewClusters={() => setSimilarityDialogOpen(true)}
             onOpenReport={() => setReportDialogOpen(true)}
           />

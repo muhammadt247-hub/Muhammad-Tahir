@@ -59,6 +59,7 @@ interface ActionBarProps {
   onFixSimilarTitles?: () => void;
   onReviewClusters?: () => void;
   onOpenReport?: () => void;
+  onFixAllIssues?: () => void;
 }
 
 export function ActionBar({
@@ -100,6 +101,7 @@ export function ActionBar({
   onFixSimilarTitles,
   onReviewClusters,
   onOpenReport,
+  onFixAllIssues,
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -316,6 +318,18 @@ export function ActionBar({
 
         {/* Right: Actions */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Fix All Issues Button */}
+          {onFixAllIssues && (blockedCount > 0 || similarCount > 0) && !actionsDisabled && (
+            <button
+              type="button"
+              onClick={onFixAllIssues}
+              className="h-10 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>Fix all issues</span>
+            </button>
+          )}
+
           {/* Fix Similar Titles Button */}
           {similarCount > 0 && onFixSimilarTitles && !actionsDisabled && (
             <button
