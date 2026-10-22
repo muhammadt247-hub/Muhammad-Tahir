@@ -2,6 +2,7 @@
 import { SimilarityStrictness } from '@/config/similarity';
 import { LibraryFingerprintEntry } from '@/types/similarity';
 import type { GeneratorItemState } from './queue';
+import { AI_CONFIG } from '@/config/ai';
 
 export type { LibraryFingerprintEntry };
 
@@ -95,7 +96,7 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   negativePromptWords: '',
   whiteBackground: false,
   cameraParams: false,
-  selectedModel: 'gemini-2.5-flash',
+  selectedModel: AI_CONFIG.DEFAULT_MODEL,
   modelFallback: true,
   complianceGuard: true,
   titleUniqueness: 'normal',
@@ -207,8 +208,8 @@ export async function getSavedGeneratorSettings(): Promise<GeneratorSavedSetting
       req.onsuccess = () => {
         if (req.result && req.result.value) {
           const merged = { ...DEFAULT_GENERATOR_SETTINGS, ...req.result.value };
-          if (merged.selectedModel === 'gemini-3.8-flash') {
-            merged.selectedModel = 'gemini-2.5-flash';
+          if (!merged.selectedModel || merged.selectedModel === 'gemini-2.5-flash' || merged.selectedModel === 'gemini-3.5-flash') {
+            merged.selectedModel = AI_CONFIG.DEFAULT_MODEL;
           }
           resolve(merged);
         } else {

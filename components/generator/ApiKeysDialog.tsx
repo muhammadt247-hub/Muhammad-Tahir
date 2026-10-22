@@ -38,6 +38,7 @@ import {
   saveStoredApiKey,
   deleteStoredApiKey,
 } from '@/lib/generator/db';
+import { AI_CONFIG } from '@/config/ai';
 import { toast } from 'sonner';
 
 interface ApiKeysDialogProps {
@@ -365,16 +366,18 @@ export function ApiKeysDialog({
                 <p className="text-[11px] text-muted-foreground">Default model for metadata &amp; prompt generation</p>
               </div>
               <Select
-                value={settings.selectedModel || 'gemini-3.8-flash'}
+                value={settings.selectedModel || AI_CONFIG.DEFAULT_MODEL}
                 onValueChange={(val) => onUpdateSettings({ selectedModel: val })}
               >
                 <SelectTrigger className="w-44 h-8 text-xs rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gemini-3.8-flash">gemini-3.8-flash (Fast)</SelectItem>
-                  <SelectItem value="gemini-3.5-flash">gemini-3.5-flash</SelectItem>
-                  <SelectItem value="gemini-2.5-flash">gemini-2.5-flash</SelectItem>
+                  {AI_CONFIG.AVAILABLE_MODELS.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.id}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
