@@ -35,7 +35,15 @@ import {
 } from '@/lib/generator/db';
 import { GeneratorItemState, GeneratorQueue, QueueProgressState, isItemExcluded } from '@/lib/generator/queue';
 import { processFileForGenerator } from '@/lib/generator/compress';
-import { getBaseName, isVectorFileName, getVectorType, processRasterPreview } from '@/lib/generator/vector-preview';
+import {
+  getBaseName,
+  isVectorFileName,
+  getVectorType,
+  processRasterPreview,
+  extractAiPreview,
+  createUnpairedEpsResult,
+  NEEDS_PREVIEW_MESSAGE,
+} from '@/lib/generator/vector-preview';
 import { rasterizeSvgToPng } from '@/lib/generator/svg-raster';
 import { generateMarketplaceCsv, generatePromptCsv, GeneratorResultExportItem } from '@/lib/generator/csv';
 import { embedJpegMetadata, embedPngMetadata, isMetadataEmbeddable } from '@/lib/generator/embed';
@@ -166,8 +174,10 @@ export default function GeneratorPage() {
           const mp = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
           const isUnder4 = width > 0 && height > 0 && mp < 4.0;
 
+          const isVector = it.isVector || it.fileData?.isVector;
+
           if (newCheck === 'exclude') {
-            if (isUnder4 && !it.isExcluded && it.excludedReason !== 'manual_override') {
+            if (isUnder4 && !isVector && !it.isExcluded && !it.manualInclude && it.excludedReason !== 'manual_override') {
               return {
                 ...it,
                 isExcluded: true,
@@ -175,8 +185,12 @@ export default function GeneratorPage() {
               };
             }
           } else {
-            // 'warn' or 'off': restore files that were excluded solely for under 4 MP
-            if (it.isExcluded && it.excludedReason === "Below Adobe's 4 MP minimum, likely refused") {
+            // 'warn' or 'off': immediately clear the size exclusion on all files
+            const isSizeExclusion =
+              it.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
+              Boolean(it.excludedReason?.includes('4 MP')) ||
+              (isUnder4 && it.isExcluded && !it.excludedReason?.startsWith('Similar') && !it.excludedReason?.startsWith('Already exported'));
+            if (isSizeExclusion) {
               return {
                 ...it,
                 isExcluded: false,
@@ -314,121 +328,260 @@ export default function GeneratorPage() {
     const consumedRasters = new Set<string>();
     const updatedExistingItems: GeneratorItemState[] = [...items];
     let existingModified = false;
+    let pairedExistingCount = 0;
 
-    // 1. Check if any new raster file matches existing vector items in the list
-    for (const file of filesToProcess) {
-      if (!isVectorFileName(file.name) && /\.(jpg|jpeg|png|webp)$/i.test(file.name)) {
-        const fileBase = getBaseName(file.name);
-        const matchIdx = updatedExistingItems.findIndex(
-          (it) =>
-            (it.isVector || it.fileData.isVector) &&
-            (it.vectorType === 'eps' || it.vectorType === 'ai' || it.fileData.vectorType === 'eps' || it.fileData.vectorType === 'ai') &&
-            getBaseName(it.fileData.originalName) === fileBase
+    // Group candidates from current batch by base name
+    const candidateRastersByBase = new Map<string, File[]>();
+    for (const f of filesToProcess) {
+      if (!isVectorFileName(f.name) && /\.(jpg|jpeg|png|webp)$/i.test(f.name)) {
+        const base = getBaseName(f.name);
+        if (!candidateRastersByBase.has(base)) candidateRastersByBase.set(base, []);
+        candidateRastersByBase.get(base)!.push(f);
+      }
+    }
+
+    // 1. Check if newly uploaded rasters match existing EPS/AI items in the list that need a preview
+    for (const [base, rasterList] of candidateRastersByBase.entries()) {
+      const matchingExisting = updatedExistingItems.filter(
+        (it) =>
+          (it.isVector || it.fileData.isVector) &&
+          (it.vectorType === 'eps' || it.vectorType === 'ai' || it.fileData.vectorType === 'eps' || it.fileData.vectorType === 'ai') &&
+          it.needsPreview &&
+          getBaseName(it.fileData.originalName) === base
+      );
+
+      if (matchingExisting.length > 0 && rasterList.length > 0) {
+        matchingExisting.sort((a, b) =>
+          a.fileData.originalName.localeCompare(b.fileData.originalName, undefined, { sensitivity: 'base' })
+        );
+        rasterList.sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
         );
 
-        if (matchIdx !== -1) {
+        if (matchingExisting.length > 1 || rasterList.length > 1) {
+          toast.warning(`Multiple vectors or previews share base name "${base}". Paired in alphabetical order.`);
+        }
+
+        const pairs = Math.min(matchingExisting.length, rasterList.length);
+        for (let i = 0; i < pairs; i++) {
+          const target = matchingExisting[i];
+          const rasterFile = rasterList.shift()!;
+          consumedRasters.add(rasterFile.name);
+
           try {
-            const rasterRes = await processRasterPreview(file);
-            const target = updatedExistingItems[matchIdx];
-            updatedExistingItems[matchIdx] = {
-              ...target,
-              fileData: {
-                ...target.fileData,
-                previewUrl: rasterRes.previewUrl,
-                aiDataUrl: rasterRes.aiDataUrl,
-                width: rasterRes.width,
-                height: rasterRes.height,
-                compressedSize: rasterRes.compressedSize,
+            const rasterRes = await processRasterPreview(rasterFile);
+            const targetIdx = updatedExistingItems.findIndex((it) => it.id === target.id);
+            if (targetIdx !== -1) {
+              updatedExistingItems[targetIdx] = {
+                ...target,
+                fileData: {
+                  ...target.fileData,
+                  previewUrl: rasterRes.previewUrl,
+                  aiDataUrl: rasterRes.aiDataUrl,
+                  width: rasterRes.width,
+                  height: rasterRes.height,
+                  compressedSize: rasterRes.compressedSize,
+                  needsPreview: false,
+                  needsPreviewMessage: undefined,
+                  previewSource: 'paired',
+                  isLowResPreview: false,
+                  pairedPreviewName: rasterFile.name,
+                },
                 needsPreview: false,
                 needsPreviewMessage: undefined,
                 previewSource: 'paired',
                 isLowResPreview: false,
-                pairedPreviewName: file.name,
-              },
-              needsPreview: false,
-              needsPreviewMessage: undefined,
-              previewSource: 'paired',
-              isLowResPreview: false,
-              pairedPreviewName: file.name,
-            };
-            consumedRasters.add(file.name);
-            existingModified = true;
-            toast.success(`Paired preview ${file.name} to ${target.fileData.originalName}`);
+                pairedPreviewName: rasterFile.name,
+              };
+              existingModified = true;
+              pairedExistingCount++;
+            }
           } catch (err) {
-            console.error(`Failed to pair raster preview ${file.name}:`, err);
+            console.error(`Failed to pair raster preview ${rasterFile.name}:`, err);
           }
         }
       }
     }
 
-    // 2. Separate vectors and rasters in current batch for batch-internal pairing
-    const rasterMap = new Map<string, File>();
+    // 2. Identify pairing vector files (EPS and AI) in the current batch
+    const pairingVectorsByBase = new Map<string, File[]>();
     for (const f of filesToProcess) {
-      if (!consumedRasters.has(f.name) && !isVectorFileName(f.name) && /\.(jpg|jpeg|png|webp)$/i.test(f.name)) {
-        rasterMap.set(getBaseName(f.name), f);
+      if (/\.(eps|ai)$/i.test(f.name)) {
+        const base = getBaseName(f.name);
+        if (!pairingVectorsByBase.has(base)) pairingVectorsByBase.set(base, []);
+        pairingVectorsByBase.get(base)!.push(f);
       }
     }
 
     const newItems: GeneratorItemState[] = [];
     const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+    const handledVectorNames = new Set<string>();
+    let pairedBatchVectors = 0;
+    let needPreviewBatchVectors = 0;
 
+    // 3. Process EPS & AI vectors with preview pairing
+    for (const [base, vectorList] of pairingVectorsByBase.entries()) {
+      const rasterList = (candidateRastersByBase.get(base) || []).filter((r) => !consumedRasters.has(r.name));
+
+      // Sort both in alphabetical order
+      vectorList.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+      rasterList.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+      if (vectorList.length > 0 && rasterList.length > 0 && (vectorList.length > 1 || rasterList.length > 1)) {
+        toast.warning(`Multiple vectors or previews share base name "${base}". Paired in alphabetical order.`);
+      }
+
+      const pairCount = Math.min(vectorList.length, rasterList.length);
+
+      // Pair 1-to-1 in alphabetical order
+      for (let i = 0; i < pairCount; i++) {
+        const vectorFile = vectorList[i];
+        const rasterFile = rasterList[i];
+        consumedRasters.add(rasterFile.name);
+        handledVectorNames.add(vectorFile.name);
+
+        const pairedResult = await processRasterPreview(rasterFile);
+        const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const vectorType = getVectorType(vectorFile.name) || 'eps';
+
+        newItems.push({
+          id: assetId,
+          fileData: {
+            id: assetId,
+            file: vectorFile,
+            originalName: vectorFile.name, // e.g. logo.eps or logo.ai
+            originalSize: vectorFile.size,
+            compressedSize: pairedResult.compressedSize,
+            mimeType: vectorFile.type || (vectorType === 'ai' ? 'application/illustrator' : 'application/postscript'),
+            previewUrl: pairedResult.previewUrl,
+            aiDataUrl: pairedResult.aiDataUrl,
+            hasAlphaChannel: false,
+            width: pairedResult.width,
+            height: pairedResult.height,
+            isVector: true,
+            vectorType,
+            previewSource: 'paired',
+            needsPreview: false,
+            isLowResPreview: false,
+            pairedPreviewName: rasterFile.name,
+          },
+          status: 'queued',
+          title: '',
+          description: '',
+          keywords: [],
+          prompt: '',
+          retryCount: 0,
+          isVector: true,
+          vectorType,
+          previewSource: 'paired',
+          needsPreview: false,
+          isLowResPreview: false,
+          pairedPreviewName: rasterFile.name,
+          isExcluded: false,
+        });
+        pairedBatchVectors++;
+      }
+
+      // Unpaired vectors for this base name
+      for (let i = pairCount; i < vectorList.length; i++) {
+        const vectorFile = vectorList[i];
+        handledVectorNames.add(vectorFile.name);
+        const vectorType = getVectorType(vectorFile.name) || 'eps';
+
+        if (vectorType === 'ai') {
+          // AI file: try %PDF rendering
+          const aiRes = await extractAiPreview(vectorFile);
+          const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          newItems.push({
+            id: assetId,
+            fileData: {
+              id: assetId,
+              file: vectorFile,
+              originalName: vectorFile.name,
+              originalSize: vectorFile.size,
+              compressedSize: Math.round((aiRes.aiDataUrl.length * 3) / 4),
+              mimeType: 'application/illustrator',
+              previewUrl: aiRes.previewUrl,
+              aiDataUrl: aiRes.aiDataUrl,
+              hasAlphaChannel: false,
+              width: aiRes.width,
+              height: aiRes.height,
+              isVector: true,
+              vectorType: 'ai',
+              needsPreview: aiRes.needsPreview,
+              needsPreviewMessage: aiRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
+              previewSource: 'pdf',
+              isLowResPreview: false,
+            },
+            status: 'queued',
+            title: '',
+            description: '',
+            keywords: [],
+            prompt: '',
+            retryCount: 0,
+            isVector: true,
+            vectorType: 'ai',
+            needsPreview: aiRes.needsPreview,
+            needsPreviewMessage: aiRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
+            previewSource: 'pdf',
+            isLowResPreview: false,
+            isExcluded: false,
+          });
+
+          if (!aiRes.needsPreview) {
+            pairedBatchVectors++;
+          } else {
+            needPreviewBatchVectors++;
+          }
+        } else {
+          // EPS file: Do NOT try to extract from inside the file.
+          const epsRes = createUnpairedEpsResult(vectorFile);
+          const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          newItems.push({
+            id: assetId,
+            fileData: {
+              id: assetId,
+              file: vectorFile,
+              originalName: vectorFile.name,
+              originalSize: vectorFile.size,
+              compressedSize: 0,
+              mimeType: 'application/postscript',
+              previewUrl: '',
+              aiDataUrl: '',
+              hasAlphaChannel: false,
+              width: 0,
+              height: 0,
+              isVector: true,
+              vectorType: 'eps',
+              needsPreview: true,
+              needsPreviewMessage: epsRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
+              previewSource: 'paired',
+              isLowResPreview: false,
+            },
+            status: 'queued',
+            title: '',
+            description: '',
+            keywords: [],
+            prompt: '',
+            retryCount: 0,
+            isVector: true,
+            vectorType: 'eps',
+            needsPreview: true,
+            needsPreviewMessage: epsRes.needsPreviewMessage || NEEDS_PREVIEW_MESSAGE,
+            previewSource: 'paired',
+            isLowResPreview: false,
+            isExcluded: false,
+          });
+          needPreviewBatchVectors++;
+        }
+      }
+    }
+
+    // 4. Process all remaining files (SVGs and non-consumed rasters/videos)
     for (const file of filesToProcess) {
-      if (consumedRasters.has(file.name)) continue;
-
-      const isVector = isVectorFileName(file.name);
-      const vectorType = getVectorType(file.name);
+      if (consumedRasters.has(file.name) || handledVectorNames.has(file.name)) continue;
 
       try {
-        // A. Vector file with paired raster preview
-        if (isVector && (vectorType === 'eps' || vectorType === 'ai')) {
-          const baseName = getBaseName(file.name);
-          const pairedRaster = rasterMap.get(baseName);
-
-          if (pairedRaster) {
-            consumedRasters.add(pairedRaster.name);
-            const pairedResult = await processRasterPreview(pairedRaster);
-            const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-            newItems.push({
-              id: assetId,
-              fileData: {
-                id: assetId,
-                file,
-                originalName: file.name, // Keep original vector name (e.g. logo.eps)
-                originalSize: file.size,
-                compressedSize: pairedResult.compressedSize,
-                mimeType: file.type || (vectorType === 'ai' ? 'application/illustrator' : 'application/postscript'),
-                previewUrl: pairedResult.previewUrl,
-                aiDataUrl: pairedResult.aiDataUrl,
-                hasAlphaChannel: false,
-                width: pairedResult.width,
-                height: pairedResult.height,
-                isVector: true,
-                vectorType,
-                previewSource: 'paired',
-                needsPreview: false,
-                isLowResPreview: false,
-                pairedPreviewName: pairedRaster.name,
-              },
-              status: 'queued',
-              title: '',
-              description: '',
-              keywords: [],
-              prompt: '',
-              retryCount: 0,
-              isVector: true,
-              vectorType,
-              previewSource: 'paired',
-              needsPreview: false,
-              isLowResPreview: false,
-              pairedPreviewName: pairedRaster.name,
-              isExcluded: false, // Vector files are NEVER subject to 4 MP size check
-            });
-            continue;
-          }
-        }
-
-        // B. SVG, unpaired AI/EPS, or general raster/video
         const fileData = await processFileForGenerator(file);
         const mp = fileData.width > 0 && fileData.height > 0 ? (fileData.width * fileData.height) / 1_000_000 : 0;
         const isUnder4Mp = fileData.width > 0 && fileData.height > 0 && mp < 4.0;
@@ -467,7 +620,12 @@ export default function GeneratorPage() {
     if (newItems.length > 0 || existingModified) {
       setItems(finalItems);
       await saveAllBatchItems(finalItems);
-      if (newItems.length > 0) {
+
+      const totalVectorCount = pairedBatchVectors + needPreviewBatchVectors + pairedExistingCount;
+      if (totalVectorCount > 0) {
+        const totalPaired = pairedBatchVectors + pairedExistingCount;
+        toast.info(`Paired ${totalPaired} vector files with previews, ${needPreviewBatchVectors} need a preview`);
+      } else if (newItems.length > 0) {
         toast.success(`Added ${newItems.length} file${newItems.length === 1 ? '' : 's'} to queue`);
       }
       runSimilarityCheck(finalItems);
@@ -505,6 +663,7 @@ export default function GeneratorPage() {
             };
           });
           saveAllBatchItems(next);
+          runSimilarityCheck(next);
           return next;
         });
         toast.success(`Attached preview image from ${previewFile.name}`);
@@ -513,7 +672,7 @@ export default function GeneratorPage() {
         toast.error('Could not process preview image');
       }
     },
-    []
+    [runSimilarityCheck]
   );
 
   // Retry browser SVG rasterization
@@ -546,6 +705,7 @@ export default function GeneratorPage() {
             };
           });
           saveAllBatchItems(next);
+          runSimilarityCheck(next);
           return next;
         });
         toast.success(`Successfully rasterized ${item.fileData.originalName}`);
@@ -555,7 +715,7 @@ export default function GeneratorPage() {
         toast.error(`Retry failed: ${msg}`);
       }
     },
-    [items]
+    [items, runSimilarityCheck]
   );
 
   // Item management callbacks
@@ -1054,6 +1214,7 @@ export default function GeneratorPage() {
             return {
               ...it,
               isExcluded: false,
+              manualInclude: true,
               isKeptBest: true,
               excludedReason: undefined,
             };
@@ -1061,6 +1222,7 @@ export default function GeneratorPage() {
             return {
               ...it,
               isExcluded: true,
+              manualInclude: false,
               isKeptBest: false,
               excludedReason: `Similar to ${winnerName}`,
             };
@@ -1201,6 +1363,7 @@ export default function GeneratorPage() {
             return {
               ...it,
               isExcluded: false,
+              manualInclude: true,
               isKeptBest: true,
               excludedReason: undefined,
               status: 'queued' as const,
@@ -1210,6 +1373,7 @@ export default function GeneratorPage() {
             return {
               ...it,
               isExcluded: true,
+              manualInclude: false,
               isKeptBest: false,
               excludedReason: `Similar to ${winnerName}`,
             };
@@ -1224,6 +1388,7 @@ export default function GeneratorPage() {
             ? {
                 ...it,
                 isExcluded: false,
+                manualInclude: true,
                 isKeptBest: true,
                 excludedReason: undefined,
                 status: 'queued' as const,
@@ -1247,6 +1412,7 @@ export default function GeneratorPage() {
           ? {
               ...it,
               isExcluded: false,
+              manualInclude: true,
               excludedReason: 'manual_override',
               status: 'queued' as const,
               errorMessage: undefined,
@@ -1267,6 +1433,7 @@ export default function GeneratorPage() {
         return {
           ...it,
           isExcluded: false,
+          manualInclude: true,
           excludedReason: 'manual_override',
           status: 'queued' as const,
           errorMessage: undefined,
@@ -1441,7 +1608,7 @@ export default function GeneratorPage() {
     setItems((prev) => {
       const next = prev.map((it) =>
         isItemExcluded(it, activeMinSizeCheck)
-          ? { ...it, isExcluded: false, excludedReason: 'manual_override' }
+          ? { ...it, isExcluded: false, manualInclude: true, excludedReason: 'manual_override' }
           : it
       );
       saveAllBatchItems(next);
@@ -1459,10 +1626,11 @@ export default function GeneratorPage() {
           ((it.fileData.width * it.fileData.height) / 1_000_000) < 4.0;
         const isExcludedUnder4Mp =
           it.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
+          Boolean(it.excludedReason?.includes('4 MP')) ||
           (isBelow4Mp && !it.excludedReason?.startsWith('Similar') && !it.excludedReason?.startsWith('Already exported'));
 
         if (isItemExcluded(it, activeMinSizeCheck) && isExcludedUnder4Mp) {
-          return { ...it, isExcluded: false, excludedReason: 'manual_override' };
+          return { ...it, isExcluded: false, manualInclude: true, excludedReason: 'manual_override' };
         }
         return it;
       });
@@ -1535,7 +1703,7 @@ export default function GeneratorPage() {
   const needsPreviewCount = items.filter((i) => i.needsPreview).length;
   const pendingCount = items.filter(
     (i) =>
-      (i.status === 'queued' || i.status === 'working') &&
+      (i.status === 'queued' || i.status === 'working' || i.status === 'failed') &&
       !i.needsPreview &&
       !i.svgRasterFailed &&
       !isItemExcluded(i, activeMinSizeCheck)

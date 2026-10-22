@@ -215,5 +215,4 @@ The reference SQL migration for creating the `public.profiles` table with Row Le
 
 ## Third-Party Libraries & Licenses
 
-- **pdfjs-dist**: Apache-2.0 License (Mozilla Foundation) — Client-side rendering and vector rasterization for PDF and Adobe Illustrator (.ai) files in the browser.
-- **utif**: MIT License (Photopea / Ivan Kuckir) — Client-side decoding of embedded TIFF preview images inside Encapsulated PostScript (.eps) binary headers.
+- **pdfjs-dist**: Apache-2.0 License (Mozilla Foundation) — Client-side rendering and preview generation for PDF-compatible Adobe Illustrator (.ai) files in the browser.

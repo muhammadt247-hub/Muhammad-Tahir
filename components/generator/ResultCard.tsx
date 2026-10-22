@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import Image from 'next/image';
 import {
   GeneratorItemState,
+  isItemExcluded,
 } from '@/lib/generator/queue';
 import { PlatformConfig } from '@/config/platforms';
 import {
@@ -170,8 +171,18 @@ export function ResultCard({
   const height = item.fileData.height || 0;
   const megapixels = width > 0 && height > 0 ? (width * height) / 1_000_000 : 0;
   const isUnder4MpRaw = !isVector && width > 0 && height > 0 && megapixels < 4.0;
-  const isUnder4MpExcluded = !isVector && minSizeCheck === 'exclude' && isUnder4MpRaw;
-  const isUnder4MpWarn = !isVector && minSizeCheck === 'warn' && isUnder4MpRaw;
+
+  // Derive exclusion strictly from isItemExcluded(item, minSizeCheck)
+  const itemIsEffectivelyExcluded = isItemExcluded(item, minSizeCheck);
+  const isUnder4MpExcluded =
+    itemIsEffectivelyExcluded &&
+    (item.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
+      Boolean(item.excludedReason?.includes('4 MP')) ||
+      (isUnder4MpRaw && minSizeCheck === 'exclude'));
+
+  // For items with manualInclude true and a size below 4 MP, show only the amber chip "Below 4 MP, Adobe may refuse", never the red exclusion.
+  const isUnder4MpWarn = !itemIsEffectivelyExcluded && isUnder4MpRaw && (minSizeCheck === 'warn' || !!item.manualInclude);
+
   const isOver100Mp = !isVector && megapixels > 100;
   const isOver45Mb = (item.fileData.originalSize || 0) > 45 * 1024 * 1024;
   const isAlreadyExported = item.excludedReason?.startsWith('Already exported');
@@ -198,12 +209,8 @@ export function ResultCard({
     excludedReasonText = item.excludedReason || 'Already exported';
   }
 
-  const itemIsEffectivelyExcluded =
-    item.isExcluded &&
-    !(minSizeCheck !== 'exclude' && item.excludedReason === "Below Adobe's 4 MP minimum, likely refused");
-
   const isAnyExclusion =
-    itemIsEffectivelyExcluded || isUnder4MpExcluded || isOver100Mp || isOver45Mb || hardBlockedTerms.length > 0;
+    itemIsEffectivelyExcluded || isOver100Mp || isOver45Mb || hardBlockedTerms.length > 0;
   const isReadyForExport = hasGeneratedContent && !isAnyExclusion;
 
   return (
@@ -258,13 +265,13 @@ export function ResultCard({
             </span>
           )}
 
-          {isUnder4MpWarn && !itemIsEffectivelyExcluded && (
+          {isUnder4MpWarn && (
             <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold shadow-xs truncate max-w-full">
               Below 4 MP, Adobe may refuse
             </span>
           )}
 
-          {(itemIsEffectivelyExcluded || isUnder4MpExcluded) && (
+          {itemIsEffectivelyExcluded && (
             <span className="px-2 py-0.5 rounded-md bg-destructive text-destructive-foreground text-[10px] font-bold shadow-xs truncate max-w-full">
               {isUnder4MpExcluded
                 ? '< 4 MP (Excluded)'
@@ -274,7 +281,7 @@ export function ResultCard({
             </span>
           )}
 
-          {isKeptBest && !itemIsEffectivelyExcluded && !isUnder4MpExcluded && (
+          {isKeptBest && !itemIsEffectivelyExcluded && (
             <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
               <Check className="h-3 w-3" />
               <span>Best of group</span>
@@ -354,7 +361,7 @@ export function ResultCard({
                 </h4>
                 <p className="text-xs text-amber-700 dark:text-amber-400/90 leading-relaxed">
                   {item.needsPreviewMessage ||
-                    'Add a JPG or PNG preview with the same name, for example logo.jpg'}
+                    'Add a JPG or PNG with the same name. In Illustrator: File > Export > Export As > JPEG, same file name, tick Use Artboards.'}
                 </p>
               </div>
             </div>

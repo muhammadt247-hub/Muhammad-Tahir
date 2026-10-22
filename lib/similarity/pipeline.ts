@@ -189,6 +189,10 @@ export async function runSimilarityPipeline(
       });
     }
 
+    if (it.needsPreview || !it.fileData.aiDataUrl) {
+      continue;
+    }
+
     if (it.fingerprint) {
       fingerprintMap.set(it.id, it.fingerprint);
       continue;
@@ -529,11 +533,14 @@ export async function runSimilarityPipeline(
     const pairs = pairScores.get(item.id) || [];
 
     // Check if user has explicitly overridden exclusion previously
-    const wasUserManuallyIncluded = item.isExcluded === false && item.excludedReason === 'manual_override';
+    const wasUserManuallyIncluded = Boolean(item.manualInclude) || (item.isExcluded === false && item.excludedReason === 'manual_override');
 
     if (wasUserManuallyIncluded) {
       return {
         ...item,
+        isExcluded: false,
+        excludedReason: undefined,
+        manualInclude: true,
         similarPairDetails: pairs,
       };
     }

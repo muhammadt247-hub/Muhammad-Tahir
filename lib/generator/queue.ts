@@ -121,10 +121,20 @@ export function isItemExcluded(
   const isVector = item.isVector || item.fileData?.isVector;
   if (isVector) return false;
 
-  if (minSizeCheck !== 'exclude' && item.excludedReason === "Below Adobe's 4 MP minimum, likely refused") {
+  const isUnder4MpReason =
+    item.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
+    Boolean(item.excludedReason?.includes('4 MP')) ||
+    Boolean(item.excludedReason?.includes('4MP'));
+
+  if (minSizeCheck !== 'exclude' && isUnder4MpReason) {
     return false;
   }
-  if (item.isExcluded) return true;
+  if (item.isExcluded) {
+    if (minSizeCheck !== 'exclude' && isUnder4MpReason) {
+      return false;
+    }
+    return true;
+  }
   if (minSizeCheck === 'exclude' && item.fileData.width > 0 && item.fileData.height > 0) {
     const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
     if (mp < 4.0) return true;

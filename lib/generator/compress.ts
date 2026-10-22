@@ -1,7 +1,7 @@
 import { detectImageAlpha } from './alpha';
 import { extractVideoFrame } from './video-frame';
 import { rasterizeSvgToPng } from './svg-raster';
-import { extractAiPreview, extractEpsPreview } from './vector-preview';
+import { extractAiPreview, createUnpairedEpsResult } from './vector-preview';
 
 export interface ProcessedAssetFile {
   id: string;
@@ -127,29 +127,28 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
     };
   }
 
-  // 4. EPS files (Vector)
+  // 4. EPS files (Vector - requires paired preview)
   if (isEps) {
-    const epsResult = await extractEpsPreview(file);
-    const compressedSize = Math.round((epsResult.aiDataUrl.length * 3) / 4);
+    const epsResult = createUnpairedEpsResult(file);
 
     return {
       id,
       file,
       originalName: file.name,
       originalSize: file.size,
-      compressedSize,
+      compressedSize: 0,
       mimeType: 'application/postscript',
-      previewUrl: epsResult.previewUrl,
-      aiDataUrl: epsResult.aiDataUrl,
+      previewUrl: '',
+      aiDataUrl: '',
       hasAlphaChannel: false,
-      width: epsResult.width,
-      height: epsResult.height,
+      width: 0,
+      height: 0,
       isVector: true,
       vectorType: 'eps',
-      needsPreview: epsResult.needsPreview,
+      needsPreview: true,
       needsPreviewMessage: epsResult.needsPreviewMessage,
-      previewSource: epsResult.previewSource,
-      isLowResPreview: epsResult.isLowResPreview,
+      previewSource: 'paired',
+      isLowResPreview: false,
     };
   }
 

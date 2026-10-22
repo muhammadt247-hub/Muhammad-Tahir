@@ -1,11 +1,12 @@
 /**
- * Vector file preview extraction for AI and EPS files in the browser.
- * Follows strict safety rules:
- * - Read vector files at most 100 MB
- * - All parsing in the browser
- * - Never upload original vector file to server
- * - Never execute code from vector files
+ * Vector file preview handling for AI and EPS files in the browser.
+ * - AI files: if starts with "%PDF", render page 1 with pdfjs-dist (max 1600 px wide, white background).
+ * - EPS files: do NOT extract preview from inside file. Use preview pairing only.
+ * - Safety: read at most 100 MB, all browser-side, never upload original vector to server, never run code.
  */
+
+export const NEEDS_PREVIEW_MESSAGE =
+  'Add a JPG or PNG with the same name. In Illustrator: File > Export > Export As > JPEG, same file name, tick Use Artboards.';
 
 export interface VectorPreviewResult {
   success: boolean;
@@ -41,7 +42,7 @@ export function getVectorType(filename: string): 'svg' | 'eps' | 'ai' | null {
 
 /**
  * Process a user-provided raster preview image (JPG, PNG, WEBP)
- * to be paired with a vector item.
+ * to be paired with an EPS or AI vector item.
  */
 export async function processRasterPreview(file: File): Promise<{
   previewUrl: string;
@@ -124,18 +125,12 @@ export async function processRasterPreview(file: File): Promise<{
 
 /**
  * 1. AI files (.ai):
- * Read file in browser (max 100 MB).
- * If starts with "%PDF", render page 1 with pdfjs-dist onto canvas (max 1600 px wide, white background).
- * Loaded lazily only when an .ai file is added.
- * Worker bundled locally with package.
- * If not starting with "%PDF", password protected, or rendering fails:
- * show yellow "Needs a preview image" state with:
- * "This AI file has no PDF-compatible content. Save it with 'Create PDF Compatible File' or add a JPG or PNG preview with the same name."
+ * If the file starts with the bytes "%PDF", render page 1 with pdfjs-dist onto a canvas
+ * (max 1600 px wide, white background) and use it as the preview.
+ * Load pdfjs-dist lazily, only when an .ai file is added, with the worker bundled in the package (no external CDN).
+ * If rendering fails or file does not start with "%PDF", show the yellow "Needs a preview image" state.
  */
 export async function extractAiPreview(file: File): Promise<VectorPreviewResult> {
-  const needsPreviewAiMsg =
-    "This AI file has no PDF-compatible content. Save it with 'Create PDF Compatible File' or add a JPG or PNG preview with the same name.";
-
   if (file.size > MAX_VECTOR_SIZE_BYTES) {
     return {
       success: false,
@@ -168,7 +163,7 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
       return {
         success: false,
         needsPreview: true,
-        needsPreviewMessage: needsPreviewAiMsg,
+        needsPreviewMessage: NEEDS_PREVIEW_MESSAGE,
         previewUrl: '',
         aiDataUrl: '',
         width: 0,
@@ -178,19 +173,12 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
       };
     }
 
-    // Lazily import pdfjs-dist
+    // Lazily import pdfjs-dist only when an .ai file is added
     const pdfjs = await import('pdfjs-dist');
 
-    // Configure bundled local worker (not external CDN)
+    // Configure bundled local worker (no external CDN)
     if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
-      try {
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/build/pdf.worker.min.mjs',
-          import.meta.url
-        ).toString();
-      } catch {
-        pdfjs.GlobalWorkerOptions.workerSrc = `${window.location.origin}/pdf.worker.min.mjs`;
-      }
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
     }
 
     const fileBuffer = await file.arrayBuffer();
@@ -205,7 +193,7 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
       return {
         success: false,
         needsPreview: true,
-        needsPreviewMessage: needsPreviewAiMsg,
+        needsPreviewMessage: NEEDS_PREVIEW_MESSAGE,
         previewUrl: '',
         aiDataUrl: '',
         width: 0,
@@ -259,7 +247,7 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
     return {
       success: false,
       needsPreview: true,
-      needsPreviewMessage: needsPreviewAiMsg,
+      needsPreviewMessage: NEEDS_PREVIEW_MESSAGE,
       previewUrl: '',
       aiDataUrl: '',
       width: 0,
@@ -271,222 +259,22 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
 }
 
 /**
- * 2. EPS files (.eps): try to extract a built-in preview.
- * a. If file starts with bytes C5 D0 D3 C6 (binary EPS header):
- *    TIFF preview offset & length at byte positions 20 to 27, little-endian.
- *    If TIFF exists, decode with "utif" (loaded lazily).
- * b. Otherwise look for an ASCII preview:
- *    "%%BeginPreview: width height depth lines" ... up to "%%EndPreview".
- * c. If neither exists, or preview's longest side is under 200 px, show "Needs a preview image".
- * d. When preview came from inside the file, show amber chip "Preview from file (low resolution)".
+ * 2. EPS files (.eps):
+ * Do NOT try to extract a preview from inside the file.
+ * EPS files from Illustrator only contain a tiny 128 by 84 thumbnail, which is too small.
+ * Use ONLY preview pairing (same base name, case-insensitive, with .jpg, .jpeg, .png or .webp).
+ * Without a paired preview, EPS files always enter the "Needs a preview image" state.
  */
-export async function extractEpsPreview(file: File): Promise<VectorPreviewResult> {
-  const needsPreviewEpsMsg = 'Add a JPG or PNG preview with the same name, for example logo.jpg';
-
-  if (file.size > MAX_VECTOR_SIZE_BYTES) {
-    return {
-      success: false,
-      needsPreview: true,
-      needsPreviewMessage: `${file.name} exceeds the 100 MB limit for vector files.`,
-      previewUrl: '',
-      aiDataUrl: '',
-      width: 0,
-      height: 0,
-      isLowResPreview: false,
-      previewSource: 'embedded',
-      errorMessage: 'File exceeds 100 MB limit',
-    };
-  }
-
-  try {
-    const buffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-
-    // Check a: Binary EPS Header: C5 D0 D3 C6
-    if (
-      bytes.length >= 30 &&
-      bytes[0] === 0xc5 &&
-      bytes[1] === 0xd0 &&
-      bytes[2] === 0xd3 &&
-      bytes[3] === 0xc6
-    ) {
-      const dataView = new DataView(buffer);
-      // Byte positions 20 to 27, little-endian
-      const tiffOffset = dataView.getUint32(20, true);
-      const tiffLength = dataView.getUint32(24, true);
-
-      if (tiffOffset > 0 && tiffLength > 0 && tiffOffset + tiffLength <= buffer.byteLength) {
-        try {
-          const tiffBuffer = buffer.slice(tiffOffset, tiffOffset + tiffLength);
-          // Lazily import utif
-          const UTIF = await import('utif');
-          const ifds = UTIF.decode(tiffBuffer);
-          if (ifds && ifds.length > 0) {
-            const ifd = ifds[0];
-            UTIF.decodeImage(tiffBuffer, ifd);
-            const rgba = UTIF.toRGBA8(ifd);
-            const width = ifd.width;
-            const height = ifd.height;
-            const longestSide = Math.max(width, height);
-
-            if (longestSide >= 200) {
-              const canvas = document.createElement('canvas');
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                const imgData = ctx.createImageData(width, height);
-                imgData.data.set(rgba);
-                ctx.putImageData(imgData, 0, 0);
-
-                const previewUrl = canvas.toDataURL('image/jpeg', 0.85);
-                return {
-                  success: true,
-                  needsPreview: false,
-                  previewUrl,
-                  aiDataUrl: previewUrl,
-                  width,
-                  height,
-                  isLowResPreview: true,
-                  previewSource: 'embedded',
-                };
-              }
-            }
-          }
-        } catch (tiffErr) {
-          console.warn(`[extractEpsPreview] Failed to decode binary TIFF preview in ${file.name}:`, tiffErr);
-        }
-      }
-    }
-
-    // Check b: ASCII Preview: "%%BeginPreview: width height depth lines"
-    // Read initial text segment (max 10MB to find preview)
-    const textSliceLength = Math.min(buffer.byteLength, 10 * 1024 * 1024);
-    const textSlice = new TextDecoder('latin1').decode(bytes.subarray(0, textSliceLength));
-
-    const previewHeaderMatch = textSlice.match(
-      /%%BeginPreview:\s*(\d+)\s+(\d+)\s+(\d+)(?:\s+(\d+))?/i
-    );
-
-    if (previewHeaderMatch) {
-      const width = parseInt(previewHeaderMatch[1], 10);
-      const height = parseInt(previewHeaderMatch[2], 10);
-      const depth = parseInt(previewHeaderMatch[3], 10);
-      const longestSide = Math.max(width, height);
-
-      if (longestSide >= 200) {
-        const startIndex = previewHeaderMatch.index! + previewHeaderMatch[0].length;
-        const endIndex = textSlice.indexOf('%%EndPreview', startIndex);
-
-        if (endIndex !== -1) {
-          const hexBody = textSlice.slice(startIndex, endIndex);
-          const lines = hexBody.split(/\r?\n/);
-          let allHex = '';
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('%')) {
-              allHex += trimmed.slice(1).replace(/[^0-9a-fA-F]/g, '');
-            }
-          }
-
-          if (allHex.length > 0) {
-            const decodedBytes = new Uint8Array(Math.floor(allHex.length / 2));
-            for (let i = 0; i < decodedBytes.length; i++) {
-              decodedBytes[i] = parseInt(allHex.slice(i * 2, i * 2 + 2), 16);
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              const imgData = ctx.createImageData(width, height);
-
-              if (depth === 1) {
-                // Monochrome bitmap
-                let bytePos = 0;
-                let bitPos = 7;
-                for (let y = 0; y < height; y++) {
-                  for (let x = 0; x < width; x++) {
-                    const bit = (decodedBytes[bytePos] >> bitPos) & 1;
-                    const pIdx = (y * width + x) * 4;
-                    // Standard EPS DSC: 1 is black, 0 is white
-                    const val = bit ? 0 : 255;
-                    imgData.data[pIdx] = val;
-                    imgData.data[pIdx + 1] = val;
-                    imgData.data[pIdx + 2] = val;
-                    imgData.data[pIdx + 3] = 255;
-
-                    bitPos--;
-                    if (bitPos < 0) {
-                      bitPos = 7;
-                      bytePos++;
-                    }
-                  }
-                  // Scanline padded to byte boundary
-                  if (bitPos !== 7) {
-                    bitPos = 7;
-                    bytePos++;
-                  }
-                }
-              } else {
-                // 8-bit grayscale
-                let bytePos = 0;
-                for (let y = 0; y < height; y++) {
-                  for (let x = 0; x < width; x++) {
-                    const val = decodedBytes[bytePos++] ?? 255;
-                    const pIdx = (y * width + x) * 4;
-                    imgData.data[pIdx] = val;
-                    imgData.data[pIdx + 1] = val;
-                    imgData.data[pIdx + 2] = val;
-                    imgData.data[pIdx + 3] = 255;
-                  }
-                }
-              }
-
-              ctx.putImageData(imgData, 0, 0);
-              const previewUrl = canvas.toDataURL('image/jpeg', 0.85);
-
-              return {
-                success: true,
-                needsPreview: false,
-                previewUrl,
-                aiDataUrl: previewUrl,
-                width,
-                height,
-                isLowResPreview: true,
-                previewSource: 'embedded',
-              };
-            }
-          }
-        }
-      }
-    }
-
-    // Neither exists or longest side < 200 px
-    return {
-      success: false,
-      needsPreview: true,
-      needsPreviewMessage: needsPreviewEpsMsg,
-      previewUrl: '',
-      aiDataUrl: '',
-      width: 0,
-      height: 0,
-      isLowResPreview: false,
-      previewSource: 'embedded',
-    };
-  } catch (err: unknown) {
-    console.warn(`[extractEpsPreview] Failed to extract EPS preview in ${file.name}:`, err);
-    return {
-      success: false,
-      needsPreview: true,
-      needsPreviewMessage: needsPreviewEpsMsg,
-      previewUrl: '',
-      aiDataUrl: '',
-      width: 0,
-      height: 0,
-      isLowResPreview: false,
-      previewSource: 'embedded',
-    };
-  }
+export function createUnpairedEpsResult(file: File): VectorPreviewResult {
+  return {
+    success: false,
+    needsPreview: true,
+    needsPreviewMessage: NEEDS_PREVIEW_MESSAGE,
+    previewUrl: '',
+    aiDataUrl: '',
+    width: 0,
+    height: 0,
+    isLowResPreview: false,
+    previewSource: 'paired',
+  };
 }

@@ -152,10 +152,12 @@ export function ActionBar({
           ? `Image ${imgNum} of ${totalFiles}: ${currentFilename}`
           : `Processing Image ${imgNum} of ${totalFiles}...`;
       }
-    } else if (pendingCount === 0 && needsPreviewCount > 0 && doneCount === 0) {
-      statusText = generateDisabledReason || `${needsPreviewCount} vector file(s) need a preview image.`;
-    } else if (pendingCount === 0 && excludedTotal > 0 && doneCount === 0) {
-      statusText = generateDisabledReason || `0 ready: ${excludedTotal} excluded. Change the size check or click Include all.`;
+    } else if (!isGenerating && pendingCount === 0 && generateDisabledReason) {
+      if (doneCount > 0) {
+        statusText = `${doneCount} completed · ${generateDisabledReason}`;
+      } else {
+        statusText = generateDisabledReason;
+      }
     } else if (doneCount > 0) {
       const parts: string[] = [`${doneCount} completed`];
       if (pendingCount > 0) parts.push(`${pendingCount} pending`);
@@ -164,14 +166,7 @@ export function ActionBar({
       if (needsPreviewCount > 0) parts.push(`${needsPreviewCount} need preview`);
       statusText = parts.join(' · ');
     } else {
-      const activeReady = pendingCount;
-      if (activeReady === 0 && needsPreviewCount > 0) {
-        statusText = generateDisabledReason || `${needsPreviewCount} vector file(s) need a preview image.`;
-      } else if (activeReady === 0 && excludedTotal > 0) {
-        statusText = generateDisabledReason || `0 ready: ${excludedTotal} excluded. Change the size check or click Include all.`;
-      } else {
-        statusText = `${activeReady} ready to process sequentially`;
-      }
+      statusText = `${pendingCount} ready to process sequentially`;
     }
   }
 

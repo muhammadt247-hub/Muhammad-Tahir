@@ -136,8 +136,8 @@ export function buildPreExportReport(
       });
     }
 
-    // Check over 100 MP: Red issue
-    if (mp > 100) {
+    // Check over 100 MP: Red issue (vectors excluded from size limits)
+    if (!isVector && mp > 100) {
       resolutionIssues.push({
         itemId: item.id,
         filename: item.fileData.originalName,
