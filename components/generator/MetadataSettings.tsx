@@ -21,6 +21,7 @@ import {
   Ban,
   Plus,
   Download,
+  Play,
   Lightbulb,
 } from 'lucide-react';
 
@@ -226,6 +227,15 @@ export function MetadataSettings({
                   icon={<Download className="h-3.5 w-3.5" />}
                   checked={settings.autoEmbed}
                   onCheckedChange={(val) => onUpdate({ autoEmbed: val })}
+                  disabled={disabled}
+                />
+
+                {/* Auto-generate after upload */}
+                <OptionToggle
+                  label="Auto-generate after upload"
+                  icon={<Play className="h-3.5 w-3.5" />}
+                  checked={settings.autoGenerateAfterUpload}
+                  onCheckedChange={(val) => onUpdate({ autoGenerateAfterUpload: val })}
                   disabled={disabled}
                 />
               </div>

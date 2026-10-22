@@ -62,6 +62,10 @@ import { SimilarityCluster } from '@/types/similarity';
 import { useCredits } from '@/components/CreditsProvider';
 import { toast } from 'sonner';
 
+function createAssetId(): string {
+  return `asset_${crypto.randomUUID()}`;
+}
+
 export default function GeneratorPage() {
   const {
     balance: creditBalance,
@@ -442,7 +446,7 @@ export default function GeneratorPage() {
         handledVectorNames.add(vectorFile.name);
 
         const pairedResult = await processRasterPreview(rasterFile);
-        const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const assetId = createAssetId();
         const vectorType = getVectorType(vectorFile.name) || 'eps';
 
         newItems.push({
@@ -488,7 +492,7 @@ export default function GeneratorPage() {
         const vectorFile = vectorList[i];
         handledVectorNames.add(vectorFile.name);
         const vectorType = getVectorType(vectorFile.name) || 'eps';
-        const assetId = `asset_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const assetId = createAssetId();
 
         newItems.push({
           id: assetId,
@@ -579,6 +583,9 @@ export default function GeneratorPage() {
         toast.success(`Added ${newItems.length} file${newItems.length === 1 ? '' : 's'} to queue`);
       }
       runSimilarityCheck(finalItems);
+      if (settings.autoGenerateAfterUpload && finalItems.some((i) => i.status === 'queued')) {
+        startQueue(finalItems);
+      }
     }
 
     if (unpairedVectorTasks.length > 0) {
@@ -1594,10 +1601,9 @@ export default function GeneratorPage() {
       }
       setItems(updatedItems);
       saveAllBatchItems(updatedItems);
-      toast.success('Kept this image for export. Starting generation...');
-      startQueue(updatedItems);
+      toast.success('Kept this image for export.');
     },
-    [similarityClusters, items, startQueue]
+    [similarityClusters, items]
   );
 
   const handleOverrideInclude = useCallback(
@@ -1616,10 +1622,9 @@ export default function GeneratorPage() {
       );
       setItems(updatedItems);
       saveAllBatchItems(updatedItems);
-      toast.success('Included image in export. Starting generation...');
-      startQueue(updatedItems);
+      toast.success('Included image in export.');
     },
-    [items, startQueue]
+    [items]
   );
 
   const handleIgnoreLibraryAndGenerate = useCallback(() => {
@@ -1638,9 +1643,8 @@ export default function GeneratorPage() {
     });
     setItems(updated);
     saveAllBatchItems(updated);
-    toast.success('Included all previously exported files in this batch. Starting generation...');
-    startQueue(updated);
-  }, [items, startQueue]);
+    toast.success('Included all previously exported files in this batch.');
+  }, [items]);
 
   const handleClearLibraryBatch = useCallback(async () => {
     await clearLibraryStore();

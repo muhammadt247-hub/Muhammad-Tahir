@@ -38,6 +38,7 @@ export interface GeneratorSavedSettings {
   additionalKeywords: string[];
   autoCsvDownload: boolean;
   autoEmbed: boolean;
+  autoGenerateAfterUpload: boolean;
   // Prompt mode
   promptLength: number;
   isPromptPrefixEnabled: boolean;
@@ -87,6 +88,7 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   additionalKeywords: [],
   autoCsvDownload: false,
   autoEmbed: false,
+  autoGenerateAfterUpload: false,
   promptLength: 500,
   isPromptPrefixEnabled: false,
   promptPrefix: '',

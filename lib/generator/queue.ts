@@ -353,6 +353,18 @@ export class GeneratorQueue {
     this.callbacks.onComplete();
   }
 
+  private async sleep(ms: number): Promise<void> {
+    if (this.abortController?.signal.aborted) return;
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, ms);
+      const abortHandler = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.abortController?.signal.addEventListener('abort', abortHandler, { once: true });
+    });
+  }
+
   // Live countdown timer with pause & abort awareness
   private async waitWithCountdown(totalSeconds: number, label: string): Promise<void> {
     this.isCoolingDown = true;
@@ -369,7 +381,7 @@ export class GeneratorQueue {
       this.cooldownReason = `${label} (${sec}s remaining)...`;
       this.broadcastProgress();
 
-      await new Promise((r) => setTimeout(r, 1000));
+      await this.sleep(1000);
     }
 
     this.isCoolingDown = false;
@@ -549,7 +561,7 @@ export class GeneratorQueue {
             );
           } else {
             // Wait 2s jitter before trying next rotated key
-            await new Promise((r) => setTimeout(r, 2000));
+            await this.sleep(2000);
           }
           // Do not fail the item for standard rate limits - retry the same item
           continue;
@@ -598,7 +610,7 @@ export class GeneratorQueue {
           const backoff = 1500 * Math.pow(2, attempts) + Math.random() * 1000;
           item.currentStage = `Server error ${res.status}. Retrying in ${Math.round(backoff / 1000)}s (attempt ${attempts}/${maxServerAttempts})...`;
           this.callbacks.onItemUpdate({ ...item });
-          await new Promise((r) => setTimeout(r, backoff));
+          await this.sleep(backoff);
           continue;
         }
 
