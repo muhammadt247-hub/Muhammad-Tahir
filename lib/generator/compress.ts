@@ -2,6 +2,7 @@ import { detectImageAlpha } from './alpha';
 import { extractVideoFrame } from './video-frame';
 import { rasterizeSvgToPng } from './svg-raster';
 import { extractAiPreview, createUnpairedEpsResult } from './vector-preview';
+import { getVectorConverter, computeDpiFromBoundingBox } from './vector-convert-client';
 
 export interface ProcessedAssetFile {
   id: string;
@@ -101,55 +102,75 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
     }
   }
 
-  // 3. AI files (Vector)
-  if (isAi) {
-    const aiResult = await extractAiPreview(file);
-    const compressedSize = Math.round((aiResult.aiDataUrl.length * 3) / 4);
+  // 3. AI and EPS files (Vector automatic browser conversion via Ghostscript WASM)
+  if (isAi || isEps) {
+    const vectorType = isAi ? 'ai' : 'eps';
+    const dpi = await computeDpiFromBoundingBox(file);
+    const conv = await getVectorConverter().enqueue(file, vectorType, dpi);
 
-    return {
-      id,
-      file,
-      originalName: file.name,
-      originalSize: file.size,
-      compressedSize,
-      mimeType: 'application/illustrator',
-      previewUrl: aiResult.previewUrl,
-      aiDataUrl: aiResult.aiDataUrl,
-      hasAlphaChannel: false,
-      width: aiResult.width,
-      height: aiResult.height,
-      isVector: true,
-      vectorType: 'ai',
-      needsPreview: aiResult.needsPreview,
-      needsPreviewMessage: aiResult.needsPreviewMessage,
-      previewSource: aiResult.previewSource,
-      isLowResPreview: aiResult.isLowResPreview,
-    };
-  }
+    if (conv.success) {
+      return {
+        id,
+        file,
+        originalName: file.name,
+        originalSize: file.size,
+        compressedSize: conv.compressedSize,
+        mimeType: vectorType === 'ai' ? 'application/illustrator' : 'application/postscript',
+        previewUrl: conv.previewUrl,
+        aiDataUrl: conv.aiDataUrl,
+        hasAlphaChannel: false,
+        width: conv.width,
+        height: conv.height,
+        isVector: true,
+        vectorType,
+        needsPreview: false,
+        previewSource: 'pdf',
+      };
+    } else {
+      if (isAi) {
+        const aiResult = await extractAiPreview(file);
+        if (!aiResult.needsPreview) {
+          const compressedSize = Math.round((aiResult.aiDataUrl.length * 3) / 4);
+          return {
+            id,
+            file,
+            originalName: file.name,
+            originalSize: file.size,
+            compressedSize,
+            mimeType: 'application/illustrator',
+            previewUrl: aiResult.previewUrl,
+            aiDataUrl: aiResult.aiDataUrl,
+            hasAlphaChannel: false,
+            width: aiResult.width,
+            height: aiResult.height,
+            isVector: true,
+            vectorType: 'ai',
+            needsPreview: false,
+            previewSource: 'pdf',
+          };
+        }
+      }
 
-  // 4. EPS files (Vector - requires paired preview)
-  if (isEps) {
-    const epsResult = createUnpairedEpsResult(file);
-
-    return {
-      id,
-      file,
-      originalName: file.name,
-      originalSize: file.size,
-      compressedSize: 0,
-      mimeType: 'application/postscript',
-      previewUrl: '',
-      aiDataUrl: '',
-      hasAlphaChannel: false,
-      width: 0,
-      height: 0,
-      isVector: true,
-      vectorType: 'eps',
-      needsPreview: true,
-      needsPreviewMessage: epsResult.needsPreviewMessage,
-      previewSource: 'paired',
-      isLowResPreview: false,
-    };
+      return {
+        id,
+        file,
+        originalName: file.name,
+        originalSize: file.size,
+        compressedSize: 0,
+        mimeType: vectorType === 'ai' ? 'application/illustrator' : 'application/postscript',
+        previewUrl: '',
+        aiDataUrl: '',
+        hasAlphaChannel: false,
+        width: 0,
+        height: 0,
+        isVector: true,
+        vectorType,
+        needsPreview: true,
+        needsPreviewMessage: 'Could not convert this file',
+        previewSource: 'paired',
+        isLowResPreview: false,
+      };
+    }
   }
 
   // 5. Raster images (JPG, PNG, WEBP, GIF)

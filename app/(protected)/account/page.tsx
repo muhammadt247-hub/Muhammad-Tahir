@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
@@ -335,6 +336,19 @@ export default function AccountPage() {
               )}
             </Button>
           </form>
+        </div>
+
+        {/* Third-Party Licences Link Card */}
+        <div className="glass-card rounded-2xl border border-border/50 p-6 flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-bold text-foreground">Open-Source Licences</h2>
+            <p className="text-xs text-muted-foreground">
+              Review copyright notices and third-party software licences including Ghostscript WASM (AGPL-3.0).
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0 text-xs">
+            <Link href="/licenses">View Licences</Link>
+          </Button>
         </div>
       </div>
     </div>

@@ -74,6 +74,8 @@ export interface GeneratorItemState {
   isLowResPreview?: boolean;
   pairedPreviewName?: string;
   svgRasterFailed?: boolean;
+  isConvertingVector?: boolean;
+  convertingProgress?: string;
 
   // Deep Similarity Guard fields
   fingerprint?: ImageFingerprint;
@@ -276,6 +278,7 @@ export class GeneratorQueue {
       (i) =>
         (i.status === 'queued' || i.status === 'failed') &&
         !i.needsPreview &&
+        !i.isConvertingVector &&
         !i.svgRasterFailed &&
         !isItemExcluded(i, activeMinSizeCheck)
     );
@@ -303,7 +306,7 @@ export class GeneratorQueue {
       this.currentFilename = item.fileData.originalName;
 
       // Do not charge for or send excluded or skipped images, or vectors without preview
-      if (item.needsPreview || item.svgRasterFailed || item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
+      if (item.needsPreview || item.isConvertingVector || item.svgRasterFailed || item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
         continue;
       }
 

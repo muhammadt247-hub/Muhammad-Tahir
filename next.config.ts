@@ -38,7 +38,18 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: ['motion'],
-  webpack: (config, {dev}) => {
+  webpack: (config, {isServer, dev}) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        module: false,
+        path: false,
+        crypto: false,
+        stream: false,
+        constants: false,
+      };
+    }
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
     // Do not modify—file watching is disabled to prevent flickering during agent edits.
     if (dev && process.env.DISABLE_HMR === 'true') {
