@@ -27,11 +27,11 @@ interface QueueItem {
 }
 
 const MAX_VECTOR_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
-const CONVERSION_TIMEOUT_MS = 90 * 1000; // 90 seconds
+const CONVERSION_TIMEOUT_MS = 60 * 1000; // 60 seconds
 
 /**
  * Read bounding box from first 20 KB of the vector file and compute optimal DPI.
- * set dpi = clamp(2000 / (longestSidePt / 72), 24, 150)
+ * set dpi = clamp(1200 / (longestSidePt / 72), 18, 100)
  */
 export async function computeDpiFromBoundingBox(file: File): Promise<number> {
   try {
@@ -58,8 +58,8 @@ export async function computeDpiFromBoundingBox(file: File): Promise<number> {
       const longestSidePt = Math.max(widthPt, heightPt);
 
       if (longestSidePt > 0 && !isNaN(longestSidePt)) {
-        const rawDpi = 2000 / (longestSidePt / 72);
-        return Math.min(150, Math.max(24, Math.round(rawDpi)));
+        const rawDpi = 1200 / (longestSidePt / 72);
+        return Math.min(100, Math.max(18, Math.round(rawDpi)));
       }
     }
   } catch (err) {
@@ -260,7 +260,7 @@ class VectorConversionManager {
   }
 
   private handleTimeout(item: QueueItem) {
-    console.warn(`[VectorConversionManager] Conversion timed out after 90s for ${item.file.name}`);
+    console.warn(`[VectorConversionManager] Conversion timed out after 60s for ${item.file.name}`);
     this.restartWorker();
     this.currentItem = null;
     item.resolve({
@@ -270,7 +270,7 @@ class VectorConversionManager {
       width: 0,
       height: 0,
       compressedSize: 0,
-      error: 'Could not convert this file (conversion timed out after 90 seconds)',
+      error: 'Conversion took too long. Add a JPG/PNG with the same name.',
     });
     this.processNext();
   }

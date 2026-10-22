@@ -155,7 +155,7 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
           previewSource: 'pdf',
         };
       } else {
-        const reason = conv.error || 'Unknown conversion error';
+        const reason = conv.error || 'Conversion took too long. Add a JPG/PNG with the same name.';
         console.error(`Could not convert vector file ${file.name}: ${reason}`);
         return {
           id,
@@ -172,13 +172,13 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
           isVector: true,
           vectorType,
           needsPreview: true,
-          needsPreviewMessage: `Could not convert this file: ${reason}`,
+          needsPreviewMessage: reason,
           previewSource: 'paired',
           isLowResPreview: false,
         };
       }
     } catch (err: unknown) {
-      const reason = err instanceof Error ? err.message : 'Unknown error';
+      const reason = err instanceof Error ? err.message : 'Conversion took too long. Add a JPG/PNG with the same name.';
       console.error(`Could not convert vector file ${file.name}: ${reason}`);
       return {
         id,
@@ -195,7 +195,7 @@ export async function processFileForGenerator(file: File): Promise<ProcessedAsse
         isVector: true,
         vectorType,
         needsPreview: true,
-        needsPreviewMessage: `Could not convert this file: ${reason}`,
+        needsPreviewMessage: reason,
         previewSource: 'paired',
         isLowResPreview: false,
       };
