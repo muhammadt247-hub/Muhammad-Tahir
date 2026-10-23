@@ -481,8 +481,10 @@ export class GeneratorQueue {
             modelFallback: this.settings.modelFallback ?? true,
             apiKey: keyInfo?.apiKey,
 
-            // Compliance & Uniqueness
+            // Compliance & Uniqueness & Rules
             existingTitles: recentTitles,
+            avoidTitles: recentTitles,
+            reason: `Strictly adhere to rules: no brand names, trademarks, artist names, real people, characters, or words from the Blocked Terms list (${(this.settings.customBlockedWords || []).join(', ')}). Titles already made in this batch: [${recentTitles.join(' | ')}]. Ensure this title is clearly different and unique.`,
             uniqueness: this.settings.titleUniqueness || 'normal',
             contributorLanguage: this.settings.contributorLanguage || 'en',
             isAiBatch: this.settings.isAiBatch || false,
@@ -647,22 +649,96 @@ export class GeneratorQueue {
             const isVector = item.isVector || item.fileData?.isVector;
             const activeMinSizeCheck = this.settings.minSizeCheck || (this.settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
             const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
-            if (!isVector && !item.manualInclude && activeMinSizeCheck === 'exclude' && item.fileData.width > 0 && item.fileData.height > 0 && mp < 4.0) {
-              item.isExcluded = true;
-              item.excludedReason = "Below Adobe's 4 MP minimum, likely refused";
+            const isUnder4 = !isVector && activeMinSizeCheck === 'exclude' && item.fileData.width > 0 && item.fileData.height > 0 && mp < 4.0;
+
+            // Immediate Compliance scanning & fixing DURING generation (Points 2, 3, 4)
+            const comp = scanItemCompliance(
+              item.title,
+              item.keywords,
+              item.description,
+              this.settings.customBlockedWords || [],
+              item.approvedIssues || [],
+              this.settings.isAiBatch || false
+            );
+            item.blockedTermsFound = comp.blockedTerms;
+
+            // If blocked words found, remove locally (no AI call) and fill missing keywords with safe alternatives
+            if (comp.hasErrors && comp.blockedTerms.length > 0) {
+              const nonAmbiguousBlocked = comp.blockedTerms.filter((b) => !b.isAmbiguous);
+              let newTitle = item.title;
+              let newKeywords = [...(item.keywords || [])];
+
+              for (const b of nonAmbiguousBlocked) {
+                const termRegex = new RegExp(`\\b${b.term}\\b`, 'gi');
+                newTitle = newTitle.replace(termRegex, '').replace(/\s+/g, ' ').trim();
+                newKeywords = newKeywords.filter((kw) => !kw.toLowerCase().includes(b.term.toLowerCase()));
+              }
+
+              const safeAlternatives = ['commercial', 'studio', 'editorial', 'professional', 'minimalist', 'clean', 'modern', 'creative', 'concept', 'abstract', 'isolated', 'background', 'digital', 'graphic'];
+              const targetCount = this.settings.keywordsCount || 30;
+              for (const alt of safeAlternatives) {
+                if (newKeywords.length >= targetCount) break;
+                if (!newKeywords.some((kw) => kw.toLowerCase() === alt)) {
+                  newKeywords.push(alt);
+                }
+              }
+
+              newTitle = newTitle.replace(/^[^a-zA-Z0-9]+/, '').trim();
+              if (!newTitle) newTitle = 'Commercial stock asset';
+
+              item.title = newTitle;
+              item.keywords = newKeywords;
             }
 
-            // Compliance scanning
-            if (this.settings.complianceGuard) {
-              const comp = scanItemCompliance(
-                item.title,
-                item.keywords,
-                item.description,
-                this.settings.customBlockedWords || [],
-                item.approvedIssues || [],
-                this.settings.isAiBatch || false
-              );
-              item.blockedTermsFound = comp.blockedTerms;
+            // Check if title still fails compliance or is too similar to earlier title -> regenerate title once automatically (no extra credit charge)
+            const checkFails = scanItemCompliance(
+              item.title,
+              item.keywords,
+              item.description,
+              this.settings.customBlockedWords || [],
+              item.approvedIssues || [],
+              this.settings.isAiBatch || false
+            );
+            const isStillFailing = (checkFails.blockedTerms || []).some((b) => !b.isAmbiguous);
+            const isTooSimilar = recentTitles.some((prevTitle) => {
+              if (!prevTitle || !item.title) return false;
+              return prevTitle.toLowerCase().trim() === item.title.toLowerCase().trim() ||
+                     prevTitle.toLowerCase().split(/\s+/)[0] === item.title.toLowerCase().split(/\s+/)[0];
+            });
+
+            if (isStillFailing || isTooSimilar) {
+              const words = item.title.trim().split(/\s+/);
+              const synList = ['Distinctive', 'Contemporary', 'Professional', 'Clean', 'Commercial', 'Styled', 'Featured', 'Selected'];
+              const replacement = synList[Math.floor(Math.random() * synList.length)];
+              item.title = `${replacement} ${words.slice(1).join(' ')}`.trim();
+              if (!item.title) item.title = 'Commercial stock asset';
+            }
+
+            // Final compliance and exclusion determination (Point 4)
+            const finalComp = scanItemCompliance(
+              item.title,
+              item.keywords,
+              item.description,
+              this.settings.customBlockedWords || [],
+              item.approvedIssues || [],
+              this.settings.isAiBatch || false
+            );
+            item.blockedTermsFound = finalComp.blockedTerms;
+
+            const stillHasBlocked = (finalComp.blockedTerms || []).some((b) => !b.isAmbiguous);
+            const stillTooSimilar = recentTitles.some((prevTitle) => prevTitle.toLowerCase().trim() === item.title.toLowerCase().trim());
+
+            if (stillHasBlocked || stillTooSimilar) {
+              item.isExcluded = true;
+              item.excludedReason = stillHasBlocked
+                ? `Blocked terms: ${finalComp.blockedTerms.map((b) => b.term).join(', ')}`
+                : 'Similar title issue remains';
+            } else if (isUnder4) {
+              item.isExcluded = true;
+              item.excludedReason = "Below Adobe's 4 MP minimum, likely refused";
+            } else if (!item.manualInclude) {
+              item.isExcluded = false;
+              item.excludedReason = undefined;
             }
 
             const seo = calculateItemSeoScore(item);
