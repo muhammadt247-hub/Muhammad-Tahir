@@ -1447,6 +1447,92 @@ export default function GeneratorPage() {
     []
   );
 
+  // Auto-Finish Local Fixes Helper (Requirement 1)
+  const runAutoFinishLocalFixes = useCallback(() => {
+    let fixedCount = 0;
+    let stillBlockedCount = 0;
+
+    setItems((prev) => {
+      const updatedItems = prev.map((item) => {
+        if (item.status !== 'done') return item;
+
+        // Rule 4: Do NOT touch items excluded for near-duplicate pictures, size limits, or a visible logo
+        const isDuplicate = item.similarityClusterId && !item.isKeptBest;
+        const isSizeExcluded = item.fileData && (item.fileData.width < 800 || item.fileData.height < 800);
+        const hasVisibleLogo = item.flags?.visibleLogoOrBrand || item.blockedTermsFound?.some(b => b.category.toLowerCase().includes('logo') || b.term.toLowerCase().includes('logo') || b.category.toLowerCase().includes('trademark'));
+        
+        const hasBlocked = item.blockedTermsFound?.some(b => !b.isAmbiguous);
+
+        if (!hasBlocked) {
+          return item;
+        }
+
+        if (isDuplicate || isSizeExcluded || hasVisibleLogo) {
+          stillBlockedCount++;
+          return item;
+        }
+
+        let newTitle = item.title;
+        let newKeywords = [...(item.keywords || [])];
+
+        const nonAmbiguousBlocked = (item.blockedTermsFound || []).filter(b => !b.isAmbiguous);
+        for (const b of nonAmbiguousBlocked) {
+          const termRegex = new RegExp(`\\b${b.term}\\b`, 'gi');
+          newTitle = newTitle.replace(termRegex, '').replace(/\s+/g, ' ').trim();
+          newKeywords = newKeywords.filter(kw => !kw.toLowerCase().includes(b.term.toLowerCase()));
+        }
+
+        // Fill missing keywords with safe alternatives (no brands, no names)
+        const safeAlternatives = ['commercial', 'studio', 'editorial', 'professional', 'minimalist', 'clean', 'modern', 'creative', 'concept', 'abstract', 'isolated', 'background', 'digital', 'graphic'];
+        const targetCount = settings.keywordCount || 30;
+        for (const alt of safeAlternatives) {
+          if (newKeywords.length >= targetCount) break;
+          if (!newKeywords.some(kw => kw.toLowerCase() === alt)) {
+            newKeywords.push(alt);
+          }
+        }
+
+        newTitle = newTitle.replace(/^[^a-zA-Z0-9]+/, '').trim();
+        if (!newTitle) newTitle = 'Commercial stock asset';
+
+        const comp = scanItemCompliance(
+          newTitle,
+          newKeywords,
+          item.description,
+          settings.customBlockedWords || [],
+          item.approvedIssues || [],
+          settings.isAiBatch || false
+        );
+        const seo = calculateItemSeoScore({ ...item, title: newTitle, keywords: newKeywords, blockedTermsFound: comp.blockedTerms });
+
+        const isNowExcluded = comp.hasErrors || (item.similarTo && item.similarTo.length > 0);
+        const excludedReason = comp.hasErrors ? `Blocked terms: ${comp.blockedTerms.map(b => b.term).join(', ')}` : (item.similarTo && item.similarTo.length > 0 ? 'Similar title issue remains' : undefined);
+
+        if (!isNowExcluded) {
+          fixedCount++;
+        } else {
+          stillBlockedCount++;
+        }
+
+        return {
+          ...item,
+          title: newTitle,
+          keywords: newKeywords,
+          blockedTermsFound: comp.blockedTerms,
+          seoScore: seo.score,
+          seoChecklist: seo.checklist,
+          isExcluded: isNowExcluded,
+          excludedReason,
+        };
+      });
+
+      saveAllBatchItems(updatedItems);
+      return updatedItems;
+    });
+
+    toast.success(`Auto-finish: Fixed ${fixedCount} items locally.`);
+  }, [settings]);
+
   // Sequential Queue Generation Engine
   const startQueue = useCallback((customItems?: GeneratorItemState[], limit?: number) => {
     const targetItems = customItems || items;
@@ -1507,6 +1593,8 @@ export default function GeneratorPage() {
         queueRef.current = null;
         toast.success('Sequential generation complete!');
 
+        runAutoFinishLocalFixes();
+
         if (settings.autoCsvDownload) {
           handleExportCsv();
         }
@@ -1520,7 +1608,7 @@ export default function GeneratorPage() {
 
     queueRef.current = queue;
     queue.start(limit);
-  }, [items, settings, handleExportCsv, handleEmbedMetadata, updateBalanceLocally]);
+  }, [items, settings, handleExportCsv, handleEmbedMetadata, updateBalanceLocally, runAutoFinishLocalFixes]);
 
   const handlePause = useCallback(() => {
     if (queueRef.current) {
@@ -1956,6 +2044,48 @@ export default function GeneratorPage() {
     return items.filter((i) => i.isConverting || i.fileData?.isConverting).length;
   }, [items]);
 
+  const readyCount = useMemo(() => {
+    return items.filter((i) => {
+      if (i.status !== 'done' || isItemExcluded(i, activeMinSizeCheck)) return false;
+      if (i.blockedTermsFound?.some((b) => !b.isAmbiguous)) return false;
+      if (i.similarTo && i.similarTo.length > 0) return false;
+      return true;
+    }).length;
+  }, [items, activeMinSizeCheck]);
+
+  const attentionItemsList = useMemo(() => {
+    return items
+      .filter((i) => {
+        if (i.status === 'done') {
+          return (
+            isItemExcluded(i, activeMinSizeCheck) ||
+            i.blockedTermsFound?.some((b) => !b.isAmbiguous) ||
+            (i.similarTo && i.similarTo.length > 0)
+          );
+        }
+        return i.status === 'failed' || i.needsPreview || i.isExcluded;
+      })
+      .map((i) => {
+        let reason = i.excludedReason || 'Needs attention';
+        if (i.blockedTermsFound?.some((b) => !b.isAmbiguous)) {
+          reason = `Blocked terms: ${i.blockedTermsFound.filter((b) => !b.isAmbiguous).map((b) => b.term).join(', ')}`;
+        } else if (i.similarTo && i.similarTo.length > 0) {
+          reason = 'Similar title issue';
+        } else if (i.status === 'failed') {
+          reason = i.errorMessage || 'Generation failed';
+        } else if (i.needsPreview) {
+          reason = 'Needs preview image';
+        }
+        return {
+          id: i.id,
+          filename: i.fileData.originalName,
+          reason,
+        };
+      });
+  }, [items, activeMinSizeCheck]);
+
+  const attentionCount = attentionItemsList.length;
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 items-start">
@@ -2042,6 +2172,10 @@ export default function GeneratorPage() {
             cooldownSecondsRemaining={cooldownSecondsRemaining}
             cooldownText={cooldownText}
             statusMessage={statusMessage}
+            readyCount={readyCount}
+            attentionCount={attentionCount}
+            attentionItems={attentionItemsList}
+            onExportReadyCsv={handleExportCsv}
             onGenerateAll={handleGenerateAll}
             onPause={handlePause}
             onResume={handleResume}

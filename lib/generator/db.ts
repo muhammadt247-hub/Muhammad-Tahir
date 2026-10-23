@@ -39,6 +39,7 @@ export interface GeneratorSavedSettings {
   autoCsvDownload: boolean;
   autoEmbed: boolean;
   autoGenerateAfterUpload: boolean;
+  parallelImages: number;
   // Prompt mode
   promptLength: number;
   isPromptPrefixEnabled: boolean;
@@ -89,6 +90,7 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   autoCsvDownload: false,
   autoEmbed: false,
   autoGenerateAfterUpload: false,
+  parallelImages: 2,
   promptLength: 500,
   isPromptPrefixEnabled: false,
   promptPrefix: '',

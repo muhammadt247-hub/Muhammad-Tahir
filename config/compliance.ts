@@ -111,7 +111,19 @@ export const AMBIGUOUS_TERMS = new Set([
   'ford',       // shallow river crossing vs Ford Motor
   'genesis',    // origin/Bible vs car brand
   'mini',       // adjective/short skirt vs Mini Cooper
-  'ram'         // animal/computing vs truck brand
+  'ram',         // animal/computing vs truck brand
+  'galaxy',
+  'pixel',
+  'windows',
+  'switch',
+  'link',
+  'ken',
+  'meta',
+  'surface',
+  'zoom',
+  'threads',
+  'thor',
+  'joker'
 ]);
 
 // Common languages for Contributor Language setting

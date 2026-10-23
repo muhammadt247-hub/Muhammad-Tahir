@@ -165,6 +165,7 @@ export class GeneratorQueue {
   private isCoolingDown = false;
   private cooldownSeconds = 0;
   private cooldownReason = '';
+  private maxParallel = 2;
 
   constructor(items: GeneratorItemState[], settings: GeneratorSavedSettings, callbacks: QueueCallbacks) {
     this.items = items;
@@ -275,6 +276,7 @@ export class GeneratorQueue {
     this.isRunning = true;
     this.isPaused = false;
     this.abortController = new AbortController();
+    this.maxParallel = this.settings.parallelImages ?? 2;
     this.callbacks.onStateChange?.(true, false);
 
     // Strictly process pending items (queued or failed), never sending excluded images
@@ -298,48 +300,73 @@ export class GeneratorQueue {
       return;
     }
 
-    this.broadcastProgress(`Starting sequential processing of ${pendingItems.length} image(s)...`);
+    this.broadcastProgress(`Starting parallel processing (${this.maxParallel} worker${this.maxParallel > 1 ? 's' : ''}) of ${pendingItems.length} image(s)...`);
 
-    // Strictly sequential: Process images one by one
-    for (let i = 0; i < pendingItems.length; i++) {
-      if (!this.isRunning || this.abortController?.signal.aborted) break;
-      await this.checkPause();
-      if (!this.isRunning || this.abortController?.signal.aborted) break;
+    let nextIndex = 0;
+    const activeWorkers = new Set<Promise<void>>();
 
-      const item = pendingItems[i];
-      const overallIndex = this.items.findIndex((it) => it.id === item.id);
-      this.currentItemIndex = overallIndex !== -1 ? overallIndex + 1 : i + 1;
-      this.currentFilename = item.fileData.originalName;
+    const spawnWorker = () => {
+      const worker = (async () => {
+        while (this.isRunning && !this.abortController?.signal.aborted) {
+          await this.checkPause();
+          if (!this.isRunning || this.abortController?.signal.aborted) break;
 
-      // Do not charge for or send excluded or skipped images, or vectors without preview
-      if (item.needsPreview || item.isConvertingVector || item.svgRasterFailed || item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
-        continue;
-      }
+          if (this.maxParallel === 1 && activeWorkers.size > 1) {
+            break;
+          }
 
-      this.currentStage = `Processing Image ${this.currentItemIndex} of ${this.items.length}`;
-      this.broadcastProgress(`Generating metadata for Image ${this.currentItemIndex} of ${this.items.length}: ${item.fileData.originalName}...`);
+          const currentIndex = nextIndex++;
+          if (currentIndex >= pendingItems.length) break;
 
-      const success = await this.processSingleItem(item);
+          const item = pendingItems[currentIndex];
+          const overallIndex = this.items.findIndex((it) => it.id === item.id);
+          this.currentItemIndex = overallIndex !== -1 ? overallIndex + 1 : currentIndex + 1;
+          this.currentFilename = item.fileData.originalName;
 
-      if (success) {
-        // Immediately save result to IndexedDB so browser refresh preserves it
-        await saveBatchItem(item);
-        this.callbacks.onItemCompleted?.(item);
+          if (item.needsPreview || item.isConvertingVector || item.svgRasterFailed || item.isExcluded || isItemExcluded(item, activeMinSizeCheck)) {
+            continue;
+          }
 
-        // Configurable delay (default: 10s) before processing the next image
-        const delaySec = this.settings.interImageDelaySeconds ?? 10;
-        if (i < pendingItems.length - 1 && delaySec > 0 && this.isRunning && !this.abortController?.signal.aborted) {
-          await this.waitWithCountdown(
-            delaySec,
-            `Waiting ${delaySec}s before next image to prevent API rate limits`
-          );
+          this.currentStage = `Processing Image ${this.currentItemIndex} of ${this.items.length}`;
+          this.broadcastProgress(`Generating metadata for Image ${this.currentItemIndex} of ${this.items.length}: ${item.fileData.originalName}...`);
+
+          const success = await this.processSingleItem(item);
+
+          if (success) {
+            await saveBatchItem(item);
+            this.callbacks.onItemCompleted?.(item);
+
+            const delaySec = this.settings.interImageDelaySeconds ?? 10;
+            if (delaySec > 0 && this.isRunning && !this.abortController?.signal.aborted) {
+              await this.sleep(delaySec * 1000);
+            }
+          } else {
+            await saveBatchItem(item);
+          }
+
+          this.broadcastProgress();
         }
-      } else {
-        // Failed items are also saved immediately with error details
-        await saveBatchItem(item);
-      }
+      })().finally(() => {
+        activeWorkers.delete(worker);
+      });
 
-      this.broadcastProgress();
+      activeWorkers.add(worker);
+    };
+
+    const initialWorkers = Math.min(this.maxParallel, pendingItems.length);
+    for (let w = 0; w < initialWorkers; w++) {
+      spawnWorker();
+    }
+
+    while (nextIndex < pendingItems.length && this.isRunning && !this.abortController?.signal.aborted) {
+      if (this.maxParallel > activeWorkers.size && nextIndex < pendingItems.length) {
+        spawnWorker();
+      }
+      await this.sleep(200);
+    }
+
+    while (activeWorkers.size > 0 && this.isRunning && !this.abortController?.signal.aborted) {
+      await Promise.allSettled(Array.from(activeWorkers));
     }
 
     this.isRunning = false;
@@ -528,6 +555,11 @@ export class GeneratorQueue {
 
         // Handle 429 Rate Limit / Quota Exhaustion
         if (res.status === 429) {
+          if (this.maxParallel > 1) {
+            this.maxParallel = 1;
+            toast.warning('Rate limit encountered (429). Dropping to 1 parallel worker for the rest of the batch.');
+          }
+
           const retryAfterSec =
             resData?.error?.retryAfterSeconds ||
             parseInt(res.headers.get('Retry-After') || '30', 10) ||
@@ -700,18 +732,47 @@ export class GeneratorQueue {
               this.settings.isAiBatch || false
             );
             const isStillFailing = (checkFails.blockedTerms || []).some((b) => !b.isAmbiguous);
+            let matchingPrevTitle = '';
             const isTooSimilar = recentTitles.some((prevTitle) => {
               if (!prevTitle || !item.title) return false;
-              return prevTitle.toLowerCase().trim() === item.title.toLowerCase().trim() ||
-                     prevTitle.toLowerCase().split(/\s+/)[0] === item.title.toLowerCase().split(/\s+/)[0];
+              const t1 = prevTitle.toLowerCase().trim();
+              const t2 = item.title.toLowerCase().trim();
+              if (t1 === t2) {
+                matchingPrevTitle = prevTitle;
+                return true;
+              }
+              const ratio = wordsOverlapRatio(prevTitle, item.title);
+              if (ratio >= 0.8) {
+                matchingPrevTitle = prevTitle;
+                return true;
+              }
+              return false;
             });
 
             if (isStillFailing || isTooSimilar) {
-              const words = item.title.trim().split(/\s+/);
-              const synList = ['Distinctive', 'Contemporary', 'Professional', 'Clean', 'Commercial', 'Styled', 'Featured', 'Selected'];
-              const replacement = synList[Math.floor(Math.random() * synList.length)];
-              item.title = `${replacement} ${words.slice(1).join(' ')}`.trim();
-              if (!item.title) item.title = 'Commercial stock asset';
+              if (isTooSimilar) {
+                const prevWordsLower = new Set(
+                  matchingPrevTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean)
+                );
+                const unusedKeywords = (item.keywords || []).filter(
+                  (kw) => !prevWordsLower.has(kw.toLowerCase().trim()) && kw.trim().length > 1
+                );
+                const kw1 = unusedKeywords[0] || 'detail';
+                const kw2 = unusedKeywords[1] || 'composition';
+                const addition = ` with ${kw1} and ${kw2}`;
+                const maxLength = this.settings.titleLength || 100;
+                let candidate = `${item.title}${addition}`.trim();
+                if (candidate.length > maxLength) {
+                  candidate = `${item.title} with ${kw1}`.trim();
+                  if (candidate.length > maxLength) {
+                    candidate = item.title;
+                  }
+                }
+                item.title = candidate;
+              } else if (isStillFailing) {
+                item.title = item.title.replace(/[^a-zA-Z0-9\s,.-]/g, '').trim();
+                if (!item.title) item.title = 'Commercial stock asset';
+              }
             }
 
             // Final compliance and exclusion determination (Point 4)
@@ -797,3 +858,16 @@ export class GeneratorQueue {
     return false;
   }
 }
+
+function wordsOverlapRatio(t1: string, t2: string): number {
+  const words1 = t1.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+  const words2 = t2.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(Boolean);
+  if (words1.length === 0 || words2.length === 0) return 0;
+  const set1 = new Set(words1);
+  let shared = 0;
+  for (const w of words2) {
+    if (set1.has(w)) shared++;
+  }
+  return shared / words2.length;
+}
+

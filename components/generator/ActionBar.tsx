@@ -60,6 +60,10 @@ interface ActionBarProps {
   onReviewClusters?: () => void;
   onOpenReport?: () => void;
   onFixAllIssues?: () => void;
+  readyCount?: number;
+  attentionCount?: number;
+  attentionItems?: { id: string; filename: string; reason: string }[];
+  onExportReadyCsv?: () => void;
 }
 
 export function ActionBar({
@@ -102,6 +106,10 @@ export function ActionBar({
   onReviewClusters,
   onOpenReport,
   onFixAllIssues,
+  readyCount = 0,
+  attentionCount = 0,
+  attentionItems = [],
+  onExportReadyCsv,
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -209,6 +217,53 @@ export function ActionBar({
           >
             Review similar groups
           </button>
+        </div>
+      )}
+
+      {/* Auto-Finish Summary Card */}
+      {hasResults && (
+        <div className="p-4 rounded-2xl bg-card border border-border/60 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-mono text-xs">
+                  {readyCount} ready for CSV
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 font-mono text-xs">
+                  {attentionCount} need attention
+                </span>
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Batch complete. Ready files can be exported immediately; problem files do not block export.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onExportReadyCsv || onExportCsv}
+              disabled={readyCount === 0 || isGenerating || isAnalyzingSimilarity}
+              className="h-10 px-4 rounded-xl text-xs font-bold flex items-center gap-2 bg-emerald-600 text-white hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shrink-0"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export CSV (ready files only)</span>
+            </button>
+          </div>
+
+          {attentionCount > 0 && attentionItems && attentionItems.length > 0 && (
+            <div className="border-t border-border/40 pt-3 space-y-2">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                <span>Files needing attention ({attentionItems.length}):</span>
+              </p>
+              <div className="max-h-32 overflow-y-auto space-y-1.5 pr-1">
+                {attentionItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg bg-secondary/50 border border-border/30">
+                    <span className="font-mono truncate max-w-[220px] sm:max-w-[320px] text-foreground">{item.filename}</span>
+                    <span className="text-muted-foreground text-[11px] truncate max-w-[200px] sm:max-w-[300px]">{item.reason}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

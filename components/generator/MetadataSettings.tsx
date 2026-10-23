@@ -13,6 +13,14 @@ import { OptionToggle } from './OptionToggle';
 import { KeywordChipInput } from './KeywordChipInput';
 import { PlatformId, PLATFORM_SPECS } from '@/config/platforms';
 import { GeneratorSavedSettings } from '@/lib/generator/db';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Sliders,
   AlignLeft,
@@ -238,6 +246,26 @@ export function MetadataSettings({
                   onCheckedChange={(val) => onUpdate({ autoGenerateAfterUpload: val })}
                   disabled={disabled}
                 />
+
+                {/* Parallel Images Setting */}
+                <div className="pt-2 border-t border-border/20 space-y-1.5">
+                  <Label className="text-xs font-medium">Parallel images (Concurrent requests)</Label>
+                  <Select
+                    value={String(settings.parallelImages ?? 2)}
+                    onValueChange={(val) => onUpdate({ parallelImages: parseInt(val, 10) })}
+                    disabled={disabled}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 (Sequential)</SelectItem>
+                      <SelectItem value="2">2 (Balanced)</SelectItem>
+                      <SelectItem value="3">3 (Fast)</SelectItem>
+                      <SelectItem value="4">4 (Max speed)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
