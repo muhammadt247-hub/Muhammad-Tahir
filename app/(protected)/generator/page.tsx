@@ -77,6 +77,7 @@ export default function GeneratorPage() {
   const [settings, setSettings] = useState<GeneratorSavedSettings>(DEFAULT_GENERATOR_SETTINGS);
   const [items, setItems] = useState<GeneratorItemState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isFixingAll, setIsFixingAll] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [currentFilename, setCurrentFilename] = useState<string>('');
   const [currentImageIndex, setCurrentImageIndex] = useState<number>(0);
@@ -919,25 +920,40 @@ export default function GeneratorPage() {
     return buildPreExportReport(items, activeMinSizeCheck);
   }, [items, settings.minSizeCheck, settings.platform]);
 
-  // Execute CSV Export (strictly excludes similar, resolution-refused, and hard-blocked items)
-  const executeActualCsvExport = useCallback(() => {
+  // Execute CSV Export (respecting export inclusion options, never forcing fixing)
+  const executeActualCsvExport = useCallback((options?: { includeSimilar: boolean; includeBlocked: boolean; includeOver45Mb: boolean }) => {
+    const opts = options || { includeSimilar: true, includeBlocked: false, includeOver45Mb: false };
     const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
-    const doneItems = items.filter((i) => {
-      if (i.status !== 'done' || isItemExcluded(i, activeMinSizeCheck)) return false;
-      const isVector = i.isVector || i.fileData.isVector;
-      const mp = (i.fileData.width * i.fileData.height) / 1_000_000;
-      if (!isVector && activeMinSizeCheck === 'exclude' && i.fileData.width > 0 && i.fileData.height > 0 && mp < 4.0) return false;
-      if (!isVector && mp > 100) return false;
-      if ((i.fileData.originalSize || 0) > 45 * 1024 * 1024) return false;
+
+    const validItems = items.filter((i) => {
+      if (i.status !== 'done') return false;
+      if (i.manualInclude) return true;
+
+      const hasBlocked = i.blockedTermsFound?.some((b) => !b.isAmbiguous);
+      const hasSimilar = i.similarTo && i.similarTo.length > 0;
+      const isOver45 = (i.fileData.originalSize || 0) > 45 * 1024 * 1024;
+
+      if (hasBlocked && !opts.includeBlocked) return false;
+      if (hasSimilar && !opts.includeSimilar) return false;
+      if (isOver45 && !opts.includeOver45Mb) return false;
+
+      const isVector = i.isVector || i.fileData?.isVector;
+      const isVideo = i.isVideo || i.fileData?.isVideo;
+      const mp = (i.fileData.width && i.fileData.height) ? (i.fileData.width * i.fileData.height) / 1_000_000 : 0;
+      if (!isVector && !isVideo && activeMinSizeCheck === 'exclude' && mp < 4.0 && !i.manualInclude) {
+        return false;
+      }
+
+      if (i.isExcluded && !i.excludedReason?.includes('4 MP')) {
+        if (hasBlocked && !opts.includeBlocked) return false;
+        if (hasSimilar && !opts.includeSimilar) return false;
+      }
+
       return true;
     });
 
-    const validItems = doneItems.filter(
-      (i) => !i.blockedTermsFound?.some((b) => !b.isAmbiguous)
-    );
-
     if (validItems.length === 0) {
-      toast.error('No compliant items available for export. Resolve blocked terms or resolution issues first.');
+      toast.error('No items available for export.');
       return;
     }
 
@@ -984,13 +1000,8 @@ export default function GeneratorPage() {
   }, [items, settings]);
 
   const handleExportCsv = useCallback(() => {
-    if (currentReport.blockedItemsCount > 0) {
-      setReportDialogOpen(true);
-      toast.error('Cannot export: Fix compliance or resolution issues first.');
-      return;
-    }
-    executeActualCsvExport();
-  }, [currentReport.blockedItemsCount, executeActualCsvExport]);
+    setReportDialogOpen(true);
+  }, []);
 
   // Metadata Embedding Engine (Skips vector files)
   const executeActualMetadataEmbed = useCallback(async () => {
@@ -1160,92 +1171,54 @@ export default function GeneratorPage() {
     [items, settings, handleUpdateItem, updateBalanceLocally]
   );
 
-  // Fix all flagged similar titles & rewrite repetitive title openings (>3 in batch)
+  // Helper to build avoidList from real titles of items in similarTo (by otherId) plus items with same first word
+  const getAvoidListForBatchItem = (item: GeneratorItemState, currentItems: GeneratorItemState[]): string[] => {
+    const avoidList: string[] = [];
+    const similarOtherTitles = (item.similarTo || [])
+      .map((s) => currentItems.find((it) => it.id === s.otherId)?.title)
+      .filter(Boolean) as string[];
+    avoidList.push(...similarOtherTitles);
+
+    const itemFirstWord = item.title?.trim().split(/\s+/)[0]?.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (itemFirstWord) {
+      const sameOpeningTitles = currentItems
+        .filter((it) => it.id !== item.id && it.title?.trim().toLowerCase().replace(/[^a-z0-9]/g, '').startsWith(itemFirstWord))
+        .map((it) => it.title.trim())
+        .filter(Boolean);
+      avoidList.push(...sameOpeningTitles);
+    }
+
+    return Array.from(new Set(avoidList));
+  };
+
+  // Fix all flagged similar titles with AI retitle call, re-running similarity check and retrying once if still similar
   const handleFixSimilarTitles = useCallback(async () => {
-    const firstWordMap = new Map<string, string[]>();
-    for (const item of items) {
-      if (!item.title?.trim()) continue;
-      const cleanFirst = item.title
-        .trim()
-        .replace(/^[^a-zA-Z0-9]+/, '')
-        .split(/\s+/)[0]
-        ?.toLowerCase()
-        .replace(/[^a-z0-9]/g, '');
-
-      if (cleanFirst && cleanFirst.length > 1) {
-        const ids = firstWordMap.get(cleanFirst) || [];
-        ids.push(item.id);
-        firstWordMap.set(cleanFirst, ids);
-      }
-    }
-
-    const synonyms: Record<string, string[]> = {
-      modern: ['Contemporary', 'Sleek', 'Stylish', 'Clean', 'Minimalist', 'Sophisticated'],
-      closeup: ['Detailed view of', 'Macro perspective of', 'Close focal view of', 'Sharp focus on'],
-      'close-up': ['Detailed view of', 'Macro perspective of', 'Close focal view of', 'Sharp focus on'],
-      portrait: ['Studio portrait of', 'Candid portrait of', 'Expressive headshot of', 'Artistic portrait of'],
-      young: ['Youthful', 'Smiling', 'Energetic', 'Active', 'Dynamic'],
-      beautiful: ['Scenic', 'Picturesque', 'Stunning', 'Charming', 'Serene', 'Vibrant'],
-      abstract: ['Conceptual', 'Geometric', 'Artistic', 'Dynamic', 'Textured', 'Minimalist'],
-      business: ['Corporate', 'Professional', 'Commercial', 'Executive', 'Enterprise'],
-      vintage: ['Retro', 'Classic', 'Nostalgic', 'Antique', 'Timeless'],
-      aerial: ['Top-down view of', 'Elevated view of', 'High-angle perspective on', 'Panoramic view of'],
-      happy: ['Joyful', 'Cheerful', 'Smiling', 'Radiant', 'Delighted'],
-      cozy: ['Warm', 'Inviting', 'Comfortable', 'Homely', 'Intimate'],
-    };
-
-    let openingFixedCount = 0;
-    const modifiedItems = items.map((item) => {
-      if (!item.title?.trim()) return item;
-      const words = item.title.trim().split(/\s+/);
-      const firstWord = words[0]?.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const groupIds = firstWord ? firstWordMap.get(firstWord) : null;
-
-      if (groupIds && groupIds.length > 3) {
-        const indexInGroup = groupIds.indexOf(item.id);
-        if (indexInGroup > 0) {
-          const synList = synonyms[firstWord] || [
-            'Distinctive',
-            'Authentic',
-            'Selected',
-            'Highlighted',
-            'Featured',
-            'Vibrant',
-          ];
-          const replacement = synList[(indexInGroup - 1) % synList.length];
-          const newTitle = `${replacement} ${words.slice(1).join(' ')}`.trim();
-          openingFixedCount++;
-          return { ...item, title: newTitle, similarTo: [] };
-        }
-      }
-      return item;
-    });
-
-    if (openingFixedCount > 0) {
-      setItems(modifiedItems);
-      saveAllBatchItems(modifiedItems);
-      toast.success(`Rewrote opening words for ${openingFixedCount} titles`);
-    }
-
-    const remainingFlagged = modifiedItems.filter(
-      (it) => it.status === 'done' && it.similarTo && it.similarTo.length > 0
+    const flaggedItems = items.filter(
+      (it) => it.status === 'done' && it.title?.trim() && it.title.trim() !== it.fileData.originalName && it.similarTo && it.similarTo.length > 0
     );
 
-    if (remainingFlagged.length > 0) {
-      toast.info(`Refining ${remainingFlagged.length} similar title${remainingFlagged.length === 1 ? '' : 's'} with AI...`);
-      for (const item of remainingFlagged) {
+    if (flaggedItems.length === 0) {
+      toast.info('No similar titles found to adjust');
+      return;
+    }
+
+    toast.info(`Refining ${flaggedItems.length} similar title${flaggedItems.length === 1 ? '' : 's'} with AI...`);
+
+    let currentItemsState = [...items];
+
+    for (const item of flaggedItems) {
+      let currentItem = currentItemsState.find((it) => it.id === item.id) || item;
+      for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          const avoidList = (item.similarTo || [])
-            .map((s) => s.otherFilename)
-            .filter(Boolean);
+          const avoidList = getAvoidListForBatchItem(currentItem, currentItemsState);
           const keyInfo = await keyRotator.getNextKey();
           const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               mode: 'retitle',
-              images: [item.fileData.aiDataUrl],
-              currentTitle: item.title,
+              images: [currentItem.fileData.aiDataUrl],
+              currentTitle: currentItem.title,
               reason: 'Rewrite with a distinct opening and perspective to eliminate batch similarity',
               avoidTitles: avoidList,
               platform: settings.platform,
@@ -1273,7 +1246,29 @@ export default function GeneratorPage() {
             }
             const newTitle = data.metadataSets?.[0]?.title || data.title;
             if (newTitle) {
-              handleUpdateItem(item.id, { title: newTitle, similarTo: [] });
+              handleUpdateItem(currentItem.id, { title: newTitle, similarTo: [] });
+              currentItemsState = currentItemsState.map((it) => (it.id === currentItem.id ? { ...it, title: newTitle, similarTo: [] } : it));
+              currentItem = { ...currentItem, title: newTitle, similarTo: [] };
+
+              // Re-run title similarity check on currentItemsState
+              const activeDone = currentItemsState.filter(
+                (i) => i.status === 'done' && Boolean(i.title?.trim()) && i.title.trim() !== i.fileData.originalName
+              );
+              const simMap = computeBatchSimilarities(activeDone, settings.titleUniqueness || 'normal');
+              currentItemsState = currentItemsState.map((it) => {
+                if (!it.title?.trim() || it.title.trim() === it.fileData.originalName) return it;
+                const matches = (simMap.get(it.id) || []).filter(
+                  (m) => m.otherId !== it.id && m.otherFilename.toLowerCase().trim() !== it.fileData.originalName.toLowerCase().trim()
+                );
+                return { ...it, similarTo: matches };
+              });
+
+              const updatedCurrent = currentItemsState.find((it) => it.id === currentItem.id);
+              if (!updatedCurrent?.similarTo || updatedCurrent.similarTo.length === 0) {
+                break; // No longer similar, success!
+              } else {
+                currentItem = updatedCurrent;
+              }
             }
           }
         } catch (e) {
@@ -1281,39 +1276,57 @@ export default function GeneratorPage() {
         }
         await new Promise((r) => setTimeout(r, 200));
       }
-      toast.success('Finished adjusting similar titles!');
-    } else if (openingFixedCount === 0) {
-      toast.info('No repeated opening words or similar titles found to adjust');
     }
+    toast.success('Finished adjusting similar titles!');
   }, [items, settings, handleUpdateItem, updateBalanceLocally]);
 
   // Fix all issues across items (blocked terms locally, similar titles with retitle, re-run compliance, summary)
   const handleFixAllIssues = useCallback(async () => {
+    if (isFixingAll) return;
+    setIsFixingAll(true);
     let fixedCount = 0;
     let stillBlockedCount = 0;
 
     const updatedItems = [...items];
+    const doneItems = updatedItems.filter((item) => item.status === 'done');
+    const totalToFix = doneItems.length;
+    let processedCount = 0;
+    const toastId = toast.loading(`Fixing 0 of ${totalToFix}...`);
 
     for (let i = 0; i < updatedItems.length; i++) {
       const item = updatedItems[i];
       if (item.status !== 'done') continue;
 
-      // Rule 4: Do NOT touch items excluded for near-duplicate pictures, size limits, or a visible logo
+      processedCount++;
+      toast.loading(`Fixing ${processedCount} of ${totalToFix}...`, { id: toastId });
+
+      const isVector = item.isVector || item.fileData?.isVector;
+      const isVideo = item.isVideo || item.fileData?.isVideo;
+      const activeMinSizeCheck = settings.minSizeCheck || (settings.platform === 'adobe-stock' ? 'exclude' : 'warn');
+      const mp = (item.fileData?.width && item.fileData?.height) ? (item.fileData.width * item.fileData.height) / 1_000_000 : 0;
+      const isSizeExcluded = !isVector && !isVideo && activeMinSizeCheck === 'exclude' && item.fileData?.width > 0 && item.fileData?.height > 0 && mp < 4.0;
       const isDuplicate = item.similarityClusterId && !item.isKeptBest;
-      const isSizeExcluded = item.fileData && (item.fileData.width < 800 || item.fileData.height < 800);
       const hasVisibleLogo = item.flags?.visibleLogoOrBrand || item.blockedTermsFound?.some(b => b.category.toLowerCase().includes('logo') || b.term.toLowerCase().includes('logo') || b.category.toLowerCase().includes('trademark'));
       
       const hasBlocked = item.blockedTermsFound?.some(b => !b.isAmbiguous);
       const hasSimilar = item.similarTo && item.similarTo.length > 0;
 
-      if (!hasBlocked && !hasSimilar) {
+      if (!hasBlocked && !hasSimilar && !isDuplicate && !isSizeExcluded && !hasVisibleLogo) {
         continue;
       }
 
       if (isDuplicate || isSizeExcluded || hasVisibleLogo) {
-        if (hasBlocked || hasSimilar) {
-          stillBlockedCount++;
-        }
+        stillBlockedCount++;
+        let reason = 'blocked word';
+        if (isDuplicate) reason = 'near-duplicate picture';
+        else if (isSizeExcluded) reason = 'below 4 MP limit';
+        else if (hasVisibleLogo) reason = 'visible logo';
+        else if (hasBlocked) reason = 'blocked word';
+        else if (hasSimilar) reason = 'similar title';
+        item.isExcluded = true;
+        item.excludedReason = reason;
+        saveBatchItem(item);
+        await new Promise((r) => setTimeout(r, 50));
         continue;
       }
 
@@ -1352,7 +1365,7 @@ export default function GeneratorPage() {
       // 2. Similar title items: rewrite title using existing retitle logic, charged once per item
       if (hasSimilar) {
         try {
-          const avoidList = (item.similarTo || []).map(s => s.otherFilename).filter(Boolean);
+          const avoidList = getAvoidListForBatchItem(item, updatedItems);
           const keyInfo = await keyRotator.getNextKey();
           const res = await fetch('/api/generate', {
             method: 'POST',
@@ -1421,11 +1434,15 @@ export default function GeneratorPage() {
         } else {
           // Still fails: keep excluded and show real reason
           item.isExcluded = true;
-          item.excludedReason = comp.hasErrors ? `Blocked terms: ${comp.blockedTerms.map(b => b.term).join(', ')}` : 'Similar title issue remains';
+          const failReason = comp.hasErrors ? 'blocked word' : 'similar title';
+          item.excludedReason = failReason;
           stillBlockedCount++;
         }
       } else {
         stillBlockedCount++;
+        const failReason = hasBlocked ? 'blocked word' : (hasSimilar ? 'similar title' : 'blocked word');
+        item.isExcluded = true;
+        item.excludedReason = failReason;
       }
 
       saveBatchItem(item);
@@ -1433,8 +1450,10 @@ export default function GeneratorPage() {
     }
 
     setItems([...updatedItems]);
-    toast.success(`Fixed ${fixedCount}, still blocked ${stillBlockedCount}`);
-  }, [items, settings, updateBalanceLocally]);
+    setIsFixingAll(false);
+    toast.dismiss(toastId);
+    toast.success(`Fixed ${fixedCount}, need attention ${stillBlockedCount}`);
+  }, [items, settings, updateBalanceLocally, isFixingAll]);
 
   // Approve ambiguous term
   const handleApproveIssue = useCallback(
@@ -2325,10 +2344,13 @@ export default function GeneratorPage() {
         open={reportDialogOpen}
         onOpenChange={setReportDialogOpen}
         report={currentReport}
-        onProceedExport={executeActualCsvExport}
+        items={items}
+        activeMinSizeCheck={activeMinSizeCheck}
+        onProceedExport={(opts) => executeActualCsvExport(opts)}
         onFixTitle={handleFixTitle}
         onApproveAmbiguous={handleApproveIssue}
         onFixSimilarTitles={handleFixSimilarTitles}
+        onIncludeAnyway={handleOverrideInclude}
       />
 
       {/* Out of Credits Dialog */}

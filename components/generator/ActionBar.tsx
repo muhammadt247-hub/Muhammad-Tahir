@@ -65,6 +65,7 @@ interface ActionBarProps {
   attentionItems?: { id: string; filename: string; reason: string }[];
   onExportReadyCsv?: () => void;
   similarityStrictness?: string;
+  isFixingAll?: boolean;
 }
 
 export function ActionBar({
@@ -112,6 +113,7 @@ export function ActionBar({
   attentionItems = [],
   onExportReadyCsv,
   similarityStrictness = 'strict',
+  isFixingAll = false,
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -382,10 +384,15 @@ export function ActionBar({
             <button
               type="button"
               onClick={onFixAllIssues}
-              className="h-10 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+              disabled={isFixingAll}
+              className="h-10 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 bg-primary/15 text-primary hover:bg-primary/25 transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>Fix all issues</span>
+              {isFixingAll ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              <span>{isFixingAll ? 'Fixing issues...' : 'Fix all issues'}</span>
             </button>
           )}
 

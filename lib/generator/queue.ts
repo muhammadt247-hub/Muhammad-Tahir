@@ -124,25 +124,27 @@ export function isItemExcluded(
   minSizeCheck: 'exclude' | 'warn' | 'off' = 'exclude'
 ): boolean {
   if (item.manualInclude) return false;
-  // Vector files and video files are NEVER subject to the 4 MP size check or any size-based exclusion
-  const isVector = item.isVector || item.fileData?.isVector;
-  const isVideo = item.isVideo || item.fileData?.isVideo;
-  if (isVector || isVideo) return false;
 
   const isUnder4MpReason =
     item.excludedReason === "Below Adobe's 4 MP minimum, likely refused" ||
     Boolean(item.excludedReason?.includes('4 MP')) ||
     Boolean(item.excludedReason?.includes('4MP'));
 
-  if (minSizeCheck !== 'exclude' && isUnder4MpReason) {
-    return false;
-  }
   if (item.isExcluded) {
     if (minSizeCheck !== 'exclude' && isUnder4MpReason) {
-      return false;
+      // Ignore size exclusion if size check is not exclude
+    } else {
+      return true;
     }
-    return true;
   }
+
+  // Vector files and video files skip only the size rule
+  const isVector = item.isVector || item.fileData?.isVector;
+  const isVideo = item.isVideo || item.fileData?.isVideo;
+  if (isVector || isVideo) {
+    return false;
+  }
+
   if (minSizeCheck === 'exclude' && item.fileData.width > 0 && item.fileData.height > 0) {
     const mp = (item.fileData.width * item.fileData.height) / 1_000_000;
     if (mp < 4.0) return true;
@@ -428,11 +430,11 @@ export class GeneratorQueue {
     let attempts = 0;
     const maxServerAttempts = 3;
 
-    // Last 15 generated titles to avoid repetitive phrasing
+    // Last 40 generated titles to avoid repetitive phrasing
     const recentTitles = this.items
       .filter((i) => i.status === 'done' && i.title?.trim())
       .map((i) => i.title.trim())
-      .slice(-15);
+      .slice(-40);
 
     while (this.isRunning && !this.abortController?.signal.aborted) {
       await this.checkPause();

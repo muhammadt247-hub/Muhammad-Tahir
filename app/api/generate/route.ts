@@ -289,6 +289,8 @@ export async function POST(req: NextRequest) {
       isPromptSuffixEnabled,
       model: requestedModel,
       apiKey: userApiKey,
+      avoidTitles = [],
+      currentTitle,
     } = parsed.data;
 
     // 4a. Count images on server from validated request body (reject < 1 or > MAX_IMAGES_PER_REQUEST)
@@ -400,10 +402,16 @@ CRITICAL RULES:
    - flagReasons: short specific reason for any positive flag (e.g. "Text visible on sign", "Logo on clothing").
 10. Output exactly one metadata set for each provided image in the exact same order.`;
 
+      const recentAvoid = avoidTitles.slice(-40);
+      let avoidClause = '';
+      if (recentAvoid.length > 0) {
+        avoidClause = ` These titles already exist in this batch: ${recentAvoid.map((t) => `"${t}"`).join(', ')}. Write a title that is completely different. Do not reuse their first three words or their sentence pattern. Describe what is visibly different in THIS image (subject, count, shapes, colors, style).`;
+      }
+
       if (mode === 'retitle') {
-        userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). A title rewrite was specifically requested to address: "${parsed.data.reason || 'Better commercial distinctiveness'}". Do NOT use the current title "${parsed.data.currentTitle || ''}". Ensure titles are under ${maxTitle} chars.`;
+        userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). A title rewrite was specifically requested to address: "${parsed.data.reason || 'Better commercial distinctiveness'}". The previous title "${currentTitle || ''}" must NOT be reused. Ensure titles are under ${maxTitle} chars.${avoidClause}`;
       } else {
-        userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). Ensure titles are under ${maxTitle} chars and keywords are ordered by relevance.`;
+        userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). Ensure titles are under ${maxTitle} chars and keywords are ordered by relevance.${avoidClause}`;
       }
       responseSchema = MetadataResponseSchema;
     } else {
