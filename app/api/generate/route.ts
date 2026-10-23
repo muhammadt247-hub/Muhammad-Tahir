@@ -161,6 +161,66 @@ function parseDataUri(dataUri: string): { mimeType: string; data: string } {
   return { mimeType: 'image/jpeg', data: dataUri };
 }
 
+function buildGeminiErrorResponse(lastError: unknown): NextResponse {
+  const errMessage = lastError instanceof Error ? lastError.message : String(lastError || 'Gemini generation failed');
+  const lowerMessage = errMessage.toLowerCase();
+
+  const isRateLimit =
+    errMessage.includes('429') ||
+    lowerMessage.includes('quota') ||
+    lowerMessage.includes('resource_exhausted') ||
+    lowerMessage.includes('too many requests') ||
+    lowerMessage.includes('perday') ||
+    lowerMessage.includes('daily');
+
+  const isDailyQuota =
+    isRateLimit &&
+    (errMessage.includes('PerDay') ||
+      lowerMessage.includes('daily') ||
+      lowerMessage.includes('day_quota') ||
+      lowerMessage.includes('per day'));
+
+  const isAuthError =
+    errMessage.includes('400') ||
+    errMessage.includes('401') ||
+    errMessage.includes('403') ||
+    lowerMessage.includes('api_key_invalid') ||
+    lowerMessage.includes('api key not valid') ||
+    lowerMessage.includes('unauthenticated') ||
+    lowerMessage.includes('permission_denied') ||
+    (lowerMessage.includes('api key') && !isRateLimit);
+
+  // Extract retry wait duration in seconds if Gemini provided one
+  const retryMatch = errMessage.match(/(?:retry in|retry after|wait)\s*([0-9.]+)\s*s/i);
+  const retryAfterSeconds = retryMatch ? parseFloat(retryMatch[1]) : isRateLimit ? 30 : undefined;
+
+  const headers: Record<string, string> = {};
+  if (retryAfterSeconds) {
+    headers['Retry-After'] = String(Math.ceil(retryAfterSeconds));
+  }
+
+  return NextResponse.json(
+    {
+      error: {
+        code: isDailyQuota
+          ? 'DAILY_QUOTA_EXHAUSTED'
+          : isRateLimit
+          ? 'RATE_LIMITED'
+          : isAuthError
+          ? 'INVALID_API_KEY'
+          : 'GENERATION_FAILED',
+        message: errMessage,
+        retryAfterSeconds,
+        quotaType: isDailyQuota ? 'day' : isRateLimit ? 'minute' : undefined,
+      },
+    },
+    {
+      status: isRateLimit ? 429 : isAuthError ? 401 : 500,
+      headers,
+    }
+  );
+}
+
 export async function POST(req: NextRequest) {
   let user: { id: string } | null = null;
   const requestId = crypto.randomUUID();
@@ -394,6 +454,10 @@ CRITICAL RULES:
             // Do NOT fall back on 400, 401, 403, blocked content, etc. Throw/stop immediately.
             break;
           }
+          const errMsg = err instanceof Error ? err.message : String(err || '');
+          if (attempt === 1 && (errMsg.includes('PerDay') || errMsg.toLowerCase().includes('daily'))) {
+            break;
+          }
           console.warn(`Model ${curModel} attempt ${attempt} failed with fallback-eligible error:`, err);
           if (attempt === 1) {
             await new Promise((r) => setTimeout(r, 600));
@@ -409,7 +473,7 @@ CRITICAL RULES:
     if (!success) {
       // All models failed: refund all charged credits once
       await refundHelper(imageCount, 'refund_failed_generation');
-      throw lastError;
+      return buildGeminiErrorResponse(lastError);
     }
 
     if (mode === 'metadata' || mode === 'retitle') {
@@ -490,62 +554,7 @@ CRITICAL RULES:
       });
     }
 
-    // If both attempts failed, format error with detailed quota diagnostics
-    const errMessage = lastError instanceof Error ? lastError.message : 'Gemini generation failed';
-    const lowerMessage = errMessage.toLowerCase();
-
-    const isRateLimit =
-      errMessage.includes('429') ||
-      lowerMessage.includes('quota') ||
-      lowerMessage.includes('resource_exhausted') ||
-      lowerMessage.includes('too many requests');
-
-    const isDailyQuota =
-      isRateLimit &&
-      (errMessage.includes('PerDay') ||
-        lowerMessage.includes('daily') ||
-        lowerMessage.includes('day_quota') ||
-        lowerMessage.includes('per day'));
-
-    const isAuthError =
-      errMessage.includes('400') ||
-      errMessage.includes('401') ||
-      errMessage.includes('403') ||
-      lowerMessage.includes('api_key_invalid') ||
-      lowerMessage.includes('api key not valid') ||
-      lowerMessage.includes('unauthenticated') ||
-      lowerMessage.includes('permission_denied') ||
-      (lowerMessage.includes('api key') && !isRateLimit);
-
-    // Extract retry wait duration in seconds if Gemini provided one
-    const retryMatch = errMessage.match(/(?:retry in|retry after|wait)\s*([0-9.]+)\s*s/i);
-    const retryAfterSeconds = retryMatch ? parseFloat(retryMatch[1]) : isRateLimit ? 30 : undefined;
-
-    const headers: Record<string, string> = {};
-    if (retryAfterSeconds) {
-      headers['Retry-After'] = String(Math.ceil(retryAfterSeconds));
-    }
-
-    return NextResponse.json(
-      {
-        error: {
-          code: isDailyQuota
-            ? 'DAILY_QUOTA_EXHAUSTED'
-            : isRateLimit
-            ? 'RATE_LIMITED'
-            : isAuthError
-            ? 'INVALID_API_KEY'
-            : 'GENERATION_FAILED',
-          message: errMessage,
-          retryAfterSeconds,
-          quotaType: isDailyQuota ? 'day' : isRateLimit ? 'minute' : undefined,
-        },
-      },
-      {
-        status: isRateLimit ? 429 : isAuthError ? 401 : 500,
-        headers,
-      }
-    );
+    return buildGeminiErrorResponse(lastError);
   } catch (err: unknown) {
     await refundHelper(creditsToCharge / CREDIT_COSTS.generatePerImage, 'refund_failed_generation');
     console.error('Fatal API error in /api/generate');
