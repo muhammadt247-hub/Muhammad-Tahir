@@ -592,10 +592,14 @@ export default function GeneratorPage() {
       (async () => {
         try {
           for (const task of unpairedVectorTasks) {
+            const startTime = performance.now();
             try {
               const processed = await processFileForGenerator(task.vectorFile);
+              const duration = Math.round(performance.now() - startTime);
+              console.log(`[convert] ${task.vectorFile.name} took ${duration} ms`);
+
               setItems((prev) => {
-                const next = prev.map((it) => {
+                return prev.map((it) => {
                   if (it.id !== task.assetId) return it;
                   const errReason = processed.needsPreviewMessage || 'Could not convert this file';
                   if (processed.needsPreview || processed.svgRasterFailed || !processed.previewUrl) {
@@ -627,15 +631,15 @@ export default function GeneratorPage() {
                     };
                   }
                 });
-                saveAllBatchItems(next);
-                runSimilarityCheck(next);
-                return next;
               });
             } catch (err: unknown) {
+              const duration = Math.round(performance.now() - startTime);
+              console.log(`[convert] ${task.vectorFile.name} took ${duration} ms`);
+
               const errReason = err instanceof Error ? err.message : 'Could not convert this file';
               console.error(`Could not convert vector file ${task.vectorFile.name}: ${errReason}`);
               setItems((prev) => {
-                const next = prev.map((it) => {
+                return prev.map((it) => {
                   if (it.id !== task.assetId) return it;
                   return {
                     ...it,
@@ -650,9 +654,6 @@ export default function GeneratorPage() {
                     isConverting: false,
                   };
                 });
-                saveAllBatchItems(next);
-                runSimilarityCheck(next);
-                return next;
               });
             }
           }
@@ -660,7 +661,7 @@ export default function GeneratorPage() {
           const outerReason = outerErr instanceof Error ? outerErr.message : 'Could not convert vector files';
           console.error('Vector conversion batch error:', outerReason);
           setItems((prev) => {
-            const next = prev.map((it) => {
+            return prev.map((it) => {
               if (it.isConverting || it.fileData?.isConverting) {
                 return {
                   ...it,
@@ -677,8 +678,12 @@ export default function GeneratorPage() {
               }
               return it;
             });
-            saveAllBatchItems(next);
-            return next;
+          });
+        } finally {
+          setItems((finalItems) => {
+            saveAllBatchItems(finalItems);
+            runSimilarityCheck(finalItems);
+            return finalItems;
           });
         }
       })();
