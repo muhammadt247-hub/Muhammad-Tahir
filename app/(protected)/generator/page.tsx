@@ -210,22 +210,71 @@ export default function GeneratorPage() {
     }
   }, []);
 
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const similarityRunIdRef = useRef(0);
+
+  const cancelSimilarityCheck = useCallback(() => {
+    similarityRunIdRef.current++;
+    setIsAnalyzingSimilarity(false);
+    setSimilarityProgress(null);
+    setSimilarityClusters([]);
+    setItems((prev) => {
+      const cleaned = prev.map((it) => {
+        if (it.excludedReason?.startsWith('Similar') || it.isKeptBest || it.similarityClusterId || it.similarPairDetails) {
+          return {
+            ...it,
+            isExcluded: false,
+            excludedReason: undefined,
+            isKeptBest: undefined,
+            similarityClusterId: undefined,
+            similarPairDetails: undefined,
+          };
+        }
+        return it;
+      });
+      saveAllBatchItems(cleaned);
+      return cleaned;
+    });
+  }, []);
+
+  // Unmount cleanup
+  useEffect(() => {
+    return () => {
+      cancelSimilarityCheck();
+    };
+  }, [cancelSimilarityCheck]);
+
   // Deep Similarity Pipeline runner
   const runSimilarityCheck = useCallback(
-    async (targetItems: GeneratorItemState[], activeSettings = settings) => {
-      if (targetItems.length === 0 || activeSettings.similarityStrictness === 'off') {
+    async (targetItems: GeneratorItemState[]) => {
+      const currentStrictness = settingsRef.current.similarityStrictness || 'strict';
+      if (targetItems.length === 0 || currentStrictness === 'off') {
         setIsAnalyzingSimilarity(false);
         setSimilarityProgress(null);
         return;
       }
 
+      const thisRunId = ++similarityRunIdRef.current;
       setIsAnalyzingSimilarity(true);
       try {
         const result = await runSimilarityPipeline(
           targetItems,
-          activeSettings,
-          (prog) => setSimilarityProgress(prog)
+          settingsRef.current,
+          (prog) => {
+            if (similarityRunIdRef.current !== thisRunId) return;
+            setSimilarityProgress(prog);
+          },
+          () => similarityRunIdRef.current !== thisRunId
         );
+
+        if (similarityRunIdRef.current !== thisRunId) {
+          return;
+        }
+
         setItems(result.updatedItems);
         saveAllBatchItems(result.updatedItems);
         setSimilarityClusters(result.clusters);
@@ -238,28 +287,37 @@ export default function GeneratorPage() {
           toast.info(msg);
         }
       } catch (err) {
-        console.error('Similarity check error:', err);
+        if (similarityRunIdRef.current === thisRunId) {
+          console.error('Similarity check error:', err);
+        }
       } finally {
-        setIsAnalyzingSimilarity(false);
-        setSimilarityProgress(null);
+        if (similarityRunIdRef.current === thisRunId) {
+          setIsAnalyzingSimilarity(false);
+          setSimilarityProgress(null);
+        }
       }
     },
-    [settings]
+    []
   );
 
-  // Re-run similarity when strictness changes
+  // Re-run similarity when strictness changes or cancel if 'off'
   const prevStrictnessRef = useRef(settings.similarityStrictness);
   useEffect(() => {
     if (prevStrictnessRef.current !== settings.similarityStrictness) {
       prevStrictnessRef.current = settings.similarityStrictness;
-      if (items.length > 0) {
+      if (settings.similarityStrictness === 'off') {
         const timer = setTimeout(() => {
-          runSimilarityCheck(items, settings);
+          cancelSimilarityCheck();
+        }, 0);
+        return () => clearTimeout(timer);
+      } else if (items.length > 0) {
+        const timer = setTimeout(() => {
+          runSimilarityCheck(items);
         }, 50);
         return () => clearTimeout(timer);
       }
     }
-  }, [settings.similarityStrictness, items, runSimilarityCheck, settings]);
+  }, [settings.similarityStrictness, items, runSimilarityCheck, cancelSimilarityCheck]);
 
   // Batch title similarity computation (debounced)
   useEffect(() => {
@@ -824,6 +882,7 @@ export default function GeneratorPage() {
   }, []);
 
   const handleClearAll = useCallback(() => {
+    cancelSimilarityCheck();
     if (queueRef.current) {
       queueRef.current.stop();
       queueRef.current = null;
@@ -852,7 +911,7 @@ export default function GeneratorPage() {
 
     clearSavedBatchItems();
     toast.success('Cleared all items');
-  }, []);
+  }, [cancelSimilarityCheck]);
 
   // Pre-export report computation
   const currentReport: PreExportReport = useMemo(() => {
@@ -2140,8 +2199,11 @@ export default function GeneratorPage() {
           />
 
           {/* Similarity Analysis Progress Card */}
-          {similarityProgress && (
-            <SimilarityProgressCard progress={similarityProgress} />
+          {similarityProgress && settings.similarityStrictness !== 'off' && (
+            <SimilarityProgressCard
+              progress={similarityProgress}
+              onCancel={cancelSimilarityCheck}
+            />
           )}
 
           <ActionBar
@@ -2152,6 +2214,7 @@ export default function GeneratorPage() {
             isGenerating={isGenerating}
             isPaused={isPaused}
             isAnalyzingSimilarity={isAnalyzingSimilarity}
+            similarityStrictness={settings.similarityStrictness}
             hasResults={hasResults}
             mode={settings.mode}
             similarCount={similarTitleCount}

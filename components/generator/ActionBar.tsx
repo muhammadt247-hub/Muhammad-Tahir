@@ -64,6 +64,7 @@ interface ActionBarProps {
   attentionCount?: number;
   attentionItems?: { id: string; filename: string; reason: string }[];
   onExportReadyCsv?: () => void;
+  similarityStrictness?: string;
 }
 
 export function ActionBar({
@@ -110,8 +111,11 @@ export function ActionBar({
   attentionCount = 0,
   attentionItems = [],
   onExportReadyCsv,
+  similarityStrictness = 'strict',
 }: ActionBarProps) {
   const [confirmClear, setConfirmClear] = useState(false);
+
+  const isAnalyzing = isAnalyzingSimilarity && similarityStrictness !== 'off';
 
   const excludedTotal = totalExcludedCount !== undefined ? totalExcludedCount : similarExcludedCount;
   const pendingCount =
@@ -123,7 +127,7 @@ export function ActionBar({
     generateDisabledReason = 'Upload files to begin.';
   } else if (convertingVectorCount > 0) {
     generateDisabledReason = `Converting ${convertingVectorCount} vector file${convertingVectorCount === 1 ? '' : 's'}... Please wait.`;
-  } else if (isAnalyzingSimilarity) {
+  } else if (isAnalyzing) {
     generateDisabledReason = 'Checking for similar images...';
   } else if (pendingCount === 0) {
     if (needsPreviewCount > 0) {
@@ -196,8 +200,8 @@ export function ActionBar({
     onClearAll();
   };
 
-  const actionsDisabled = isAnalyzingSimilarity || (isGenerating && !isPaused);
-  const similarityTooltip = isAnalyzingSimilarity ? 'Similarity check in progress' : undefined;
+  const actionsDisabled = isAnalyzing || (isGenerating && !isPaused);
+  const similarityTooltip = isAnalyzing ? 'Similarity check in progress' : undefined;
 
   return (
     <div className="space-y-2">

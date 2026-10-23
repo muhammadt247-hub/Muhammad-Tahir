@@ -145,14 +145,15 @@ class DisjointSet {
 export async function runSimilarityPipeline(
   items: GeneratorItemState[],
   settings: GeneratorSavedSettings,
-  onProgress?: (progress: SimilarityProgress) => void
+  onProgress?: (progress: SimilarityProgress) => void,
+  shouldCancel?: () => boolean
 ): Promise<SimilarityPipelineResult> {
   const strictness = settings.similarityStrictness || 'strict';
 
   if (strictness === 'off' || items.length === 0) {
     // If turned off, reset exclusions related to similarity
     const cleanItems = items.map((it) => {
-      if (it.excludedReason?.startsWith('Similar') || it.isKeptBest) {
+      if (it.excludedReason?.startsWith('Similar') || it.isKeptBest || it.similarityClusterId || it.similarPairDetails) {
         return {
           ...it,
           isExcluded: false,
@@ -172,12 +173,20 @@ export async function runSimilarityPipeline(
     };
   }
 
+  if (shouldCancel?.()) {
+    return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+  }
+
   // --- STEP 1: FINGERPRINTS ---
   const total = items.length;
   const itemsWithFingerprints: GeneratorItemState[] = [...items];
   const fingerprintMap = new Map<string, ImageFingerprint>();
 
   for (let i = 0; i < total; i++) {
+    if (shouldCancel?.()) {
+      return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+    }
+
     const it = itemsWithFingerprints[i];
     if (onProgress) {
       onProgress({
@@ -215,10 +224,18 @@ export async function runSimilarityPipeline(
     if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
   }
 
+  if (shouldCancel?.()) {
+    return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+  }
+
   // Fetch saved library entries (if Remember My Exported Images is enabled)
   let libraryEntries: LibraryFingerprintEntry[] = [];
   if (settings.rememberExportedImages) {
     libraryEntries = await getLibraryEntries();
+  }
+
+  if (shouldCancel?.()) {
+    return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
   }
 
   // --- STEP 2: PAIRWISE SIMILARITY ---
@@ -231,12 +248,20 @@ export async function runSimilarityPipeline(
   const totalPairs = (total * (total - 1)) / 2 + total * libraryEntries.length;
 
   for (let i = 0; i < total; i++) {
+    if (shouldCancel?.()) {
+      return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+    }
+
     const itemA = itemsWithFingerprints[i];
     const fpA = fingerprintMap.get(itemA.id);
     if (!fpA) continue;
 
     // Check against library first
     for (const libEntry of libraryEntries) {
+      if (shouldCancel?.()) {
+        return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+      }
+
       // Never compare a file with itself
       if (itemA.id === libEntry.id) continue;
 
@@ -272,6 +297,10 @@ export async function runSimilarityPipeline(
 
     // Check against other batch items (j > i)
     for (let j = i + 1; j < total; j++) {
+      if (shouldCancel?.()) {
+        return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+      }
+
       pairCounter++;
       const itemB = itemsWithFingerprints[j];
       // Never compare a file with itself (by id or filename)
@@ -312,6 +341,9 @@ export async function runSimilarityPipeline(
       }
 
       if (pairCounter % 150 === 0) {
+        if (shouldCancel?.()) {
+          return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+        }
         if (onProgress) {
           onProgress({
             step: 2,
@@ -324,6 +356,10 @@ export async function runSimilarityPipeline(
         await new Promise((r) => setTimeout(r, 0));
       }
     }
+  }
+
+  if (shouldCancel?.()) {
+    return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
   }
 
   // --- STEP 3: DEEP AI CHECK FOR BORDERLINE PAIRS ---
@@ -353,6 +389,10 @@ export async function runSimilarityPipeline(
 
     const chunkSize = 6;
     for (let c = 0; c < borderlineList.length; c += chunkSize) {
+      if (shouldCancel?.()) {
+        return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+      }
+
       const clusterSlice = borderlineList.slice(c, c + chunkSize);
       if (clusterSlice.length < 2) continue;
 
@@ -364,8 +404,16 @@ export async function runSimilarityPipeline(
       }));
 
       try {
+        if (shouldCancel?.()) {
+          return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+        }
+
         const contactSheetUrl = await createContactSheet(sheetItems);
         const keyInfo = await keyRotator.getNextKey();
+
+        if (shouldCancel?.()) {
+          return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+        }
 
         const res = await fetch('/api/similarity', {
           method: 'POST',
@@ -382,6 +430,10 @@ export async function runSimilarityPipeline(
             apiKey: keyInfo?.apiKey,
           }),
         });
+
+        if (shouldCancel?.()) {
+          return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
+        }
 
         if (res.ok) {
           const aiData = await res.json();
@@ -434,6 +486,10 @@ export async function runSimilarityPipeline(
         confirmedSimilarEdges.push([a, b, { ...score, isSimilar: true }]);
       }
     }
+  }
+
+  if (shouldCancel?.()) {
+    return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
   }
 
   // --- STEP 4: CLUSTERING & WINNER SELECTION ---

@@ -1,14 +1,15 @@
 'use client';
 
 import React from 'react';
-import { ShieldCheck, Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { SimilarityProgress } from '@/lib/similarity/pipeline';
 
 interface SimilarityProgressCardProps {
   progress: SimilarityProgress;
+  onCancel?: () => void;
 }
 
-export function SimilarityProgressCard({ progress }: SimilarityProgressCardProps) {
+export function SimilarityProgressCard({ progress, onCancel }: SimilarityProgressCardProps) {
   const percentage = progress.totalCount > 0
     ? Math.min(100, Math.round((progress.processedCount / progress.totalCount) * 100))
     : 0;
@@ -20,9 +21,21 @@ export function SimilarityProgressCard({ progress }: SimilarityProgressCardProps
           <Loader2 className="h-4 w-4 text-primary animate-spin" />
           <span>Checking for similar images...</span>
         </div>
-        <span className="text-[11px] font-mono text-primary font-bold">
-          Step {progress.step} of {progress.totalSteps} · {progress.processedCount} / {progress.totalCount}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-mono text-primary font-bold">
+            Step {progress.step} of {progress.totalSteps} · {progress.processedCount} / {progress.totalCount}
+          </span>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-2 py-1 rounded-lg bg-destructive/15 text-destructive text-[11px] font-bold hover:bg-destructive/25 transition-colors flex items-center gap-1"
+            >
+              <X className="h-3 w-3" />
+              <span>Cancel check</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-1">
