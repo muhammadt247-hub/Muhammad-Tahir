@@ -12,6 +12,59 @@ export function trimAtWordBoundary(text: string, maxLength: number): string {
   return sub.trim();
 }
 
+// Clean an AI-written title: keep only letters, numbers, spaces, hyphens and apostrophes,
+// collapse spaces, and remove a word that repeats right after itself.
+export function cleanTitleText(text: string): string {
+  if (!text) return '';
+  const stripped = text
+    .replace(/[^\p{L}\p{N}\s'\u2019-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = stripped.split(' ');
+  const out: string[] = [];
+  for (const w of words) {
+    if (out.length > 0 && out[out.length - 1].toLowerCase() === w.toLowerCase()) continue;
+    out.push(w);
+  }
+  return out.join(' ').trim();
+}
+
+// Simple singular form used only to spot singular/plural duplicates (icon / icons)
+function singularKey(word: string): string {
+  const w = word.toLowerCase();
+  if (w.length > 4 && w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.length > 4 && /(s|x|z|ch|sh)es$/.test(w)) return w.slice(0, -2);
+  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+}
+
+const KEYWORD_STOP_WORDS = new Set(['a', 'an', 'the', 'of', 'on', 'and', 'with', 'for', 'in', 'at', 'to']);
+
+// Remove exact and singular/plural duplicates, and allow at most 2 keywords sharing the same root word.
+export function dedupeKeywordsSmart(keywords: string[]): string[] {
+  const seenFull = new Set<string>();
+  const rootCount = new Map<string, number>();
+  const result: string[] = [];
+
+  for (const raw of keywords) {
+    const kw = raw.trim().toLowerCase();
+    if (!kw) continue;
+    const fullKey = kw.split(/\s+/).map(singularKey).join(' ');
+    if (seenFull.has(fullKey)) continue;
+
+    const roots = kw
+      .split(/\s+/)
+      .filter((t) => !KEYWORD_STOP_WORDS.has(t))
+      .map(singularKey);
+    if (roots.some((r) => (rootCount.get(r) || 0) >= 2)) continue;
+
+    seenFull.add(fullKey);
+    for (const r of new Set(roots)) rootCount.set(r, (rootCount.get(r) || 0) + 1);
+    result.push(kw);
+  }
+  return result;
+}
+
 export interface PostProcessMetadataOptions {
   titleMaxLength: number;
   keywordsMaxCount: number;
@@ -46,7 +99,7 @@ export function postProcessMetadata<
   flags: Record<string, unknown>;
   flagReasons: string[];
 } {
-  let title = item.title || '';
+  let title = cleanTitleText(item.title || '');
 
   // 1. Filter negative title words
   if (options.isNegativeTitleWordsEnabled && options.negativeTitleWords) {
@@ -80,7 +133,7 @@ export function postProcessMetadata<
   title = trimAtWordBoundary(title, options.titleMaxLength);
 
   // 5. Clean and post-process keywords
-  let keywords = (item.keywords || []).map((k) => k.trim()).filter(Boolean);
+  let keywords = dedupeKeywordsSmart((item.keywords || []).map((k) => k.trim()).filter(Boolean));
 
   // Deduplicate case-insensitively while preserving original capitalization
   const seen = new Set<string>();

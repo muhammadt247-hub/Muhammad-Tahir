@@ -384,8 +384,8 @@ export async function POST(req: NextRequest) {
       systemInstruction = `You are an expert commercial microstock metadata generator for Adobe Stock, Shutterstock, and Freepik contributors.
 CRITICAL RULES:
 1. Describe ONLY what is directly visible in the image. Be concrete, commercial, and factual.
-2. Title: A natural, readable sentence under ${maxTitle} characters. Do NOT cut mid-word. Never start with "A photo of" or "An image of".
-3. Keywords: Order by relevance (most important first). Use single words and short 2-3 word conceptual phrases. Generate up to ${keywordsMaxCount} keywords.
+2. Title: one plain English sentence under ${maxTitle} characters that names the main subject first, then the count, style and background. Use only letters, numbers, spaces and hyphens. No commas, colons, symbols, quotes or emoji. Never repeat a word or a concept. Check spelling and grammar. For icon sheets, name each icon once in plain words. Do NOT cut mid-word. Never start with "A photo of" or "An image of".
+3. Keywords: only words for things that are clearly visible or are the obvious subject. Do not add abstract or conceptual guesses (customer, service, support, feedback, social, media, connection, network) unless the image clearly shows them. Do not use near-duplicates: never use more than one word from the same family (smile/smiley/smiling, phone/smartphone/mobile, tech/technology, web/internet/online), and never use both singular and plural. Do not add generic filler to reach the count. It is fine to return fewer keywords than the maximum. Order by relevance (most important first). Use single words and short 2-3 word phrases. Generate up to ${keywordsMaxCount} keywords.
 4. FORBIDDEN: NEVER include brand names, trademarks, company names, camera gear, software names, real people names, or the word "stock".
 5. NEVER use these banned title words: "${negativeTitleWords || ''}".
 6. NEVER use these banned keywords: "${negativeKeywords || ''}".
@@ -400,7 +400,8 @@ CRITICAL RULES:
    - possibleEditorial: true if news event, editorial landmark, or unreleased public gathering.
    - showsAiConcept: true ONLY if the subject is explicitly robots, cyborgs, or artificial intelligence concept.
    - flagReasons: short specific reason for any positive flag (e.g. "Text visible on sign", "Logo on clothing").
-10. Output exactly one metadata set for each provided image in the exact same order.`;
+10. All text must be in English. No objectionable or offensive language.
+11. Output exactly one metadata set for each provided image in the exact same order.`;
 
       const recentAvoid = avoidTitles.slice(-40);
       let avoidClause = '';

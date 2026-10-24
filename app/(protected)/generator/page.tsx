@@ -1344,16 +1344,6 @@ export default function GeneratorPage() {
           newKeywords = newKeywords.filter(kw => !kw.toLowerCase().includes(b.term.toLowerCase()));
         }
 
-        // Fill missing keywords with safe alternatives (no brands, no names)
-        const safeAlternatives = ['commercial', 'studio', 'editorial', 'professional', 'minimalist', 'clean', 'modern', 'creative', 'concept', 'abstract', 'isolated', 'background', 'digital', 'graphic'];
-        const targetCount = settings.keywordCount || 30;
-        for (const alt of safeAlternatives) {
-          if (newKeywords.length >= targetCount) break;
-          if (!newKeywords.some(kw => kw.toLowerCase() === alt)) {
-            newKeywords.push(alt);
-          }
-        }
-
         newTitle = newTitle.replace(/^[^a-zA-Z0-9]+/, '').trim();
         if (!newTitle) newTitle = 'Commercial stock asset';
 
@@ -1558,16 +1548,6 @@ export default function GeneratorPage() {
           const termRegex = new RegExp(`\\b${b.term}\\b`, 'gi');
           newTitle = newTitle.replace(termRegex, '').replace(/\s+/g, ' ').trim();
           newKeywords = newKeywords.filter(kw => !kw.toLowerCase().includes(b.term.toLowerCase()));
-        }
-
-        // Fill missing keywords with safe alternatives (no brands, no names)
-        const safeAlternatives = ['commercial', 'studio', 'editorial', 'professional', 'minimalist', 'clean', 'modern', 'creative', 'concept', 'abstract', 'isolated', 'background', 'digital', 'graphic'];
-        const targetCount = settings.keywordCount || 30;
-        for (const alt of safeAlternatives) {
-          if (newKeywords.length >= targetCount) break;
-          if (!newKeywords.some(kw => kw.toLowerCase() === alt)) {
-            newKeywords.push(alt);
-          }
         }
 
         newTitle = newTitle.replace(/^[^a-zA-Z0-9]+/, '').trim();

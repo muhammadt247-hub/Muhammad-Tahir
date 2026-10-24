@@ -708,15 +708,6 @@ export class GeneratorQueue {
                 newKeywords = newKeywords.filter((kw) => !kw.toLowerCase().includes(b.term.toLowerCase()));
               }
 
-              const safeAlternatives = ['commercial', 'studio', 'editorial', 'professional', 'minimalist', 'clean', 'modern', 'creative', 'concept', 'abstract', 'isolated', 'background', 'digital', 'graphic'];
-              const targetCount = this.settings.keywordsCount || 30;
-              for (const alt of safeAlternatives) {
-                if (newKeywords.length >= targetCount) break;
-                if (!newKeywords.some((kw) => kw.toLowerCase() === alt)) {
-                  newKeywords.push(alt);
-                }
-              }
-
               newTitle = newTitle.replace(/^[^a-zA-Z0-9]+/, '').trim();
               if (!newTitle) newTitle = 'Commercial stock asset';
 
@@ -872,4 +863,3 @@ function wordsOverlapRatio(t1: string, t2: string): number {
   }
   return shared / words2.length;
 }
-
