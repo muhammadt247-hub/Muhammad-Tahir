@@ -29,6 +29,8 @@ const GenerateRequestSchema = z.object({
   descriptionLength: z.number().default(150),
   keywordsMaxCount: z.number().default(45),
   hasAlphaChannel: z.array(z.boolean()).optional().default([]),
+  keywordStyle: z.enum(['mixed', 'single', 'double']).optional().default('mixed'),
+  backgroundMode: z.enum(['auto', 'white', 'transparent']).optional().default('auto'),
   titlePrefix: z.string().optional().default(''),
   isPrefixEnabled: z.boolean().optional().default(false),
   titleSuffix: z.string().optional().default(''),
@@ -282,6 +284,8 @@ export async function POST(req: NextRequest) {
       descriptionLength,
       keywordsMaxCount,
       hasAlphaChannel = [],
+      keywordStyle,
+      backgroundMode,
       titlePrefix,
       isPrefixEnabled,
       titleSuffix,
@@ -429,6 +433,20 @@ CRITICAL RULES:
         userPromptText = `Generate commercial microstock metadata sets for the ${images.length} provided image(s). Ensure titles are under ${maxTitle} chars and keywords are ordered by relevance.${avoidClause}`;
       }
       responseSchema = MetadataResponseSchema;
+
+      // Keyword style and background options chosen by the user
+      if (keywordStyle === 'single') {
+        userPromptText += ' Keywords must be SINGLE words only: exactly one word per keyword, no phrases.';
+      } else if (keywordStyle === 'double') {
+        userPromptText += ' Keywords must be TWO-WORD phrases only: exactly two words per keyword (for example "wooden table").';
+      } else {
+        userPromptText += ' Use a natural mix of single words and short two-word phrases for keywords.';
+      }
+      if (backgroundMode === 'white') {
+        userPromptText += ' The image has a pure white background. Do not write the background in the title or keywords, it is added automatically.';
+      } else if (backgroundMode === 'transparent') {
+        userPromptText += ' The image has a transparent background. Do not write the background in the title or keywords, it is added automatically.';
+      }
     } else {
       systemInstruction = `You are an expert visual prompt engineer reverse-engineering images into detailed generative prompts for Midjourney, FLUX, and SDXL.
 CRITICAL RULES:
@@ -449,9 +467,25 @@ CRITICAL RULES:
     let success = false;
     let parsedJson: any = null;
 
+    // Time budget: the hosting gateway cuts requests that run too long (504), so we stop
+    // waiting on slow models early and return a clean error the browser can retry.
+    const startedAt = Date.now();
+    const TOTAL_BUDGET_MS = 30000;
+    const PER_ATTEMPT_MS = 20000;
+    let useThinkingConfig = true;
+
     for (const curModel of modelsToTry) {
       let modelSuccess = false;
       for (let attempt = 1; attempt <= 2; attempt++) {
+        const remaining = TOTAL_BUDGET_MS - (Date.now() - startedAt);
+        if (remaining < 3000) {
+          if (!lastError) {
+            const timeoutErr: any = new Error('Gemini is slow right now. Please retry.');
+            timeoutErr.status = 503;
+            lastError = timeoutErr;
+          }
+          break;
+        }
         try {
           const response = await withTimeout(ai.models.generateContent({
             model: curModel,
@@ -463,8 +497,9 @@ CRITICAL RULES:
               temperature: 0.3,
               responseMimeType: 'application/json',
               responseSchema,
+              ...(useThinkingConfig ? { thinkingConfig: { thinkingLevel: 'low' as any } } : {}),
             },
-          }), 40000);
+          }), Math.min(PER_ATTEMPT_MS, remaining));
 
           const textOutput = response.text?.trim() || '{}';
           parsedJson = JSON.parse(textOutput);
@@ -473,8 +508,16 @@ CRITICAL RULES:
           break;
         } catch (err: unknown) {
           lastError = err;
+          const errText = err instanceof Error ? err.message : String(err || '');
+          // If this model does not accept the thinking setting, retry without it (never fail because of it)
+          if (useThinkingConfig && errText.toLowerCase().includes('thinking')) {
+            useThinkingConfig = false;
+            attempt--;
+            lastError = undefined;
+            continue;
+          }
           if (err && (err as any).status === 503 && String((err as any).message).includes('too long')) {
-            console.warn(`Model ${curModel} timed out after 40s, trying next model`);
+            console.warn(`Model ${curModel} timed out, trying next model`);
             break;
           }
           if (!isFallbackEligibleError(err)) {
@@ -495,6 +538,7 @@ CRITICAL RULES:
       if (lastError && !isFallbackEligibleError(lastError)) {
         break;
       }
+      if (TOTAL_BUDGET_MS - (Date.now() - startedAt) < 3000) break;
     }
 
     if (!success) {
@@ -511,6 +555,8 @@ CRITICAL RULES:
           titleMaxLength: platform === 'freepik' ? Math.min(100, titleMaxLength) : titleMaxLength,
           keywordsMaxCount,
           hasAlphaChannel: hasAlphaChannel[idx] || false,
+          keywordStyle,
+          backgroundMode,
           isPrefixEnabled,
           titlePrefix,
           isSuffixEnabled,

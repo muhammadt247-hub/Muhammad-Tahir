@@ -23,7 +23,7 @@ export function isFallbackEligibleError(err: unknown): boolean {
     return false;
   }
 
-  if ([404, 429, 503].includes(status)) {
+  if ([404, 429, 500, 502, 503, 504].includes(status)) {
     return true;
   }
 
@@ -45,6 +45,10 @@ export function isFallbackEligibleError(err: unknown): boolean {
     message.includes('404') ||
     message.includes('429') ||
     message.includes('503') ||
+    message.includes('504') ||
+    message.includes('502') ||
+    message.includes('deadline') ||
+    message.includes('overloaded') ||
     message.includes('resource_exhausted') ||
     message.includes('quota') ||
     message.includes('not found') ||
@@ -58,4 +62,3 @@ export function isFallbackEligibleError(err: unknown): boolean {
 
   return false;
 }
-

@@ -65,10 +65,40 @@ export function dedupeKeywordsSmart(keywords: string[]): string[] {
   return result;
 }
 
+// Decide the real background: user choice wins, otherwise use transparent PNG detection
+function resolveBackground(options: { backgroundMode?: string; hasAlphaChannel?: boolean }): 'white' | 'transparent' | 'none' {
+  if (options.backgroundMode === 'white') return 'white';
+  if (options.backgroundMode === 'transparent') return 'transparent';
+  return options.hasAlphaChannel ? 'transparent' : 'none';
+}
+
+// Make keywords follow the chosen style: single words, two-word phrases, or mixed (unchanged)
+function applyKeywordStyle(keywords: string[], style?: string): string[] {
+  if (style === 'single') {
+    const words: string[] = [];
+    for (const kw of keywords) {
+      for (const w of kw.toLowerCase().split(/[\s-]+/)) {
+        const clean = w.replace(/[^\p{L}\p{N}']/gu, '');
+        if (clean.length > 1 && !KEYWORD_STOP_WORDS.has(clean)) words.push(clean);
+      }
+    }
+    return dedupeKeywordsSmart(words);
+  }
+  if (style === 'double') {
+    return keywords.filter((kw) => {
+      const parts = kw.trim().split(/\s+/);
+      return parts.length === 2 && !KEYWORD_STOP_WORDS.has(parts[0].toLowerCase());
+    });
+  }
+  return keywords;
+}
+
 export interface PostProcessMetadataOptions {
   titleMaxLength: number;
   keywordsMaxCount: number;
   hasAlphaChannel?: boolean;
+  keywordStyle?: 'mixed' | 'single' | 'double';
+  backgroundMode?: 'auto' | 'white' | 'transparent';
   isPrefixEnabled?: boolean;
   titlePrefix?: string;
   isSuffixEnabled?: boolean;
@@ -119,12 +149,18 @@ export function postProcessMetadata<
   const suffix = options.isSuffixEnabled && options.titleSuffix ? ` ${options.titleSuffix.trim()}` : '';
   title = `${prefix}${title}${suffix}`.trim();
 
-  // 3. Add transparent background phrase if transparent PNG
-  if (options.hasAlphaChannel) {
-    const phrase = 'isolated on transparent background';
-    if (!title.toLowerCase().includes('transparent')) {
-      if (title.length + phrase.length + 2 <= options.titleMaxLength) {
-        title = `${title}, ${phrase}`;
+  // 3. Add the background phrase (white or transparent) to the title
+  const bg = resolveBackground(options);
+  if (bg !== 'none') {
+    const phrase = `isolated on ${bg} background`;
+    const alreadyThere =
+      bg === 'white'
+        ? title.toLowerCase().includes('white background')
+        : title.toLowerCase().includes('transparent');
+    if (!alreadyThere) {
+      const room = options.titleMaxLength - phrase.length - 1;
+      if (room >= 20) {
+        title = `${trimAtWordBoundary(title, room)} ${phrase}`.trim();
       }
     }
   }
@@ -146,6 +182,9 @@ export function postProcessMetadata<
     }
   }
   keywords = deduplicated;
+  keywords = applyKeywordStyle(keywords, options.keywordStyle);
+  if (bg === 'white') keywords = keywords.filter((k) => !k.toLowerCase().includes('transparent'));
+  if (bg === 'transparent') keywords = keywords.filter((k) => !k.toLowerCase().includes('white background'));
 
   // Filter negative keywords
   if (options.isNegativeKeywordsEnabled && options.negativeKeywords) {
@@ -158,10 +197,16 @@ export function postProcessMetadata<
     keywords = keywords.filter((k) => !bannedKws.has(k.toLowerCase()));
   }
 
-  // Add transparent background keyword if applicable
-  if (options.hasAlphaChannel) {
-    const extraAlphaTags = ['isolated on transparent background', 'transparent background'];
-    for (const tag of extraAlphaTags) {
+  // Add background keywords (white or transparent) in the chosen keyword style
+  if (bg !== 'none') {
+    const style = options.keywordStyle || 'mixed';
+    const extraBgTags =
+      style === 'single'
+        ? [bg, 'background', 'isolated']
+        : style === 'double'
+        ? [`${bg} background`, 'isolated background']
+        : [`isolated on ${bg} background`, `${bg} background`];
+    for (const tag of extraBgTags) {
       if (!keywords.map((k) => k.toLowerCase()).includes(tag.toLowerCase())) {
         keywords.unshift(tag);
       }
