@@ -38,6 +38,17 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: ['motion'],
+  async headers() {
+    return [
+      {
+        source: '/((?!_next/static|_next/image|favicon.ico).*)',
+        headers: [
+          { key: 'Cache-Control', value: 'private, no-cache, no-store, max-age=0, must-revalidate' },
+          { key: 'Vary', value: 'RSC, Next-Router-State-Tree, Next-Router-Prefetch, Next-Url' },
+        ],
+      },
+    ];
+  },
   webpack: (config, {isServer, dev}) => {
     if (!isServer) {
       config.resolve.fallback = {

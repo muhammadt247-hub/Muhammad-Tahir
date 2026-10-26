@@ -248,7 +248,7 @@ export default function SignupPage() {
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 text-foreground text-xs leading-relaxed">
             <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
             <span>
-              Referral code applied: <strong>{referralCode}</strong>. You will both earn 100 credits upon confirming your email.
+              You were invited by a friend. Sign up and confirm your email to get your free credits.
             </span>
           </div>
         )}
