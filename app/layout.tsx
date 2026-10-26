@@ -4,6 +4,7 @@ import './globals.css';
 import './hover-pop.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
 import { AppShell } from '@/components/layout/AppShell';
+import { CasualProtection } from '@/components/security/CasualProtection';
 import { SITE_CONFIG } from '@/config/site';
 
 const poppins = Poppins({
@@ -41,6 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={poppins.variable}>
       <body className="antialiased font-sans text-foreground bg-background" suppressHydrationWarning>
+        <CasualProtection />
         <ThemeProvider
           attribute="class"
           defaultTheme="light"
