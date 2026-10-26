@@ -7,6 +7,20 @@ import { requireUser } from '@/lib/supabase/server';
 import { CREDIT_COSTS, MAX_IMAGES_PER_REQUEST } from '@/config/credits';
 import { spendCredits, refundCredits, getBalance, InsufficientCreditsError } from '@/lib/credits';
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const err: any = new Error('Model took too long to respond');
+      err.status = 503;
+      reject(err);
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
 const GenerateRequestSchema = z.object({
   mode: z.enum(['metadata', 'prompt', 'retitle']).default('metadata'),
   images: z.array(z.string()).min(1),
@@ -439,7 +453,7 @@ CRITICAL RULES:
       let modelSuccess = false;
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          const response = await ai.models.generateContent({
+          const response = await withTimeout(ai.models.generateContent({
             model: curModel,
             contents: {
               parts: [...imageParts, { text: userPromptText }],
@@ -450,7 +464,7 @@ CRITICAL RULES:
               responseMimeType: 'application/json',
               responseSchema,
             },
-          });
+          }), 40000);
 
           const textOutput = response.text?.trim() || '{}';
           parsedJson = JSON.parse(textOutput);
@@ -459,6 +473,10 @@ CRITICAL RULES:
           break;
         } catch (err: unknown) {
           lastError = err;
+          if (err && (err as any).status === 503 && String((err as any).message).includes('too long')) {
+            console.warn(`Model ${curModel} timed out after 40s, trying next model`);
+            break;
+          }
           if (!isFallbackEligibleError(err)) {
             // Do NOT fall back on 400, 401, 403, blocked content, etc. Throw/stop immediately.
             break;
