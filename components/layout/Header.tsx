@@ -21,6 +21,7 @@ import {
   Menu,
   X,
   Zap,
+  Gift,
   User as UserIcon,
   LogOut,
   Coins,
@@ -313,6 +314,19 @@ export function Header() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </nav>
+          )}
+
+          {/* CENTER: Referral link */}
+          {isLoggedIn && (
+            <div className="hidden lg:flex flex-1 justify-center px-2">
+              <Link
+                href="/account"
+                className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold text-primary bg-primary/10 border border-primary/25 hover:bg-primary/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <Gift className="h-4 w-4" />
+                <span>Invite friends, get 100 credits</span>
+              </Link>
+            </div>
           )}
 
           {/* RIGHT: Actions */}
