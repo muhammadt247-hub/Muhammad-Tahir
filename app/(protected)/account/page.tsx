@@ -7,6 +7,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured } from '@/lib/supabase/config';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
+import { ReferralCard } from '@/components/referral/ReferralCard';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -337,6 +338,9 @@ export default function AccountPage() {
             </Button>
           </form>
         </div>
+
+        {/* Referral Card */}
+        <ReferralCard />
 
         {/* Third-Party Licences Link Card */}
         <div className="glass-card rounded-2xl border border-border/50 p-6 flex items-center justify-between gap-4">

@@ -42,6 +42,22 @@ export default function SignupPage() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [isResending, setIsResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [referralCode, setReferralCode] = useState('');
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get('ref') || '';
+      const clean = fromUrl.trim().toUpperCase();
+      if (/^[A-Z0-9]{6,12}$/.test(clean)) {
+        setReferralCode(clean);
+        localStorage.setItem('orbinexa_ref', clean);
+      } else {
+        const saved = localStorage.getItem('orbinexa_ref') || '';
+        if (/^[A-Z0-9]{6,12}$/.test(saved)) setReferralCode(saved);
+      }
+    } catch {}
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Password strength calculation
   const getPasswordStrength = (pass: string) => {
@@ -111,6 +127,7 @@ export default function SignupPage() {
           emailRedirectTo,
           data: {
             display_name: displayName.trim() || cleanEmail.split('@')[0],
+            ...(referralCode ? { referral_code: referralCode } : {}),
           },
         },
       });
@@ -226,6 +243,15 @@ export default function SignupPage() {
             Join OrbinexaCSV to generate stock metadata and inspect market trends.
           </p>
         </div>
+
+        {referralCode && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 text-foreground text-xs leading-relaxed">
+            <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+            <span>
+              Referral code applied: <strong>{referralCode}</strong>. You will both earn 100 credits upon confirming your email.
+            </span>
+          </div>
+        )}
 
         {errorMessage && (
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs leading-relaxed">

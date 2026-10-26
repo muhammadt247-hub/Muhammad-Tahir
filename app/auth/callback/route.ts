@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { NextResponse, type NextRequest } from 'next/server';
+import { claimReferralIfAny } from '@/lib/referral';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -20,8 +21,12 @@ export async function GET(request: NextRequest) {
   if (code) {
     try {
       const supabase = await createClient();
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
       if (!error) {
+        const newUser = data?.user;
+        if (newUser) {
+          await claimReferralIfAny(newUser.id, newUser.user_metadata?.referral_code);
+        }
         // Successfully exchanged email code for authenticated session!
         return NextResponse.redirect(`${baseUrl}${safeNext}`);
       }
