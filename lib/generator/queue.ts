@@ -486,6 +486,8 @@ export class GeneratorQueue {
             titleMaxLength: this.settings.titleLength,
             descriptionLength: 150,
             keywordsMaxCount: this.settings.keywordsCount,
+            keywordStyle: this.settings.keywordStyle || 'mixed',
+            backgroundMode: this.settings.backgroundMode || 'auto',
             hasAlphaChannel: [item.fileData.hasAlphaChannel],
             titlePrefix: this.settings.titlePrefix,
             isPrefixEnabled: this.settings.isPrefixEnabled,
