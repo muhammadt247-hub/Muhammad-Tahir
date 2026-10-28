@@ -186,7 +186,7 @@ export function MetadataSettings({
                 ))}
               </div>
               <p className="text-[10px] text-muted-foreground px-1">
-                White or Transparent adds "isolated on white/transparent background" to the title and keywords.
+                White or Transparent adds &quot;isolated on white/transparent background&quot; to the title and keywords.
               </p>
             </div>
 

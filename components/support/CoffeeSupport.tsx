@@ -55,10 +55,7 @@ export function CoffeeSupport() {
 
   // Show the popup once, 5 minutes after the user started using the site
   useEffect(() => {
-    if (!user) {
-      setPopupVisible(false);
-      return;
-    }
+    if (!user) return;
     if (readSession(CLOSED_KEY) === '1') return;
 
     let start = Number(readSession(START_KEY));
@@ -111,7 +108,7 @@ export function CoffeeSupport() {
 
   return (
     <>
-      {popupVisible && (
+      {popupVisible && user && (
         <div className="fixed bottom-4 right-4 z-40 w-[230px] sm:w-[300px] animate-in fade-in slide-in-from-bottom-4 duration-500">
           <button
             type="button"

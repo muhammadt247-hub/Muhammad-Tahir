@@ -4,11 +4,16 @@ import { LibraryFingerprintEntry } from '@/types/similarity';
 import type { GeneratorItemState } from './queue';
 import { AI_CONFIG } from '@/config/ai';
 
+import { DEFAULT_GROK_MODEL } from '@/config/models';
+
 export type { LibraryFingerprintEntry };
+
+export type AiProvider = 'gemini' | 'grok';
 
 export interface StoredApiKey {
   id: string;
-  key: string; // e.g. "AIzaSy..."
+  provider?: AiProvider; // 'gemini' | 'grok', defaults to 'gemini'
+  key: string; // e.g. "AIzaSy..." or "xai-..."
   label: string;
   isActive: boolean;
   restingUntil?: number; // timestamp in ms when cooldown ends
@@ -55,8 +60,10 @@ export interface GeneratorSavedSettings {
   negativePromptWords: string;
   whiteBackground: boolean;
   cameraParams: boolean;
-  // Model
+  // Model & Provider
+  aiProvider?: AiProvider;
   selectedModel: string;
+  selectedGrokModel?: string;
   modelFallback: boolean;
   // Compliance Guard
   complianceGuard: boolean;
@@ -107,7 +114,9 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   negativePromptWords: '',
   whiteBackground: false,
   cameraParams: false,
+  aiProvider: 'gemini',
   selectedModel: AI_CONFIG.DEFAULT_MODEL,
+  selectedGrokModel: DEFAULT_GROK_MODEL,
   modelFallback: true,
   complianceGuard: true,
   titleUniqueness: 'normal',
@@ -219,6 +228,12 @@ export async function getSavedGeneratorSettings(): Promise<GeneratorSavedSetting
       req.onsuccess = () => {
         if (req.result && req.result.value) {
           const merged = { ...DEFAULT_GENERATOR_SETTINGS, ...req.result.value };
+          if (!merged.aiProvider) {
+            merged.aiProvider = 'gemini';
+          }
+          if (!merged.selectedGrokModel) {
+            merged.selectedGrokModel = DEFAULT_GROK_MODEL;
+          }
           if (!merged.selectedModel || merged.selectedModel === 'gemini-2.5-flash' || merged.selectedModel === 'gemini-3.5-flash') {
             merged.selectedModel = AI_CONFIG.DEFAULT_MODEL;
           }

@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Clock,
   Timer,
+  Sparkles,
 } from 'lucide-react';
 import {
   Dialog,
@@ -33,13 +34,16 @@ import {
 } from '@/components/ui/select';
 import {
   StoredApiKey,
+  AiProvider,
   GeneratorSavedSettings,
   getStoredApiKeys,
   saveStoredApiKey,
   deleteStoredApiKey,
 } from '@/lib/generator/db';
 import { AI_CONFIG } from '@/config/ai';
+import { GROK_MODELS, DEFAULT_GROK_MODEL } from '@/config/models';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface ApiKeysDialogProps {
   open: boolean;
@@ -58,6 +62,7 @@ export function ApiKeysDialog({
   onUpdateSettings,
   onKeysChanged,
 }: ApiKeysDialogProps) {
+  const [activeProvider, setActiveProvider] = useState<AiProvider>(settings.aiProvider || 'gemini');
   const [keys, setKeys] = useState<StoredApiKey[]>([]);
   const [newKey, setNewKey] = useState('');
   const [newLabel, setNewLabel] = useState('');
@@ -65,6 +70,13 @@ export function ApiKeysDialog({
   const [isLoading, setIsLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [customDelayInput, setCustomDelayInput] = useState('');
+
+  // Keep activeProvider in sync with settings prop changes
+  const [prevProvider, setPrevProvider] = useState(settings.aiProvider);
+  if (settings.aiProvider && settings.aiProvider !== prevProvider) {
+    setPrevProvider(settings.aiProvider);
+    setActiveProvider(settings.aiProvider);
+  }
 
   // Periodically refresh countdown for resting keys
   useEffect(() => {
@@ -87,6 +99,13 @@ export function ApiKeysDialog({
     }
   }, [open]);
 
+  const handleProviderSwitch = (prov: AiProvider) => {
+    setActiveProvider(prov);
+    onUpdateSettings({ aiProvider: prov });
+    setNewKey('');
+    setNewLabel('');
+  };
+
   const handleAddKey = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanKey = newKey.trim();
@@ -95,8 +114,15 @@ export function ApiKeysDialog({
       return;
     }
 
-    if (!cleanKey.startsWith('AIzaSy')) {
-      toast.warning('Gemini API keys typically start with "AIzaSy". Double-check if this key fails.');
+    if (activeProvider === 'grok') {
+      if (!cleanKey.startsWith('xai-') || cleanKey.length < 20) {
+        toast.error('Grok API key must start with "xai-" and be at least 20 characters long.');
+        return;
+      }
+    } else {
+      if (!cleanKey.startsWith('AIzaSy')) {
+        toast.warning('Gemini API keys typically start with "AIzaSy". Double-check if this key fails.');
+      }
     }
 
     if (keys.some((k) => k.key === cleanKey)) {
@@ -104,10 +130,15 @@ export function ApiKeysDialog({
       return;
     }
 
+    const providerKeysCount = keys.filter(
+      (k) => (activeProvider === 'gemini' ? (k.provider === 'gemini' || !k.provider) : k.provider === 'grok')
+    ).length;
+
     const keyItem: StoredApiKey = {
-      id: `key_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: `key_${activeProvider}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      provider: activeProvider,
       key: cleanKey,
-      label: newLabel.trim() || `Key ${keys.length + 1}`,
+      label: newLabel.trim() || `${activeProvider === 'grok' ? 'Grok' : 'Gemini'} Key ${providerKeysCount + 1}`,
       isActive: true,
       addedAt: Date.now(),
     };
@@ -118,7 +149,7 @@ export function ApiKeysDialog({
       setNewLabel('');
       await loadKeys();
       onKeysChanged?.();
-      toast.success('API key added successfully');
+      toast.success(`${activeProvider === 'grok' ? 'Grok' : 'Gemini'} API key added successfully`);
     } catch {
       toast.error('Failed to save API key');
     }
@@ -159,6 +190,14 @@ export function ApiKeysDialog({
 
   const currentDelay = settings.interImageDelaySeconds ?? 10;
 
+  // Filter keys for active provider
+  const currentProviderKeys = keys.filter((k) =>
+    activeProvider === 'gemini' ? (k.provider === 'gemini' || !k.provider) : k.provider === 'grok'
+  );
+
+  const geminiCount = keys.filter((k) => k.provider === 'gemini' || !k.provider).length;
+  const grokCount = keys.filter((k) => k.provider === 'grok').length;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl">
@@ -168,7 +207,7 @@ export function ApiKeysDialog({
               <Key className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-lg font-bold">Google Gemini API Keys &amp; Queue</DialogTitle>
+              <DialogTitle className="text-lg font-bold">AI Provider &amp; API Keys</DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                 Keys remain private in your browser (IndexedDB) and rotate sequentially with smart cooldowns.
               </DialogDescription>
@@ -176,26 +215,90 @@ export function ApiKeysDialog({
           </div>
         </DialogHeader>
 
-        <div className="space-y-5 pt-2">
+        <div className="space-y-5 pt-1">
+          {/* 1. Provider Switch: Gemini | Grok */}
+          <div className="p-1 rounded-xl bg-accent/70 flex select-none">
+            <button
+              type="button"
+              onClick={() => handleProviderSwitch('gemini')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold transition-all rounded-lg',
+                activeProvider === 'gemini'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <span>Google Gemini</span>
+              {geminiCount > 0 && (
+                <span
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.2 rounded-full font-bold',
+                    activeProvider === 'gemini'
+                      ? 'bg-primary-foreground/20 text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {geminiCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleProviderSwitch('grok')}
+              className={cn(
+                'flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold transition-all rounded-lg',
+                activeProvider === 'grok'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <span>xAI Grok</span>
+              {grokCount > 0 && (
+                <span
+                  className={cn(
+                    'text-[10px] px-1.5 py-0.2 rounded-full font-bold',
+                    activeProvider === 'grok'
+                      ? 'bg-primary-foreground/20 text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  {grokCount}
+                </span>
+              )}
+            </button>
+          </div>
+
           {/* Add Key Form */}
           <form onSubmit={handleAddKey} className="p-4 rounded-xl bg-accent/40 border border-border/50 space-y-3">
             <div className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>Add Custom Gemini Key</span>
-              <a
-                href="https://aistudio.google.com/app/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 font-normal"
-              >
-                Get a free key <ExternalLink className="h-3 w-3" />
-              </a>
+              <span>{activeProvider === 'grok' ? 'Add Custom Grok Key' : 'Add Custom Gemini Key'}</span>
+              {activeProvider === 'grok' ? (
+                <a
+                  href="https://console.x.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 font-normal"
+                >
+                  Get a Grok key <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 font-normal"
+                >
+                  Get a free key <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <Input
                     type={showKey ? 'text' : 'password'}
-                    placeholder="AIzaSy..."
+                    placeholder={activeProvider === 'grok' ? 'xai-...' : 'AIzaSy...'}
                     value={newKey}
                     onChange={(e) => setNewKey(e.target.value)}
                     className="pr-9 font-mono text-xs h-9 rounded-xl"
@@ -218,16 +321,18 @@ export function ApiKeysDialog({
               </div>
               <Button type="submit" size="sm" className="w-full rounded-xl gap-1.5 h-8 text-xs font-semibold">
                 <Plus className="h-3.5 w-3.5" />
-                Add API Key
+                Add {activeProvider === 'grok' ? 'Grok' : 'Gemini'} API Key
               </Button>
             </div>
           </form>
 
-          {/* Stored Keys List */}
+          {/* Stored Keys List for Active Provider */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-foreground px-1">
-              <span>Configured Keys ({keys.length})</span>
-              {keys.length === 0 && (
+              <span>
+                Configured {activeProvider === 'grok' ? 'Grok' : 'Gemini'} Keys ({currentProviderKeys.length})
+              </span>
+              {currentProviderKeys.length === 0 && activeProvider === 'gemini' && (
                 <span className="text-[11px] font-normal text-muted-foreground">
                   Using default built-in AI Studio key
                 </span>
@@ -236,18 +341,31 @@ export function ApiKeysDialog({
 
             {isLoading ? (
               <div className="py-6 text-center text-xs text-muted-foreground">Loading stored keys...</div>
-            ) : keys.length === 0 ? (
+            ) : currentProviderKeys.length === 0 ? (
               <div className="p-4 rounded-xl border border-dashed border-border/60 text-center space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  No custom keys added. OrbinexaCSV will use the server default Gemini key.
-                </p>
-                <p className="text-[11px] text-muted-foreground/80">
-                  Add your own free Google Gemini keys to bypass shared rate limits and process batches faster.
-                </p>
+                {activeProvider === 'grok' ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      No custom Grok keys added.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/80">
+                      Add your xAI API key from console.x.ai. You can add as many keys as you want; they will rotate automatically on rate limits.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      No custom keys added. OrbinexaCSV will use the server default Gemini key.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/80">
+                      Add your own free Google Gemini keys to bypass shared rate limits and process batches faster.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {keys.map((k) => {
+                {currentProviderKeys.map((k) => {
                   const isResting = Boolean(k.restingUntil && k.restingUntil > currentTime);
                   const restingSeconds = isResting ? Math.ceil((k.restingUntil! - currentTime) / 1000) : 0;
                   const isDailyExhausted = Boolean(
@@ -358,42 +476,66 @@ export function ApiKeysDialog({
             </div>
           </div>
 
-          {/* Model Options */}
+          {/* Model Options for Active Provider */}
           <div className="p-4 rounded-xl bg-accent/40 border border-border/50 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <Label className="text-xs font-semibold text-foreground">AI Model</Label>
-                <p className="text-[11px] text-muted-foreground">Default model for metadata &amp; prompt generation</p>
-              </div>
-              <Select
-                value={settings.selectedModel || AI_CONFIG.DEFAULT_MODEL}
-                onValueChange={(val) => onUpdateSettings({ selectedModel: val })}
-              >
-                <SelectTrigger className="w-44 h-8 text-xs rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {AI_CONFIG.AVAILABLE_MODELS.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between pt-2 border-t border-border/40">
-              <div>
-                <Label className="text-xs font-semibold text-foreground">Automatic Model Fallback</Label>
+                <Label className="text-xs font-semibold text-foreground">
+                  {activeProvider === 'grok' ? 'xAI Grok Model' : 'Gemini AI Model'}
+                </Label>
                 <p className="text-[11px] text-muted-foreground">
-                  Fall back to next available model if primary encounters rate limits
+                  Model for metadata &amp; prompt generation
                 </p>
               </div>
-              <Switch
-                checked={settings.modelFallback}
-                onCheckedChange={(val) => onUpdateSettings({ modelFallback: val })}
-              />
+              {activeProvider === 'grok' ? (
+                <Select
+                  value={settings.selectedGrokModel || DEFAULT_GROK_MODEL}
+                  onValueChange={(val) => onUpdateSettings({ selectedGrokModel: val })}
+                >
+                  <SelectTrigger className="w-52 h-8 text-xs rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GROK_MODELS.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name || m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select
+                  value={settings.selectedModel || AI_CONFIG.DEFAULT_MODEL}
+                  onValueChange={(val) => onUpdateSettings({ selectedModel: val })}
+                >
+                  <SelectTrigger className="w-52 h-8 text-xs rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AI_CONFIG.AVAILABLE_MODELS.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name || m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
+
+            {activeProvider === 'gemini' && (
+              <div className="flex items-center justify-between pt-2 border-t border-border/40">
+                <div>
+                  <Label className="text-xs font-semibold text-foreground">Automatic Model Fallback</Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fall back to next available model if primary encounters rate limits
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.modelFallback}
+                  onCheckedChange={(val) => onUpdateSettings({ modelFallback: val })}
+                />
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

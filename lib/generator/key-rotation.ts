@@ -1,4 +1,4 @@
-import { StoredApiKey, getStoredApiKeys, saveStoredApiKey } from './db';
+import { StoredApiKey, AiProvider, getStoredApiKeys, saveStoredApiKey } from './db';
 import { toast } from 'sonner';
 
 export interface NextKeyResult {
@@ -12,6 +12,7 @@ export interface NextKeyResult {
   minWaitSeconds?: number;
   totalActive?: number;
   isSharedRateLimit?: boolean;
+  provider?: AiProvider;
 }
 
 /**
@@ -29,7 +30,7 @@ export function formatMaskedKey(key?: string, label?: string, index?: number): s
 export class KeyRotationManager {
   private keys: StoredApiKey[] = [];
   private loaded = false;
-  private currentIndex = 0;
+  private currentIndexByProvider: Record<AiProvider, number> = { gemini: 0, grok: 0 };
   private consecutiveShared429s = 0;
 
   async loadKeys(): Promise<StoredApiKey[]> {
@@ -54,23 +55,37 @@ export class KeyRotationManager {
   }
 
   // Pick an active, non-invalid, non-resting key sequentially via controlled round-robin
-  async getNextKey(): Promise<NextKeyResult> {
+  async getNextKey(provider: AiProvider = 'gemini'): Promise<NextKeyResult> {
     if (!this.loaded) {
       await this.loadKeys();
     }
     this.cleanRestingKeys();
 
-    const activeKeys = this.keys.filter((k) => k.isActive && !k.isInvalid);
+    const activeKeys = this.keys.filter(
+      (k) => (k.provider === provider || (!k.provider && provider === 'gemini')) && k.isActive && !k.isInvalid
+    );
 
-    // If user has no custom keys configured at all, fallback to server process.env
+    // If user has no custom keys configured for this provider
     if (activeKeys.length === 0) {
-      return {
-        apiKey: undefined,
-        keyId: undefined,
-        isDefaultEnv: true,
-        maskedKey: 'Default Key (Server Env)',
-        totalActive: 0,
-      };
+      if (provider === 'gemini') {
+        return {
+          apiKey: undefined,
+          keyId: undefined,
+          isDefaultEnv: true,
+          maskedKey: 'Default Key (Server Env)',
+          totalActive: 0,
+          provider,
+        };
+      } else {
+        return {
+          apiKey: undefined,
+          keyId: undefined,
+          isDefaultEnv: false,
+          maskedKey: 'No Grok Key Added',
+          totalActive: 0,
+          provider,
+        };
+      }
     }
 
     const now = Date.now();
@@ -94,30 +109,33 @@ export class KeyRotationManager {
         isSharedRateLimit: true,
         minWaitSeconds,
         totalActive: activeKeys.length,
+        provider,
       };
     }
 
     if (availableKeys.length > 0) {
-      // Sequential controlled rotation: advance pointer
-      this.currentIndex = (this.currentIndex + 1) % availableKeys.length;
-      const chosen = availableKeys[this.currentIndex];
+      // Sequential controlled rotation: advance pointer for this provider
+      const curIdx = this.currentIndexByProvider[provider] || 0;
+      this.currentIndexByProvider[provider] = (curIdx + 1) % availableKeys.length;
+      const chosen = availableKeys[this.currentIndexByProvider[provider]];
       chosen.lastUsedAt = now;
       saveStoredApiKey(chosen);
 
       const realIndex = this.keys.findIndex((k) => k.id === chosen.id);
-      const displayIndex = realIndex >= 0 ? realIndex : this.currentIndex;
+      const displayIndex = realIndex >= 0 ? realIndex : this.currentIndexByProvider[provider];
 
       return {
         apiKey: chosen.key,
         keyId: chosen.id,
-        label: chosen.label || `Key ${displayIndex + 1}`,
+        label: chosen.label || `${provider === 'grok' ? 'Grok Key' : 'Key'} ${displayIndex + 1}`,
         maskedKey: formatMaskedKey(chosen.key, chosen.label, displayIndex),
         keyIndex: displayIndex + 1,
         totalActive: activeKeys.length,
+        provider,
       };
     }
 
-    // All custom keys are currently resting or daily exhausted
+    // All custom keys for this provider are currently resting or daily exhausted
     const restingTimes = activeKeys
       .map((k) => {
         if (k.restingUntil && k.restingUntil > now) return k.restingUntil - now;
@@ -136,16 +154,18 @@ export class KeyRotationManager {
       allResting: true,
       minWaitSeconds,
       totalActive: activeKeys.length,
+      provider,
     };
   }
 
   // Waits until at least one key is ready, providing live countdown ticks
   async waitForNextAvailableKey(
     abortSignal?: AbortSignal,
-    onTick?: (secondsRemaining: number, reason: string) => void
+    onTick?: (secondsRemaining: number, reason: string) => void,
+    provider: AiProvider = 'gemini'
   ): Promise<NextKeyResult> {
     while (!abortSignal?.aborted) {
-      const next = await this.getNextKey();
+      const next = await this.getNextKey(provider);
       if (!next.allResting) {
         this.consecutiveShared429s = 0;
         return next;
@@ -155,10 +175,12 @@ export class KeyRotationManager {
       // Cap individual tick block to 120s max for responsiveness
       secondsRemaining = Math.min(secondsRemaining, 120);
 
+      const providerLabel = provider === 'grok' ? 'Grok' : 'Gemini';
+
       while (secondsRemaining > 0 && !abortSignal?.aborted) {
         const reason = next.isSharedRateLimit
-          ? `Shared project quota cooldown: Pausing all ${next.totalActive || 'configured'} keys. Resuming automatically in ${secondsRemaining}s...`
-          : `API rate limit cooldown: All ${next.totalActive || 'configured'} keys are resting. Resuming automatically in ${secondsRemaining}s...`;
+          ? `Shared ${providerLabel} quota cooldown: Pausing all ${next.totalActive || 'configured'} keys. Resuming automatically in ${secondsRemaining}s...`
+          : `${providerLabel} rate limit cooldown: All ${next.totalActive || 'configured'} keys are resting. Resuming automatically in ${secondsRemaining}s...`;
 
         onTick?.(secondsRemaining, reason);
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -170,7 +192,7 @@ export class KeyRotationManager {
       await this.loadKeys();
     }
 
-    return { apiKey: undefined, keyId: undefined };
+    return { apiKey: undefined, keyId: undefined, provider };
   }
 
   // Mark key as rate limited with exponential backoff & jitter

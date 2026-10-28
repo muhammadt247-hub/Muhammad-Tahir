@@ -7,6 +7,8 @@ import { requireUser } from '@/lib/supabase/server';
 import { CREDIT_COSTS, MAX_IMAGES_PER_REQUEST } from '@/config/credits';
 import { spendCredits, refundCredits, getBalance, InsufficientCreditsError } from '@/lib/credits';
 
+import { DEFAULT_GROK_MODEL } from '@/config/models';
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -22,6 +24,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 const GenerateRequestSchema = z.object({
+  provider: z.enum(['gemini', 'grok']).optional().default('gemini'),
   mode: z.enum(['metadata', 'prompt', 'retitle']).default('metadata'),
   images: z.array(z.string()).min(1),
   platform: z.enum(['general', 'adobe-stock', 'shutterstock', 'freepik']).default('adobe-stock'),
@@ -277,6 +280,7 @@ export async function POST(req: NextRequest) {
     }
 
     const {
+      provider = 'gemini',
       mode,
       images,
       platform,
@@ -327,12 +331,19 @@ export async function POST(req: NextRequest) {
 
     // 4b. If no server key exists and request has no user key, return 503 BEFORE charging
     const trimmedUserApiKey = userApiKey?.trim();
-    const serverApiKey = process.env.GEMINI_API_KEY?.trim();
+    const serverApiKey = provider === 'grok' ? process.env.XAI_API_KEY?.trim() : process.env.GEMINI_API_KEY?.trim();
     const apiKey = trimmedUserApiKey || serverApiKey;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: { code: 'not_configured', message: 'The service is not configured.' } },
+        {
+          error: {
+            code: 'not_configured',
+            message: provider === 'grok'
+              ? 'Grok API key is not configured. Please add your Grok API key in the API Keys dialog.'
+              : 'The Gemini service is not configured.',
+          },
+        },
         { status: 503 }
       );
     }
@@ -459,95 +470,232 @@ CRITICAL RULES:
       responseSchema = PromptResponseSchema;
     }
 
-    // Call Gemini with model fallbacks (404, 429, 503) and 2 attempts per model
-    const baseModel = requestedModel || process.env.GEMINI_MODEL || AI_CONFIG.DEFAULT_MODEL;
-    const modelsToTry = [baseModel, ...AI_CONFIG.MODEL_FALLBACKS.filter((m) => m !== baseModel)];
-
+    // Execute generation with selected provider
     let lastError: unknown;
     let success = false;
     let parsedJson: any = null;
 
-    // Time budget: the hosting gateway cuts requests that run too long (504), so we stop
-    // waiting on slow models early and return a clean error the browser can retry.
-    const startedAt = Date.now();
-    const TOTAL_BUDGET_MS = 30000;
-    const PER_ATTEMPT_MS = 20000;
-    let useThinkingConfig = true;
+    if (provider === 'grok') {
+      const grokModel = requestedModel || process.env.XAI_MODEL || DEFAULT_GROK_MODEL;
+      const userContent: Array<
+        | { type: 'text'; text: string }
+        | { type: 'image_url'; image_url: { url: string; detail?: string } }
+      > = [
+        {
+          type: 'text',
+          text:
+            userPromptText +
+            (mode === 'metadata' || mode === 'retitle'
+              ? '\n\nIMPORTANT: Return a JSON object with this exact structure: {"metadataSets": [{"title": "...", "description": "...", "keywords": ["..."], "flags": {"identifiablePerson": false, "privateProperty": false, "visibleLogoOrBrand": false, "visibleText": false, "visibleTextOrLogo": false, "possibleEditorial": false, "showsAiConcept": false}, "flagReasons": []}]}'
+              : '\n\nIMPORTANT: Return a JSON object with this exact structure: {"prompts": [{"prompt": "..."}]}'),
+        },
+      ];
 
-    for (const curModel of modelsToTry) {
-      let modelSuccess = false;
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        const remaining = TOTAL_BUDGET_MS - (Date.now() - startedAt);
-        if (remaining < 3000) {
-          if (!lastError) {
-            const timeoutErr: any = new Error('Gemini is slow right now. Please retry.');
-            timeoutErr.status = 503;
-            lastError = timeoutErr;
-          }
-          break;
-        }
-        try {
-          const response = await withTimeout(ai.models.generateContent({
-            model: curModel,
-            contents: {
-              parts: [...imageParts, { text: userPromptText }],
+      for (const uri of images) {
+        const fullUrl = uri.startsWith('data:') ? uri : `data:image/jpeg;base64,${uri}`;
+        userContent.push({
+          type: 'image_url',
+          image_url: {
+            url: fullUrl,
+            detail: 'high',
+          },
+        });
+      }
+
+      try {
+        const grokResponse = await withTimeout(
+          fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
             },
-            config: {
-              systemInstruction,
+            body: JSON.stringify({
+              model: grokModel,
+              messages: [
+                {
+                  role: 'system',
+                  content: systemInstruction,
+                },
+                {
+                  role: 'user',
+                  content: userContent,
+                },
+              ],
+              response_format: { type: 'json_object' },
               temperature: 0.3,
-              responseMimeType: 'application/json',
-              responseSchema,
-              ...(useThinkingConfig ? { thinkingConfig: { thinkingLevel: 'low' as any } } : {}),
-            },
-          }), Math.min(PER_ATTEMPT_MS, remaining));
+            }),
+          }),
+          35000
+        );
 
-          const textOutput = response.text?.trim() || '{}';
-          parsedJson = JSON.parse(textOutput);
-          modelSuccess = true;
-          success = true;
-          break;
-        } catch (err: unknown) {
-          lastError = err;
-          const errText = err instanceof Error ? err.message : String(err || '');
-          // If this model does not accept the thinking setting, retry without it (never fail because of it)
-          if (useThinkingConfig && errText.toLowerCase().includes('thinking')) {
-            useThinkingConfig = false;
-            attempt--;
-            lastError = undefined;
-            continue;
+        if (!grokResponse.ok) {
+          const errBody = await grokResponse.json().catch(() => ({}));
+          const errMsg =
+            errBody?.error?.message || errBody?.message || `xAI API returned status ${grokResponse.status}`;
+
+          if (grokResponse.status === 429) {
+            await refundHelper(imageCount, 'refund_failed_generation');
+            const retryAfter = grokResponse.headers.get('Retry-After') || '30';
+            return NextResponse.json(
+              {
+                error: {
+                  code: 'RATE_LIMITED',
+                  message: errMsg,
+                  retryAfterSeconds: parseInt(retryAfter, 10) || 30,
+                },
+              },
+              {
+                status: 429,
+                headers: { 'Retry-After': retryAfter },
+              }
+            );
           }
-          if (err && (err as any).status === 503 && String((err as any).message).includes('too long')) {
-            console.warn(`Model ${curModel} timed out, trying next model`);
+
+          if (grokResponse.status === 401 || grokResponse.status === 403) {
+            await refundHelper(imageCount, 'refund_failed_generation');
+            return NextResponse.json(
+              {
+                error: {
+                  code: 'INVALID_API_KEY',
+                  message: `xAI Grok authentication failed: ${errMsg}`,
+                },
+              },
+              { status: 401 }
+            );
+          }
+
+          await refundHelper(imageCount, 'refund_failed_generation');
+          return NextResponse.json(
+            {
+              error: {
+                code: 'GROK_ERROR',
+                message: errMsg,
+              },
+            },
+            { status: grokResponse.status >= 400 && grokResponse.status < 600 ? grokResponse.status : 500 }
+          );
+        }
+
+        const grokData = await grokResponse.json();
+        const rawContent = grokData?.choices?.[0]?.message?.content?.trim() || '{}';
+        let cleanJson = rawContent;
+        if (cleanJson.startsWith('```')) {
+          cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        }
+        parsedJson = JSON.parse(cleanJson);
+        success = true;
+      } catch (err: unknown) {
+        await refundHelper(imageCount, 'refund_failed_generation');
+        const isTimeout =
+          err instanceof Error && (err.message.includes('too long') || (err as any).status === 503);
+        return NextResponse.json(
+          {
+            error: {
+              code: isTimeout ? 'TIMEOUT' : 'GROK_ERROR',
+              message: err instanceof Error ? err.message : 'Failed to call xAI Grok API',
+            },
+          },
+          { status: 503 }
+        );
+      }
+    } else {
+      // Call Gemini with model fallbacks (404, 429, 503) and 2 attempts per model
+      const baseModel = requestedModel || process.env.GEMINI_MODEL || AI_CONFIG.DEFAULT_MODEL;
+      const modelsToTry = [baseModel, ...AI_CONFIG.MODEL_FALLBACKS.filter((m) => m !== baseModel)];
+
+      // Time budget: the hosting gateway cuts requests that run too long (504), so we stop
+      // waiting on slow models early and return a clean error the browser can retry.
+      const startedAt = Date.now();
+      const TOTAL_BUDGET_MS = 30000;
+      const PER_ATTEMPT_MS = 20000;
+      let useThinkingConfig = true;
+
+      for (const curModel of modelsToTry) {
+        let modelSuccess = false;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          const remaining = TOTAL_BUDGET_MS - (Date.now() - startedAt);
+          if (remaining < 3000) {
+            if (!lastError) {
+              const timeoutErr: any = new Error('Gemini is slow right now. Please retry.');
+              timeoutErr.status = 503;
+              lastError = timeoutErr;
+            }
             break;
           }
-          if (!isFallbackEligibleError(err)) {
-            // Do NOT fall back on 400, 401, 403, blocked content, etc. Throw/stop immediately.
+          try {
+            const response = await withTimeout(
+              ai.models.generateContent({
+                model: curModel,
+                contents: {
+                  parts: [...imageParts, { text: userPromptText }],
+                },
+                config: {
+                  systemInstruction,
+                  temperature: 0.3,
+                  responseMimeType: 'application/json',
+                  responseSchema,
+                  ...(useThinkingConfig ? { thinkingConfig: { thinkingLevel: 'low' as any } } : {}),
+                },
+              }),
+              Math.min(PER_ATTEMPT_MS, remaining)
+            );
+
+            const textOutput = response.text?.trim() || '{}';
+            parsedJson = JSON.parse(textOutput);
+            modelSuccess = true;
+            success = true;
             break;
-          }
-          const errMsg = err instanceof Error ? err.message : String(err || '');
-          if (attempt === 1 && (errMsg.includes('PerDay') || errMsg.toLowerCase().includes('daily'))) {
-            break;
-          }
-          console.warn(`Model ${curModel} attempt ${attempt} failed with fallback-eligible error:`, err);
-          if (attempt === 1) {
-            await new Promise((r) => setTimeout(r, 600));
+          } catch (err: unknown) {
+            lastError = err;
+            const errText = err instanceof Error ? err.message : String(err || '');
+            // If this model does not accept the thinking setting, retry without it (never fail because of it)
+            if (useThinkingConfig && errText.toLowerCase().includes('thinking')) {
+              useThinkingConfig = false;
+              attempt--;
+              lastError = undefined;
+              continue;
+            }
+            if (err && (err as any).status === 503 && String((err as any).message).includes('too long')) {
+              console.warn(`Model ${curModel} timed out, trying next model`);
+              break;
+            }
+            if (!isFallbackEligibleError(err)) {
+              // Do NOT fall back on 400, 401, 403, blocked content, etc. Throw/stop immediately.
+              break;
+            }
+            const errMsg = err instanceof Error ? err.message : String(err || '');
+            if (attempt === 1 && (errMsg.includes('PerDay') || errMsg.toLowerCase().includes('daily'))) {
+              break;
+            }
+            console.warn(`Model ${curModel} attempt ${attempt} failed with fallback-eligible error:`, err);
+            if (attempt === 1) {
+              await new Promise((r) => setTimeout(r, 600));
+            }
           }
         }
+        if (modelSuccess) break;
+        if (lastError && !isFallbackEligibleError(lastError)) {
+          break;
+        }
+        if (TOTAL_BUDGET_MS - (Date.now() - startedAt) < 3000) break;
       }
-      if (modelSuccess) break;
-      if (lastError && !isFallbackEligibleError(lastError)) {
-        break;
-      }
-      if (TOTAL_BUDGET_MS - (Date.now() - startedAt) < 3000) break;
-    }
 
-    if (!success) {
-      // All models failed: refund all charged credits once
-      await refundHelper(imageCount, 'refund_failed_generation');
-      return buildGeminiErrorResponse(lastError);
+      if (!success) {
+        // All models failed: refund all charged credits once
+        await refundHelper(imageCount, 'refund_failed_generation');
+        return buildGeminiErrorResponse(lastError);
+      }
     }
 
     if (mode === 'metadata' || mode === 'retitle') {
+      if (parsedJson && !Array.isArray(parsedJson.metadataSets)) {
+        if (Array.isArray(parsedJson.metadata)) {
+          parsedJson.metadataSets = parsedJson.metadata;
+        } else if (parsedJson.title || parsedJson.keywords) {
+          parsedJson = { metadataSets: [parsedJson] };
+        }
+      }
       const validated = ZodMetadataOutput.parse(parsedJson);
       // Post-process each item to guarantee client-side limits & rules
       const processedSets = validated.metadataSets.map((item, idx) => {
@@ -589,6 +737,11 @@ CRITICAL RULES:
         creditsRemaining,
       });
     } else {
+      if (parsedJson && !Array.isArray(parsedJson.prompts)) {
+        if (parsedJson.prompt) {
+          parsedJson = { prompts: [parsedJson] };
+        }
+      }
       const validated = ZodPromptOutput.parse(parsedJson);
       // Post-process prompts
       const processedPrompts = validated.prompts.map((p) => {

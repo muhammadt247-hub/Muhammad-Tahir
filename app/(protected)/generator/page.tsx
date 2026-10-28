@@ -18,6 +18,8 @@ import { ComplianceReportDialog } from '@/components/generator/ComplianceReportD
 import { OutOfCreditsDialog } from '@/components/generator/OutOfCreditsDialog';
 import { BatchCreditsDialog } from '@/components/generator/BatchCreditsDialog';
 import { PLATFORM_SPECS } from '@/config/platforms';
+import { AI_CONFIG } from '@/config/ai';
+import { DEFAULT_GROK_MODEL } from '@/config/models';
 import {
   GeneratorSavedSettings,
   DEFAULT_GENERATOR_SETTINGS,
@@ -128,21 +130,30 @@ export default function GeneratorPage() {
 
   const checkCustomKeys = useCallback(async () => {
     const keys = await getStoredApiKeys();
-    const active = keys.some((k) => k.isActive && !k.isInvalid);
+    const currentProvider = settings.aiProvider || 'gemini';
+    const active = keys.some(
+      (k) => (k.provider === currentProvider || (!k.provider && currentProvider === 'gemini')) && k.isActive && !k.isInvalid
+    );
     setHasCustomKeys(active);
-  }, []);
+  }, [settings.aiProvider]);
 
   // Load initial settings, saved batch items, and check keys
   useEffect(() => {
     if (authLoading) return;
     let isMounted = true;
     getSavedGeneratorSettings().then((saved) => {
-      if (isMounted) setSettings(saved);
-    });
-
-    getStoredApiKeys().then((keys) => {
       if (isMounted) {
-        setHasCustomKeys(keys.some((k) => k.isActive && !k.isInvalid));
+        setSettings(saved);
+        getStoredApiKeys().then((keys) => {
+          if (isMounted) {
+            const currentProvider = saved.aiProvider || 'gemini';
+            setHasCustomKeys(
+              keys.some(
+                (k) => (k.provider === currentProvider || (!k.provider && currentProvider === 'gemini')) && k.isActive && !k.isInvalid
+              )
+            );
+          }
+        });
       }
     });
 
@@ -213,11 +224,6 @@ export default function GeneratorPage() {
       });
     }
   }, []);
-
-  const settingsRef = useRef(settings);
-  useEffect(() => {
-    settingsRef.current = settings;
-  }, [settings]);
 
   const similarityRunIdRef = useRef(0);
 
@@ -1361,7 +1367,9 @@ export default function GeneratorPage() {
       if (hasSimilar) {
         try {
           const avoidList = getAvoidListForBatchItem(item, updatedItems);
-          const keyInfo = await keyRotator.getNextKey();
+          const provider = settings.aiProvider || 'gemini';
+          const keyInfo = await keyRotator.getNextKey(provider);
+          const chosenModel = provider === 'grok' ? (settings.selectedGrokModel || DEFAULT_GROK_MODEL) : settings.selectedModel;
           const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1372,13 +1380,14 @@ export default function GeneratorPage() {
               reason: 'Rewrite with a distinct opening and perspective to eliminate batch similarity',
               avoidTitles: avoidList,
               platform: settings.platform,
-            backgroundMode: settings.backgroundMode || 'auto',
+              backgroundMode: settings.backgroundMode || 'auto',
               titleMaxLength: settings.titleLength,
               contributorLanguage: settings.contributorLanguage || 'en',
               isAiBatch: settings.isAiBatch || false,
               customBlockedWords: settings.customBlockedWords || [],
+              provider,
               apiKey: keyInfo?.apiKey,
-              model: settings.selectedModel,
+              model: chosenModel,
             }),
           });
 
@@ -2158,9 +2167,26 @@ export default function GeneratorPage() {
           <ControlsCard
             mode={settings.mode}
             onModeChange={(m) => updateSettings({ mode: m })}
-            selectedModel={settings.selectedModel}
+            provider={settings.aiProvider || 'gemini'}
+            onProviderChange={(prov) => {
+              updateSettings({ aiProvider: prov });
+              setTimeout(() => checkCustomKeys(), 50);
+            }}
+            selectedModel={
+              settings.aiProvider === 'grok'
+                ? settings.selectedGrokModel || DEFAULT_GROK_MODEL
+                : settings.selectedModel || AI_CONFIG.DEFAULT_MODEL
+            }
+            onModelChange={(model) => {
+              if (settings.aiProvider === 'grok') {
+                updateSettings({ selectedGrokModel: model });
+              } else {
+                updateSettings({ selectedModel: model });
+              }
+            }}
             onOpenApiKeys={() => setApiKeysOpen(true)}
             hasCustomKeys={hasCustomKeys}
+            disabled={isGenerating || isAnalyzingSimilarity}
           />
 
           <BatchCard

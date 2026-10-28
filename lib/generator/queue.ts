@@ -420,8 +420,13 @@ export class GeneratorQueue {
   }
 
   private async processSingleItem(item: GeneratorItemState): Promise<boolean> {
+    const provider = this.settings.aiProvider || 'gemini';
+    const chosenModel = provider === 'grok'
+      ? (this.settings.selectedGrokModel || 'grok-2-vision-1212')
+      : (this.settings.selectedModel || 'gemini-3.8-flash');
+
     item.status = 'working';
-    item.currentStage = 'Connecting to Gemini AI...';
+    item.currentStage = `Connecting to ${provider === 'grok' ? 'xAI Grok' : 'Gemini AI'}...`;
     item.errorMessage = undefined;
     item.errorDetails = undefined;
     item.httpStatus = undefined;
@@ -441,12 +446,14 @@ export class GeneratorQueue {
       if (!this.isRunning || this.abortController?.signal.aborted) break;
 
       // Obtain next key sequentially via controlled round-robin
-      let keyInfo = await keyRotator.getNextKey();
+      let keyInfo = await keyRotator.getNextKey(provider);
 
       // If all keys are resting, wait with live countdown
       if (keyInfo.allResting) {
         this.isCoolingDown = true;
-        const cooldownDesc = keyInfo.isSharedRateLimit ? 'Shared project quota cooldown' : 'All API keys resting';
+        const cooldownDesc = keyInfo.isSharedRateLimit
+          ? `Shared ${provider === 'grok' ? 'Grok' : 'Gemini'} quota cooldown`
+          : `All ${provider === 'grok' ? 'Grok' : 'Gemini'} API keys resting`;
         item.currentStage = `${cooldownDesc}. Waiting for cooldown...`;
         this.callbacks.onItemUpdate({ ...item });
 
@@ -458,7 +465,8 @@ export class GeneratorQueue {
             item.currentStage = `${cooldownDesc} (${sec}s remaining)...`;
             this.callbacks.onItemUpdate({ ...item });
             this.broadcastProgress();
-          }
+          },
+          provider
         );
 
         this.isCoolingDown = false;
@@ -469,7 +477,9 @@ export class GeneratorQueue {
 
       if (this.abortController?.signal.aborted) break;
 
-      this.currentKeyInfo = keyInfo?.maskedKey || (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : 'Gemini Key');
+      this.currentKeyInfo =
+        keyInfo?.maskedKey ||
+        (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : `${provider === 'grok' ? 'Grok' : 'Gemini'} Key`);
       item.currentStage = `Sending request using ${this.currentKeyInfo}...`;
       this.callbacks.onItemUpdate({ ...item });
       this.broadcastProgress(`Generating with ${this.currentKeyInfo}...`);
@@ -508,7 +518,8 @@ export class GeneratorQueue {
             isPromptPrefixEnabled: this.settings.isPromptPrefixEnabled,
             promptSuffix: this.settings.promptSuffix,
             isPromptSuffixEnabled: this.settings.isPromptSuffixEnabled,
-            model: this.settings.selectedModel,
+            provider,
+            model: chosenModel,
             modelFallback: this.settings.modelFallback ?? true,
             apiKey: keyInfo?.apiKey,
 
@@ -571,7 +582,7 @@ export class GeneratorQueue {
 
           if (resData?.error?.code === 'DAILY_QUOTA_EXHAUSTED') {
             await keyRotator.markKeyDailyExhausted(keyInfo?.keyId);
-            const nextKeyCheck = await keyRotator.getNextKey();
+            const nextKeyCheck = await keyRotator.getNextKey(provider);
             if (nextKeyCheck.apiKey) {
               item.currentStage = `Key reached daily quota. Switching to ${nextKeyCheck.maskedKey}...`;
               this.callbacks.onItemUpdate({ ...item });
@@ -591,11 +602,11 @@ export class GeneratorQueue {
           item.currentStage = `Rate limit reached. Cooling down for ${cooldownWait}s...`;
           this.callbacks.onItemUpdate({ ...item });
 
-          const nextKeyCheck = await keyRotator.getNextKey();
+          const nextKeyCheck = await keyRotator.getNextKey(provider);
           if (nextKeyCheck.allResting) {
             await this.waitWithCountdown(
               cooldownWait,
-              `Gemini quota cooldown: waiting ${cooldownWait}s before resuming`
+              `${provider === 'grok' ? 'Grok' : 'Gemini'} quota cooldown: waiting ${cooldownWait}s before resuming`
             );
           } else {
             // Wait 2s jitter before trying next rotated key
@@ -608,7 +619,7 @@ export class GeneratorQueue {
         // Handle 401 / 403 Authentication Error
         if (res.status === 401 || res.status === 403) {
           await keyRotator.markKeyInvalid(keyInfo?.keyId);
-          const nextKeyCheck = await keyRotator.getNextKey();
+          const nextKeyCheck = await keyRotator.getNextKey(provider);
 
           if (nextKeyCheck.apiKey) {
             item.currentStage = 'Invalid API key detected. Switched to next valid key...';
@@ -617,8 +628,8 @@ export class GeneratorQueue {
           } else {
             item.status = 'failed';
             item.httpStatus = res.status;
-            item.errorMessage = 'HTTP 401: Invalid API Key. Authentication failed.';
-            item.errorDetails = 'Please enter a valid Gemini API key in Settings.';
+            item.errorMessage = `HTTP ${res.status}: Invalid API Key. Authentication failed.`;
+            item.errorDetails = `Please enter a valid ${provider === 'grok' ? 'Grok' : 'Gemini'} API key in API Keys.`;
             this.callbacks.onItemUpdate({ ...item });
             return false;
           }
