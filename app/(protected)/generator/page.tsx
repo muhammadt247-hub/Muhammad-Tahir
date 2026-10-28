@@ -61,6 +61,7 @@ import {
 import { SimilarityCluster } from '@/types/similarity';
 import { useCredits } from '@/components/CreditsProvider';
 import { toast } from 'sonner';
+import { useAuth } from '@/components/AuthProvider';
 
 function createAssetId(): string {
   return `asset_${crypto.randomUUID()}`;
@@ -75,6 +76,7 @@ export default function GeneratorPage() {
   } = useCredits();
 
   const [settings, setSettings] = useState<GeneratorSavedSettings>(DEFAULT_GENERATOR_SETTINGS);
+  const { user: authUser, loading: authLoading } = useAuth();
   const [items, setItems] = useState<GeneratorItemState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isFixingAll, setIsFixingAll] = useState(false);
@@ -132,6 +134,7 @@ export default function GeneratorPage() {
 
   // Load initial settings, saved batch items, and check keys
   useEffect(() => {
+    if (authLoading) return;
     let isMounted = true;
     getSavedGeneratorSettings().then((saved) => {
       if (isMounted) setSettings(saved);
@@ -157,7 +160,7 @@ export default function GeneratorPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [authLoading, authUser?.id]);
 
   // Persist settings changes
   const updateSettings = useCallback((partial: Partial<GeneratorSavedSettings>) => {
