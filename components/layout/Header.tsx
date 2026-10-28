@@ -213,10 +213,41 @@ export function Header() {
               </span>
 
               {/* 3. All Tools */}
-              <span className="px-3 md:px-4 py-2 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed inline-flex items-center gap-1.5 select-none" aria-disabled="true">
-                All Tools
-                <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">Coming soon</span>
-              </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pop-10',
+                      isTools
+                        ? 'bg-primary text-primary-foreground shadow-md shadow-primary/25'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    )}
+                  >
+                    All Tools
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-60 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
+                >
+                  <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
+                    <Link href="/tools/background-remover" className="flex items-center gap-2.5 w-full text-xs font-semibold text-foreground">
+                      <Wand2 className="h-4 w-4 text-primary" />
+                      <span>Background Remover</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator className="my-1 border-border/40" />
+                  <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
+                    <Link href="/tools" className="flex items-center gap-2.5 w-full text-xs font-semibold text-foreground">
+                      <LayoutGrid className="h-4 w-4 text-primary" />
+                      <span>See all tools</span>
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* 4. Buy me a coffee */}
               <button
@@ -509,109 +540,10 @@ export function Header() {
               </div>
 
               {/* All Tools */}
-              <div
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed select-none"
-                aria-disabled="true"
-              >
-                <div className="flex items-center gap-2.5">
-                  <LayoutGrid className="h-4 w-4" />
-                  <span>All Tools</span>
-                </div>
-                <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">Coming soon</span>
-              </div>
-
-              {/* Buy me a coffee */}
-              <button
-                type="button"
-                onClick={() => window.dispatchEvent(new Event('open-coffee-dialog'))}
-                className="w-full flex items-center justify-center px-3 py-2.5 rounded-xl text-sm font-bold bg-amber-400 text-black hover:bg-amber-300 transition-colors"
-              >
-                ☕ Buy me coffee
-              </button>
-            </div>
-
-            <div className="pt-2 border-t border-border/40 space-y-1">
-              {/* Credits button in mobile */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  openDialog();
-                }}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold text-foreground hover:bg-accent transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <Coins className="h-4 w-4 text-orange-500" />
-                  <span>Credits</span>
-                </div>
-                <span className={`font-mono text-xs font-bold ${creditsError ? 'text-muted-foreground' : creditColors.text}`}>
-                  {creditsError
-                    ? 'Unavailable'
-                    : isCreditZero
-                    ? 'Out of credits'
-                    : received > 0
-                    ? `${balance} left of ${received}`
-                    : `${balance} left`}
-                </span>
-              </button>
-
-              {/* Account Link in mobile */}
               <Link
-                href="/account"
+                href="/tools/background-remover"
                 onClick={() => setMobileMenuOpen(false)}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <UserIcon className="h-4 w-4" />
-                <span>Account</span>
-              </Link>
-
-              {/* Help */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setHelpOpen(true);
-                }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <HelpCircle className="h-4 w-4" />
-                <span>Help & Guide</span>
-              </button>
-
-              {/* Settings */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setSettingsOpen(true);
-                }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <SettingsIcon className="h-4 w-4" />
-                <span>Settings</span>
-              </button>
-
-              {/* Sign out */}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  signOut();
-                }}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-destructive hover:bg-destructive/10 transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>Sign out</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </header>
-
-      {/* Global Interactive Dialogs */}
-      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <CreditsDialog open={isDialogOpen} onOpenChange={setIsDialogOpen} />
-    </>
-  );
-}
+                className={cn(
+                  'flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors',
+                  isTools
+                    ? 'bg-primary text-primary-foreground shadow-md
