@@ -119,3 +119,8 @@ body {
     scale: var(--pop-scale);
   }
 }
+
+.dropzone-static {
+  scale: 1 !important;
+  transform: none !important;
+}

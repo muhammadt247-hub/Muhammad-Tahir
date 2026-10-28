@@ -12,6 +12,7 @@ import {
   ZoomIn,
   ArrowRight,
   LayoutGrid,
+  Scissors,
 } from 'lucide-react';
 
 const ICON_MAP: Record<string, React.ReactNode> = {
@@ -23,6 +24,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   FileEdit: <FileEdit className="h-6 w-6" />,
   DollarSign: <DollarSign className="h-6 w-6" />,
   ZoomIn: <ZoomIn className="h-6 w-6" />,
+  Scissors: <Scissors className="h-6 w-6" />,
 };
 
 export default function ToolsOverviewPage() {

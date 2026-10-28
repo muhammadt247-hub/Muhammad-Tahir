@@ -31,6 +31,16 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     badge: 'Popular',
   },
   {
+    id: 'background-remover',
+    name: 'Background Remover',
+    description: 'Remove image backgrounds free, right in your browser.',
+    href: '/tools/background-remover',
+    iconName: 'Scissors',
+    status: 'live',
+    category: 'Optimization',
+    badge: 'Free',
+  },
+  {
     id: 'keyword-research',
     name: 'Keyword Research and Trend Score',
     description: 'Uncover low-competition high-demand stock keywords with historical search volume curves.',
