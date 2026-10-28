@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from '@/components/AuthProvider';
 import { CreditsProvider } from '@/components/CreditsProvider';
+import { CoffeeSupport } from '@/components/support/CoffeeSupport';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -25,6 +26,7 @@ export function AppShell({ children }: AppShellProps) {
             </main>
           </div>
           <Toaster />
+          <CoffeeSupport />
         </TooltipProvider>
       </CreditsProvider>
     </AuthProvider>

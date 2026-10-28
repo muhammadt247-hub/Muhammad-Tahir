@@ -217,6 +217,15 @@ export function Header() {
                 All Tools
                 <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">Coming soon</span>
               </span>
+
+              {/* 4. Buy me a coffee */}
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event('open-coffee-dialog'))}
+                className="px-3 md:px-4 py-2 rounded-xl text-sm font-bold bg-amber-400 text-black hover:bg-amber-300 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary pop-10"
+              >
+                ☕ Buy me coffee
+              </button>
             </nav>
           )}
 
@@ -510,6 +519,15 @@ export function Header() {
                 </div>
                 <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">Coming soon</span>
               </div>
+
+              {/* Buy me a coffee */}
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event('open-coffee-dialog'))}
+                className="w-full flex items-center justify-center px-3 py-2.5 rounded-xl text-sm font-bold bg-amber-400 text-black hover:bg-amber-300 transition-colors"
+              >
+                ☕ Buy me coffee
+              </button>
             </div>
 
             <div className="pt-2 border-t border-border/40 space-y-1">
