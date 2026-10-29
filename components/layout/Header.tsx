@@ -539,11 +539,23 @@ export function Header() {
                 onClick={() => setMobileMenuOpen(false)}
                 className={cn(
                   'flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors',
-                  isTools ? ACTIVE : IDLE
+                  pathname === '/tools/background-remover' ? ACTIVE : IDLE
                 )}
               >
                 <Wand2 className="h-4 w-4" />
                 <span>Background Remover</span>
+              </Link>
+
+              <Link
+                href="/tools"
+                onClick={() => setMobileMenuOpen(false)}
+                className={cn(
+                  'flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors',
+                  pathname === '/tools' ? ACTIVE : IDLE
+                )}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                <span>See all tools</span>
               </Link>
 
               <button
