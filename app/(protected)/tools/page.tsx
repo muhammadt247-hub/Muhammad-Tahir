@@ -2,53 +2,78 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Sparkles, Scissors, Wand2, ArrowRight, X } from 'lucide-react';
+import {
+  Search,
+  Sparkles,
+  Scissors,
+  FileImage,
+  Maximize2,
+  Shapes,
+  Wand2,
+  CalendarDays,
+  ArrowRight,
+  X,
+} from 'lucide-react';
 import { TOOLS_REGISTRY, ToolTag } from '@/config/tools';
 import { cn } from '@/lib/utils';
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   Sparkles,
   Scissors,
+  FileImage,
+  Maximize2,
+  Shapes,
   Wand2,
+  CalendarDays,
 };
 
-const ALL_PILL_CATEGORIES: ToolTag[] = ['Generate', 'Convert & Prepare', 'Enhance'];
+const ALL_PILL_CATEGORIES: ToolTag[] = [
+  'Generate',
+  'Convert & Prepare',
+  'Enhance',
+  'Plan',
+];
 
 export default function AllToolsPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedTag, setSelectedTag] = useState<string>('All');
 
-  // Only show pills that have at least one tool
+  // Filter pills: show only tags that have at least one tool
   const availablePills = useMemo(() => {
-    const valid = ALL_PILL_CATEGORIES.filter((category) =>
-      TOOLS_REGISTRY.some((tool) => tool.tag === category || tool.category === category)
+    const valid = ALL_PILL_CATEGORIES.filter((cat) =>
+      TOOLS_REGISTRY.some((tool) => tool.tag === cat)
     );
     return ['All', ...valid];
   }, []);
 
-  // Filter tools by search query and selected category
+  // Filter tools by search query and selected tag
+  // Live tools first, then upcoming tools
   const filteredTools = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return TOOLS_REGISTRY.filter((tool) => {
-      const matchesCategory =
-        selectedCategory === 'All' ||
-        tool.tag === selectedCategory ||
-        tool.category === selectedCategory;
 
-      if (!matchesCategory) return false;
+    const matches = TOOLS_REGISTRY.filter((tool) => {
+      const matchesTag = selectedTag === 'All' || tool.tag === selectedTag;
+      if (!matchesTag) return false;
 
       if (!q) return true;
       return (
         tool.name.toLowerCase().includes(q) ||
         tool.description.toLowerCase().includes(q) ||
-        (tool.tag && tool.tag.toLowerCase().includes(q))
+        tool.tag.toLowerCase().includes(q)
       );
     });
-  }, [searchQuery, selectedCategory]);
+
+    // Ensure live tools come first, then upcoming tools
+    return matches.sort((a, b) => {
+      if (a.status === 'live' && b.status !== 'live') return -1;
+      if (a.status !== 'live' && b.status === 'live') return 1;
+      return 0;
+    });
+  }, [searchQuery, selectedTag]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
-      {/* Header: Heading and short line under it */}
+      {/* Heading & short line */}
       <div className="space-y-3">
         <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
           All tools
@@ -86,12 +111,12 @@ export default function AllToolsPage() {
         {/* Filter pills */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           {availablePills.map((pill) => {
-            const isSelected = selectedCategory === pill;
+            const isSelected = selectedTag === pill;
             return (
               <button
                 key={pill}
                 type="button"
-                onClick={() => setSelectedCategory(pill)}
+                onClick={() => setSelectedTag(pill)}
                 className={cn(
                   'px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer',
                   isSelected
@@ -106,40 +131,95 @@ export default function AllToolsPage() {
         </div>
       </div>
 
-      {/* Grid of cards: 3 columns on desktop, 1 on mobile */}
+      {/* Responsive grid of cards (3 columns on desktop, 1 on mobile) */}
       {filteredTools.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredTools.map((tool) => {
             const Icon = ICON_MAP[tool.iconName] || Sparkles;
-            const isNew = tool.badge === 'NEW';
+            const isLive = tool.status === 'live' && tool.href;
+            const isGreenBadge = tool.badge === 'LIVE' || tool.badge === 'NEW';
+            const isUpcoming = tool.badge === 'UPCOMING';
 
+            const badgeClasses = isGreenBadge
+              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+              : isUpcoming
+              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+              : 'bg-primary/10 text-primary border-primary/25';
+
+            if (isLive) {
+              return (
+                <div
+                  key={tool.id}
+                  className="glass-card rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 group"
+                >
+                  <div className="space-y-4">
+                    {/* Icon & Badge header */}
+                    <div className="flex items-center justify-between">
+                      <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                        <Icon className="h-5 w-5" />
+                      </div>
+
+                      <span
+                        className={cn(
+                          'text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-0.5 rounded-full border',
+                          badgeClasses
+                        )}
+                      >
+                        {tool.badge}
+                      </span>
+                    </div>
+
+                    {/* Name & description */}
+                    <div>
+                      <h2 className="text-lg font-bold text-foreground tracking-tight group-hover:text-primary transition-colors">
+                        {tool.name}
+                      </h2>
+                      <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 leading-relaxed line-clamp-2">
+                        {tool.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Open tool link */}
+                  <div className="pt-6 mt-2 border-t border-border/40">
+                    <Link
+                      href={tool.href!}
+                      className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-primary hover:text-primary/80 transition-colors group/link"
+                    >
+                      <span>Open tool</span>
+                      <ArrowRight className="h-4 w-4 transition-transform group-hover/link:translate-x-1" />
+                    </Link>
+                  </div>
+                </div>
+              );
+            }
+
+            // Upcoming card: softer look, no hover grow, no link, grey Coming soon text
             return (
               <div
                 key={tool.id}
-                className="glass-card rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 group"
+                className="glass-card rounded-2xl p-6 flex flex-col justify-between border-border/50 opacity-80"
               >
                 <div className="space-y-4">
                   {/* Icon & Badge header */}
                   <div className="flex items-center justify-between">
-                    <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center transition-transform group-hover:scale-105">
+                    <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center">
                       <Icon className="h-5 w-5" />
                     </div>
 
                     <span
                       className={cn(
                         'text-[10px] font-extrabold tracking-wider uppercase px-2.5 py-0.5 rounded-full border',
-                        isNew
-                          ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-transparent shadow-sm'
-                          : 'bg-primary/10 text-primary border-primary/25'
+                        badgeClasses
                       )}
                     >
                       {tool.badge}
                     </span>
                   </div>
 
-                  {/* Name & One-line description */}
+                  {/* Name & description */}
                   <div>
-                    <h2 className="text-lg font-bold text-foreground tracking-tight group-hover:text-primary transition-colors">
+                    <h2 className="text-lg font-bold text-foreground tracking-tight">
                       {tool.name}
                     </h2>
                     <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 leading-relaxed line-clamp-2">
@@ -148,15 +228,11 @@ export default function AllToolsPage() {
                   </div>
                 </div>
 
-                {/* Open tool link */}
+                {/* Coming soon label */}
                 <div className="pt-6 mt-2 border-t border-border/40">
-                  <Link
-                    href={tool.href}
-                    className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-primary hover:text-primary/80 transition-colors group/link"
-                  >
-                    <span>Open tool</span>
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover/link:translate-x-1" />
-                  </Link>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    Coming soon
+                  </span>
                 </div>
               </div>
             );
@@ -171,7 +247,7 @@ export default function AllToolsPage() {
             type="button"
             onClick={() => {
               setSearchQuery('');
-              setSelectedCategory('All');
+              setSelectedTag('All');
             }}
             className="text-xs font-semibold text-primary hover:underline cursor-pointer"
           >
