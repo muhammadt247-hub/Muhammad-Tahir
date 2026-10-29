@@ -15,7 +15,8 @@ import {
 const MAX_FILES = 500;
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 
-type Mode = "graphics" | "photo";
+type Mode = "auto" | "graphics" | "photo";
+type Used = "graphics" | "photo";
 type Status = "waiting" | "processing" | "done" | "failed";
 
 type Item = {
@@ -24,6 +25,7 @@ type Item = {
   name: string;
   originalUrl: string;
   status: Status;
+  usedMode?: Used;
   resultUrl?: string;
   resultBlob?: Blob;
   doneKey?: string;
@@ -47,7 +49,62 @@ function baseName(name: string) {
   return name.replace(/\.[^/.]+$/, "").replace(/[^\w.\- ]+/g, "_") || "image";
 }
 
-// Graphics mode: removes the white that touches the image edge. Works in the browser.
+function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("PNG export failed."))),
+      "image/png"
+    );
+  });
+}
+
+// Auto mode: plain white edge AND few flat colors means graphics (icons, logos).
+async function looksLikeGraphics(file: File): Promise<boolean> {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const scale = Math.min(1, 300 / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    bmp.close();
+    return false;
+  }
+  ctx.drawImage(bmp, 0, 0, w, h);
+  bmp.close();
+  const d = ctx.getImageData(0, 0, w, h).data;
+
+  let edge = 0;
+  let white = 0;
+  const check = (x: number, y: number) => {
+    const p = (y * w + x) * 4;
+    edge++;
+    if (d[p + 3] < 10 || Math.min(d[p], d[p + 1], d[p + 2]) >= 235) white++;
+  };
+  for (let x = 0; x < w; x++) {
+    check(x, 0);
+    check(x, h - 1);
+  }
+  for (let y = 0; y < h; y++) {
+    check(0, y);
+    check(w - 1, y);
+  }
+  if (white / edge < 0.9) return false;
+
+  const bins = new Uint32Array(4096);
+  for (let i = 0; i < w * h; i++) {
+    const p = i * 4;
+    bins[((d[p] >> 4) << 8) | ((d[p + 1] >> 4) << 4) | (d[p + 2] >> 4)]++;
+  }
+  const sorted = Array.from(bins).sort((a, b) => b - a);
+  let top = 0;
+  for (let i = 0; i < 24; i++) top += sorted[i];
+  return top / (w * h) >= 0.6;
+}
+
+// Graphics mode: removes the white that touches the image edge. Light colors inside shapes stay.
 async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blob> {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
   const w = bmp.width;
@@ -151,17 +208,37 @@ async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blo
   }
 
   ctx.putImageData(img, 0, 0);
-  return await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error("PNG export failed."))),
-      "image/png"
-    );
-  });
+  return await canvasToPng(canvas);
+}
+
+// Cleans the AI result: almost-solid pixels become solid, faint haze becomes clear.
+async function cleanAlpha(blob: Blob): Promise<Blob> {
+  const bmp = await createImageBitmap(blob);
+  const w = bmp.width;
+  const h = bmp.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    bmp.close();
+    return blob;
+  }
+  ctx.drawImage(bmp, 0, 0);
+  bmp.close();
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 3; i < d.length; i += 4) {
+    if (d[i] >= 250) d[i] = 255;
+    else if (d[i] <= 12) d[i] = 0;
+  }
+  ctx.putImageData(img, 0, 0);
+  return await canvasToPng(canvas);
 }
 
 export default function BackgroundRemoverPage() {
   const [items, setItems] = useState<Item[]>([]);
-  const [mode, setMode] = useState<Mode>("graphics");
+  const [mode, setMode] = useState<Mode>("auto");
   const [tol, setTol] = useState(14);
   const [inner, setInner] = useState(false);
   const [running, setRunning] = useState(false);
@@ -191,7 +268,7 @@ export default function BackgroundRemoverPage() {
     };
   }, []);
 
-  const settingsKey = mode === "graphics" ? `graphics|${tol}|${inner}` : "photo";
+  const settingsKey = `${mode}|${tol}|${inner}`;
 
   function addFiles(list: FileList | File[] | null) {
     if (!list) return;
@@ -244,21 +321,34 @@ export default function BackgroundRemoverPage() {
       for (const item of queue) {
         if (cancelRef.current) break;
         updateItem(item.id, { status: "processing", error: undefined });
-        const showModel = currentMode === "photo" && !modelReadyRef.current;
-        if (showModel) setModelLoading(true);
+
+        let used: Used = currentMode === "photo" ? "photo" : "graphics";
+        if (currentMode === "auto") {
+          try {
+            used = (await looksLikeGraphics(item.file)) ? "graphics" : "photo";
+          } catch {
+            used = "photo";
+          }
+        }
+
+        if (used === "photo" && !modelReadyRef.current) setModelLoading(true);
         try {
           let blob: Blob;
-          if (currentMode === "graphics") {
+          if (used === "graphics") {
             blob = await removeWhite(item.file, tol, inner);
           } else {
             const lib = await import("@imgly/background-removal");
-            blob = await lib.removeBackground(item.file, { output: { format: "image/png" } });
+            const raw: Blob = await lib.removeBackground(item.file, {
+              output: { format: "image/png" },
+            });
             modelReadyRef.current = true;
+            blob = await cleanAlpha(raw);
           }
           setModelLoading(false);
           if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
           updateItem(item.id, {
             status: "done",
+            usedMode: used,
             resultBlob: blob,
             resultUrl: URL.createObjectURL(blob),
             doneKey: key,
@@ -266,7 +356,7 @@ export default function BackgroundRemoverPage() {
         } catch (err) {
           setModelLoading(false);
           let message = err instanceof Error ? err.message : "Could not process this image.";
-          if (currentMode === "photo" && !modelReadyRef.current) {
+          if (used === "photo" && !modelReadyRef.current) {
             message = "Model download failed. Check your internet, VPN or ad-block, then try again.";
             setNotice(message);
             updateItem(item.id, { status: "failed", error: message });
@@ -356,6 +446,9 @@ export default function BackgroundRemoverPage() {
 
       <div className="rounded-2xl border border-border bg-card px-5 py-4 space-y-3">
         <div className="flex flex-wrap gap-2">
+          <button type="button" className={pill(mode === "auto")} onClick={() => setMode("auto")}>
+            Auto
+          </button>
           <button type="button" className={pill(mode === "graphics")} onClick={() => setMode("graphics")}>
             Graphics on white
           </button>
@@ -363,41 +456,38 @@ export default function BackgroundRemoverPage() {
             Photo (AI)
           </button>
         </div>
-        {mode === "graphics" ? (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Best for icons, logos and illustrations on a white background. Instant, and the
-              colors stay exactly the same.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="text-xs font-medium text-foreground" htmlFor="tol">
-                White tolerance: {tol}
-              </label>
+        <p className="text-xs text-muted-foreground">
+          {mode === "auto" &&
+            "Auto checks every image. Icons, logos and illustrations on white use the exact method. Photos use the AI model."}
+          {mode === "graphics" &&
+            "Best for icons, logos and illustrations on a white background. Instant, and the colors stay exactly the same."}
+          {mode === "photo" &&
+            "Best for photos of people, products and animals. The first time it downloads an AI model, which can take a minute."}
+        </p>
+        {mode !== "photo" && (
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-xs font-medium text-foreground" htmlFor="tol">
+              White tolerance: {tol}
+            </label>
+            <input
+              id="tol"
+              type="range"
+              min={4}
+              max={40}
+              value={tol}
+              onChange={(e) => setTol(Number(e.target.value))}
+              style={{ accentColor: "hsl(21 90% 44%)" }}
+            />
+            <label className="flex items-center gap-2 text-xs text-foreground">
               <input
-                id="tol"
-                type="range"
-                min={4}
-                max={40}
-                value={tol}
-                onChange={(e) => setTol(Number(e.target.value))}
+                type="checkbox"
+                checked={inner}
+                onChange={(e) => setInner(e.target.checked)}
                 style={{ accentColor: "hsl(21 90% 44%)" }}
               />
-              <label className="flex items-center gap-2 text-xs text-foreground">
-                <input
-                  type="checkbox"
-                  checked={inner}
-                  onChange={(e) => setInner(e.target.checked)}
-                  style={{ accentColor: "hsl(21 90% 44%)" }}
-                />
-                Also remove white inside shapes (holes)
-              </label>
-            </div>
+              Also remove white inside shapes (holes)
+            </label>
           </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Best for photos of people, products and animals. The first time it downloads an AI
-            model, which can take a minute.
-          </p>
         )}
       </div>
 
@@ -561,6 +651,7 @@ export default function BackgroundRemoverPage() {
                   {item.status === "done" && (
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Done
+                      {item.usedMode ? ` · ${item.usedMode === "graphics" ? "Graphics" : "AI"}` : ""}
                     </>
                   )}
                   {item.status === "failed" && (
