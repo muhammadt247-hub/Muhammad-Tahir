@@ -31,7 +31,7 @@ export class KeyRotationManager {
   private keys: StoredApiKey[] = [];
   private loaded = false;
   private currentIndexByProvider: Record<AiProvider, number> = { gemini: 0, grok: 0 };
-  private consecutiveShared429s = 0;
+  private consecutiveShared429sByProvider: Record<AiProvider, number> = { gemini: 0, grok: 0 };
 
   async loadKeys(): Promise<StoredApiKey[]> {
     this.keys = await getStoredApiKeys();
@@ -81,7 +81,7 @@ export class KeyRotationManager {
           apiKey: undefined,
           keyId: undefined,
           isDefaultEnv: false,
-          maskedKey: 'No Grok Key Added',
+          maskedKey: 'No Groq Key Added',
           totalActive: 0,
           provider,
         };
@@ -95,8 +95,10 @@ export class KeyRotationManager {
         (!k.dailyQuotaExhaustedUntil || k.dailyQuotaExhaustedUntil <= now)
     );
 
-    // If multiple keys in a row hit 429 and exhausted the shared project quota
-    if (this.consecutiveShared429s >= activeKeys.length && activeKeys.length > 0) {
+    const consecutiveShared429s = this.consecutiveShared429sByProvider[provider] || 0;
+
+    // If multiple keys in a row hit 429 and exhausted the shared project quota for this provider
+    if (consecutiveShared429s >= activeKeys.length && activeKeys.length > 0) {
       const restingTimes = activeKeys
         .map((k) => (k.restingUntil && k.restingUntil > now ? k.restingUntil - now : 30000))
         .filter((t) => t > 0);
@@ -116,18 +118,19 @@ export class KeyRotationManager {
     if (availableKeys.length > 0) {
       // Sequential controlled rotation: advance pointer for this provider
       const curIdx = this.currentIndexByProvider[provider] || 0;
-      this.currentIndexByProvider[provider] = (curIdx + 1) % availableKeys.length;
-      const chosen = availableKeys[this.currentIndexByProvider[provider]];
+      const nextIdx = (curIdx + 1) % availableKeys.length;
+      this.currentIndexByProvider[provider] = nextIdx;
+      const chosen = availableKeys[nextIdx];
       chosen.lastUsedAt = now;
       saveStoredApiKey(chosen);
 
       const realIndex = this.keys.findIndex((k) => k.id === chosen.id);
-      const displayIndex = realIndex >= 0 ? realIndex : this.currentIndexByProvider[provider];
+      const displayIndex = realIndex >= 0 ? realIndex : nextIdx;
 
       return {
         apiKey: chosen.key,
         keyId: chosen.id,
-        label: chosen.label || `${provider === 'grok' ? 'Grok Key' : 'Key'} ${displayIndex + 1}`,
+        label: chosen.label || `${provider === 'grok' ? 'Groq Key' : 'Key'} ${displayIndex + 1}`,
         maskedKey: formatMaskedKey(chosen.key, chosen.label, displayIndex),
         keyIndex: displayIndex + 1,
         totalActive: activeKeys.length,
@@ -167,7 +170,7 @@ export class KeyRotationManager {
     while (!abortSignal?.aborted) {
       const next = await this.getNextKey(provider);
       if (!next.allResting) {
-        this.consecutiveShared429s = 0;
+        this.consecutiveShared429sByProvider[provider] = 0;
         return next;
       }
 
@@ -175,7 +178,7 @@ export class KeyRotationManager {
       // Cap individual tick block to 120s max for responsiveness
       secondsRemaining = Math.min(secondsRemaining, 120);
 
-      const providerLabel = provider === 'grok' ? 'Grok' : 'Gemini';
+      const providerLabel = provider === 'grok' ? 'Groq' : 'Gemini';
 
       while (secondsRemaining > 0 && !abortSignal?.aborted) {
         const reason = next.isSharedRateLimit
@@ -196,8 +199,8 @@ export class KeyRotationManager {
   }
 
   // Mark key as rate limited with exponential backoff & jitter
-  async markKeyRateLimited(keyId?: string, retryAfterSeconds = 30): Promise<number> {
-    this.consecutiveShared429s++;
+  async markKeyRateLimited(keyId?: string, retryAfterSeconds = 30, provider: AiProvider = 'gemini'): Promise<number> {
+    this.consecutiveShared429sByProvider[provider] = (this.consecutiveShared429sByProvider[provider] || 0) + 1;
 
     if (!keyId) {
       // Default env key rate-limited
@@ -205,10 +208,13 @@ export class KeyRotationManager {
     }
 
     const target = this.keys.find((k) => k.id === keyId);
-    const activeKeys = this.keys.filter((k) => k.isActive && !k.isInvalid);
+    const activeKeys = this.keys.filter(
+      (k) => (k.provider === provider || (!k.provider && provider === 'gemini')) && k.isActive && !k.isInvalid
+    );
 
-    // If multiple keys have failed in a row, detect shared project quota
-    const isSharedQuota = this.consecutiveShared429s >= activeKeys.length && activeKeys.length > 1;
+    const consecutiveShared429s = this.consecutiveShared429sByProvider[provider] || 0;
+    // If multiple keys have failed in a row, detect shared project quota for this provider
+    const isSharedQuota = consecutiveShared429s >= activeKeys.length && activeKeys.length > 1;
 
     if (target) {
       target.consecutiveErrors = (target.consecutiveErrors || 0) + 1;
@@ -220,20 +226,21 @@ export class KeyRotationManager {
       await saveStoredApiKey(target);
 
       const waitSec = Math.ceil(totalCooldownMs / 1000);
+      const providerName = provider === 'grok' ? 'Groq' : 'Gemini';
 
       if (isSharedQuota) {
-        // Shared project rate limit: pause all active keys so we don't thrash and waste requests
+        // Shared project rate limit: pause all active keys for this provider so we don't thrash
         const now = Date.now();
         for (const k of activeKeys) {
           k.restingUntil = Math.max(k.restingUntil || 0, now + totalCooldownMs);
           await saveStoredApiKey(k);
         }
         toast.warning(
-          `Shared project quota reached across all ${activeKeys.length} keys. Pausing for ${waitSec}s to allow quota replenishment...`
+          `Shared ${providerName} project quota reached across all ${activeKeys.length} keys. Pausing for ${waitSec}s to allow quota replenishment...`
         );
       } else {
         toast.warning(
-          `API key "${target.label || 'Key'}" hit rate limit. Cooling down for ${waitSec}s, switching key...`
+          `${providerName} API key "${target.label || 'Key'}" hit rate limit. Cooling down for ${waitSec}s, switching key...`
         );
       }
 
@@ -244,7 +251,7 @@ export class KeyRotationManager {
   }
 
   // Mark key as reached daily quota
-  async markKeyDailyExhausted(keyId?: string): Promise<void> {
+  async markKeyDailyExhausted(keyId?: string, provider: AiProvider = 'gemini'): Promise<void> {
     if (!keyId) return;
     const target = this.keys.find((k) => k.id === keyId);
     if (target) {
@@ -255,29 +262,33 @@ export class KeyRotationManager {
       ).getTime();
       target.dailyQuotaExhaustedUntil = tomorrowMidnight;
       await saveStoredApiKey(target);
+      const providerName = provider === 'grok' ? 'Groq' : 'Gemini';
       toast.error(
-        `API key "${target.label || 'Key'}" reached daily quota. Key paused until tomorrow midnight UTC.`
+        `${providerName} API key "${target.label || 'Key'}" reached daily quota. Key paused until tomorrow midnight UTC.`
       );
     }
   }
 
   // Mark key as permanently invalid (auth failure 401/403)
-  async markKeyInvalid(keyId?: string): Promise<void> {
+  async markKeyInvalid(keyId?: string, provider: AiProvider = 'gemini'): Promise<void> {
     if (!keyId) return;
     const target = this.keys.find((k) => k.id === keyId);
     if (target) {
       target.isInvalid = true;
       target.isActive = false;
       await saveStoredApiKey(target);
+      const providerName = provider === 'grok' ? 'Groq' : 'Gemini';
       toast.error(
-        `API key "${target.label || 'Key'}" marked invalid (Authentication failed). Key will not be retried.`
+        `${providerName} API key "${target.label || 'Key'}" marked invalid (Authentication failed). Key will not be retried.`
       );
     }
   }
 
   // Reset consecutive errors on successful request
-  async recordKeySuccess(keyId?: string): Promise<void> {
-    this.consecutiveShared429s = 0;
+  async recordKeySuccess(keyId?: string, provider: AiProvider = 'gemini'): Promise<void> {
+    if (provider) {
+      this.consecutiveShared429sByProvider[provider] = 0;
+    }
     if (!keyId) return;
     const target = this.keys.find((k) => k.id === keyId);
     if (target && target.consecutiveErrors) {

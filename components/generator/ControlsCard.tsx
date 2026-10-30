@@ -51,7 +51,7 @@ export function ControlsCard({
           <div>
             <h2 className="text-sm font-semibold text-foreground leading-tight">Controls</h2>
             <p className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[180px]">
-              {provider === 'grok' ? 'xAI Grok Provider' : 'Google Gemini Provider'}
+              {provider === 'grok' ? 'Groq Provider' : 'Google Gemini Provider'}
             </p>
           </div>
         </div>
@@ -98,7 +98,7 @@ export function ControlsCard({
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              Grok
+              Groq
             </button>
           </div>
 

@@ -13,7 +13,7 @@ export type AiProvider = 'gemini' | 'grok';
 export interface StoredApiKey {
   id: string;
   provider?: AiProvider; // 'gemini' | 'grok', defaults to 'gemini'
-  key: string; // e.g. "AIzaSy..." or "xai-..."
+  key: string; // e.g. "AIzaSy..." or "gsk_..."
   label: string;
   isActive: boolean;
   restingUntil?: number; // timestamp in ms when cooldown ends

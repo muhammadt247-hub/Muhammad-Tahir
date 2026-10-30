@@ -115,8 +115,8 @@ export function ApiKeysDialog({
     }
 
     if (activeProvider === 'grok') {
-      if (!cleanKey.startsWith('xai-') || cleanKey.length < 20) {
-        toast.error('Grok API key must start with "xai-" and be at least 20 characters long.');
+      if (!cleanKey.startsWith('gsk_') || cleanKey.length < 20) {
+        toast.error("Groq API key must start with 'gsk_' and be at least 20 characters long.");
         return;
       }
     } else {
@@ -138,7 +138,7 @@ export function ApiKeysDialog({
       id: `key_${activeProvider}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       provider: activeProvider,
       key: cleanKey,
-      label: newLabel.trim() || `${activeProvider === 'grok' ? 'Grok' : 'Gemini'} Key ${providerKeysCount + 1}`,
+      label: newLabel.trim() || `${activeProvider === 'grok' ? 'Groq' : 'Gemini'} Key ${providerKeysCount + 1}`,
       isActive: true,
       addedAt: Date.now(),
     };
@@ -149,7 +149,7 @@ export function ApiKeysDialog({
       setNewLabel('');
       await loadKeys();
       onKeysChanged?.();
-      toast.success(`${activeProvider === 'grok' ? 'Grok' : 'Gemini'} API key added successfully`);
+      toast.success(`${activeProvider === 'grok' ? 'Groq' : 'Gemini'} API key added successfully`);
     } catch {
       toast.error('Failed to save API key');
     }
@@ -253,7 +253,7 @@ export function ApiKeysDialog({
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              <span>xAI Grok</span>
+              <span>Groq</span>
               {grokCount > 0 && (
                 <span
                   className={cn(
@@ -272,15 +272,15 @@ export function ApiKeysDialog({
           {/* Add Key Form */}
           <form onSubmit={handleAddKey} className="p-4 rounded-xl bg-accent/40 border border-border/50 space-y-3">
             <div className="text-xs font-semibold text-foreground flex items-center justify-between">
-              <span>{activeProvider === 'grok' ? 'Add Custom Grok Key' : 'Add Custom Gemini Key'}</span>
+              <span>{activeProvider === 'grok' ? 'Add Custom Groq Key' : 'Add Custom Gemini Key'}</span>
               {activeProvider === 'grok' ? (
                 <a
-                  href="https://console.x.ai"
+                  href="https://console.groq.com/keys"
                   target="_blank"
                   rel="noreferrer"
                   className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 font-normal"
                 >
-                  Get a Grok key <ExternalLink className="h-3 w-3" />
+                  Get a Groq key <ExternalLink className="h-3 w-3" />
                 </a>
               ) : (
                 <a
@@ -298,7 +298,7 @@ export function ApiKeysDialog({
                 <div className="relative flex-1">
                   <Input
                     type={showKey ? 'text' : 'password'}
-                    placeholder={activeProvider === 'grok' ? 'xai-...' : 'AIzaSy...'}
+                    placeholder={activeProvider === 'grok' ? 'gsk_...' : 'AIzaSy...'}
                     value={newKey}
                     onChange={(e) => setNewKey(e.target.value)}
                     className="pr-9 font-mono text-xs h-9 rounded-xl"
@@ -321,7 +321,7 @@ export function ApiKeysDialog({
               </div>
               <Button type="submit" size="sm" className="w-full rounded-xl gap-1.5 h-8 text-xs font-semibold">
                 <Plus className="h-3.5 w-3.5" />
-                Add {activeProvider === 'grok' ? 'Grok' : 'Gemini'} API Key
+                Add {activeProvider === 'grok' ? 'Groq' : 'Gemini'} API Key
               </Button>
             </div>
           </form>
@@ -330,7 +330,7 @@ export function ApiKeysDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs font-semibold text-foreground px-1">
               <span>
-                Configured {activeProvider === 'grok' ? 'Grok' : 'Gemini'} Keys ({currentProviderKeys.length})
+                Configured {activeProvider === 'grok' ? 'Groq' : 'Gemini'} Keys ({currentProviderKeys.length})
               </span>
               {currentProviderKeys.length === 0 && activeProvider === 'gemini' && (
                 <span className="text-[11px] font-normal text-muted-foreground">
@@ -346,10 +346,10 @@ export function ApiKeysDialog({
                 {activeProvider === 'grok' ? (
                   <>
                     <p className="text-xs text-muted-foreground">
-                      No custom Grok keys added.
+                      No custom Groq keys added.
                     </p>
                     <p className="text-[11px] text-muted-foreground/80">
-                      Add your xAI API key from console.x.ai. You can add as many keys as you want; they will rotate automatically on rate limits.
+                      Add your Groq API key from console.groq.com. You can add as many keys as you want; they will rotate automatically on rate limits.
                     </p>
                   </>
                 ) : (
@@ -481,7 +481,7 @@ export function ApiKeysDialog({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <Label className="text-xs font-semibold text-foreground">
-                  {activeProvider === 'grok' ? 'xAI Grok Model' : 'Gemini AI Model'}
+                  {activeProvider === 'grok' ? 'Groq Model' : 'Gemini AI Model'}
                 </Label>
                 <p className="text-[11px] text-muted-foreground">
                   Model for metadata &amp; prompt generation

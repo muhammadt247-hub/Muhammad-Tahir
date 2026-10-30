@@ -331,7 +331,9 @@ export async function POST(req: NextRequest) {
 
     // 4b. If no server key exists and request has no user key, return 503 BEFORE charging
     const trimmedUserApiKey = userApiKey?.trim();
-    const serverApiKey = provider === 'grok' ? process.env.XAI_API_KEY?.trim() : process.env.GEMINI_API_KEY?.trim();
+    const serverApiKey = provider === 'grok'
+      ? process.env.GROQ_API_KEY?.trim()
+      : process.env.GEMINI_API_KEY?.trim();
     const apiKey = trimmedUserApiKey || serverApiKey;
 
     if (!apiKey) {
@@ -340,7 +342,7 @@ export async function POST(req: NextRequest) {
           error: {
             code: 'not_configured',
             message: provider === 'grok'
-              ? 'Grok API key is not configured. Please add your Grok API key in the API Keys dialog.'
+              ? 'Groq API key is not configured. Please add your Groq API key in the API Keys dialog.'
               : 'The Gemini service is not configured.',
           },
         },
@@ -476,10 +478,15 @@ CRITICAL RULES:
     let parsedJson: any = null;
 
     if (provider === 'grok') {
-      const grokModel = requestedModel || process.env.XAI_MODEL || DEFAULT_GROK_MODEL;
+      const grokModel = requestedModel || process.env.GROQ_MODEL || process.env.XAI_MODEL || DEFAULT_GROK_MODEL;
+      const isVisionCapable =
+        grokModel.toLowerCase().includes('vision') ||
+        grokModel.toLowerCase().includes('qwen') ||
+        grokModel.toLowerCase().includes('muse');
+
       const userContent: Array<
         | { type: 'text'; text: string }
-        | { type: 'image_url'; image_url: { url: string; detail?: string } }
+        | { type: 'image_url'; image_url: { url: string } }
       > = [
         {
           type: 'text',
@@ -491,20 +498,23 @@ CRITICAL RULES:
         },
       ];
 
-      for (const uri of images) {
-        const fullUrl = uri.startsWith('data:') ? uri : `data:image/jpeg;base64,${uri}`;
-        userContent.push({
-          type: 'image_url',
-          image_url: {
-            url: fullUrl,
-            detail: 'high',
-          },
-        });
+      if (isVisionCapable) {
+        for (const uri of images) {
+          const fullUrl = uri.startsWith('data:') ? uri : `data:image/jpeg;base64,${uri}`;
+          userContent.push({
+            type: 'image_url',
+            image_url: {
+              url: fullUrl,
+            },
+          });
+        }
       }
+
+      const userMessageContent = isVisionCapable ? userContent : userContent[0].text;
 
       try {
         const grokResponse = await withTimeout(
-          fetch('https://api.x.ai/v1/chat/completions', {
+          fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -519,7 +529,7 @@ CRITICAL RULES:
                 },
                 {
                   role: 'user',
-                  content: userContent,
+                  content: userMessageContent,
                 },
               ],
               response_format: { type: 'json_object' },
@@ -532,15 +542,36 @@ CRITICAL RULES:
         if (!grokResponse.ok) {
           const errBody = await grokResponse.json().catch(() => ({}));
           const errMsg =
-            errBody?.error?.message || errBody?.message || `xAI API returned status ${grokResponse.status}`;
+            errBody?.error?.message || errBody?.message || `Groq API returned status ${grokResponse.status}`;
+          const errCode = errBody?.error?.code || '';
 
-          if (grokResponse.status === 429) {
+          if (grokResponse.status === 401 || grokResponse.status === 403 || errCode === 'invalid_api_key') {
             await refundHelper(imageCount, 'refund_failed_generation');
-            const retryAfter = grokResponse.headers.get('Retry-After') || '30';
             return NextResponse.json(
               {
                 error: {
-                  code: 'RATE_LIMITED',
+                  code: 'INVALID_API_KEY',
+                  message: `Groq authentication failed: ${errMsg}`,
+                },
+              },
+              { status: 401 }
+            );
+          }
+
+          if (
+            grokResponse.status === 429 ||
+            errCode === 'rate_limit_exceeded' ||
+            errCode === 'insufficient_quota' ||
+            errMsg.toLowerCase().includes('quota') ||
+            errMsg.toLowerCase().includes('rate limit')
+          ) {
+            await refundHelper(imageCount, 'refund_failed_generation');
+            const retryAfter = grokResponse.headers.get('Retry-After') || '30';
+            const isDaily = errMsg.toLowerCase().includes('daily') || errCode === 'insufficient_quota';
+            return NextResponse.json(
+              {
+                error: {
+                  code: isDaily ? 'DAILY_QUOTA_EXHAUSTED' : 'RATE_LIMITED',
                   message: errMsg,
                   retryAfterSeconds: parseInt(retryAfter, 10) || 30,
                 },
@@ -552,16 +583,16 @@ CRITICAL RULES:
             );
           }
 
-          if (grokResponse.status === 401 || grokResponse.status === 403) {
+          if (grokResponse.status === 404 || errCode === 'model_not_found') {
             await refundHelper(imageCount, 'refund_failed_generation');
             return NextResponse.json(
               {
                 error: {
-                  code: 'INVALID_API_KEY',
-                  message: `xAI Grok authentication failed: ${errMsg}`,
+                  code: 'MODEL_UNAVAILABLE',
+                  message: `Groq model unavailable: ${errMsg}`,
                 },
               },
-              { status: 401 }
+              { status: 404 }
             );
           }
 
@@ -569,7 +600,7 @@ CRITICAL RULES:
           return NextResponse.json(
             {
               error: {
-                code: 'GROK_ERROR',
+                code: 'GENERATION_FAILED',
                 message: errMsg,
               },
             },
@@ -592,8 +623,8 @@ CRITICAL RULES:
         return NextResponse.json(
           {
             error: {
-              code: isTimeout ? 'TIMEOUT' : 'GROK_ERROR',
-              message: err instanceof Error ? err.message : 'Failed to call xAI Grok API',
+              code: isTimeout ? 'TIMEOUT' : 'GROQ_ERROR',
+              message: err instanceof Error ? err.message : 'Failed to call Groq API',
             },
           },
           { status: 503 }

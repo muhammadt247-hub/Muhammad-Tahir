@@ -420,13 +420,10 @@ export class GeneratorQueue {
   }
 
   private async processSingleItem(item: GeneratorItemState): Promise<boolean> {
-    const provider = this.settings.aiProvider || 'gemini';
-    const chosenModel = provider === 'grok'
-      ? (this.settings.selectedGrokModel || 'grok-2-vision-1212')
-      : (this.settings.selectedModel || 'gemini-3.8-flash');
+    let currentProvider: AiProvider = this.settings.aiProvider || 'gemini';
 
     item.status = 'working';
-    item.currentStage = `Connecting to ${provider === 'grok' ? 'xAI Grok' : 'Gemini AI'}...`;
+    item.currentStage = `Connecting to ${currentProvider === 'grok' ? 'Groq' : 'Gemini AI'}...`;
     item.errorMessage = undefined;
     item.errorDetails = undefined;
     item.httpStatus = undefined;
@@ -445,41 +442,54 @@ export class GeneratorQueue {
       await this.checkPause();
       if (!this.isRunning || this.abortController?.signal.aborted) break;
 
+      const chosenModel = currentProvider === 'grok'
+        ? (this.settings.selectedGrokModel || 'llama-3.2-11b-vision-preview')
+        : (this.settings.selectedModel || 'gemini-3.8-flash');
+
       // Obtain next key sequentially via controlled round-robin
-      let keyInfo = await keyRotator.getNextKey(provider);
+      let keyInfo = await keyRotator.getNextKey(currentProvider);
 
-      // If all keys are resting, wait with live countdown
+      // If all keys for current provider are resting, attempt cross-provider failover first before waiting
       if (keyInfo.allResting) {
-        this.isCoolingDown = true;
-        const cooldownDesc = keyInfo.isSharedRateLimit
-          ? `Shared ${provider === 'grok' ? 'Grok' : 'Gemini'} quota cooldown`
-          : `All ${provider === 'grok' ? 'Grok' : 'Gemini'} API keys resting`;
-        item.currentStage = `${cooldownDesc}. Waiting for cooldown...`;
-        this.callbacks.onItemUpdate({ ...item });
+        const alternateProvider: AiProvider = currentProvider === 'gemini' ? 'grok' : 'gemini';
+        const altKeyCheck = await keyRotator.getNextKey(alternateProvider);
+        if (altKeyCheck.apiKey && !altKeyCheck.allResting) {
+          currentProvider = alternateProvider;
+          keyInfo = altKeyCheck;
+          item.currentStage = `Primary provider resting. Switched to ${currentProvider === 'grok' ? 'Groq' : 'Gemini'} (${altKeyCheck.maskedKey})...`;
+          this.callbacks.onItemUpdate({ ...item });
+        } else {
+          this.isCoolingDown = true;
+          const cooldownDesc = keyInfo.isSharedRateLimit
+            ? `Shared ${currentProvider === 'grok' ? 'Groq' : 'Gemini'} quota cooldown`
+            : `All ${currentProvider === 'grok' ? 'Groq' : 'Gemini'} API keys resting`;
+          item.currentStage = `${cooldownDesc}. Waiting for cooldown...`;
+          this.callbacks.onItemUpdate({ ...item });
 
-        keyInfo = await keyRotator.waitForNextAvailableKey(
-          this.abortController?.signal,
-          (sec, reason) => {
-            this.cooldownSeconds = sec;
-            this.cooldownReason = reason;
-            item.currentStage = `${cooldownDesc} (${sec}s remaining)...`;
-            this.callbacks.onItemUpdate({ ...item });
-            this.broadcastProgress();
-          },
-          provider
-        );
+          keyInfo = await keyRotator.waitForNextAvailableKey(
+            this.abortController?.signal,
+            (sec, reason) => {
+              this.cooldownSeconds = sec;
+              this.cooldownReason = reason;
+              item.currentStage = `${cooldownDesc} (${sec}s remaining)...`;
+              this.callbacks.onItemUpdate({ ...item });
+              this.broadcastProgress();
+            },
+            currentProvider
+          );
 
-        this.isCoolingDown = false;
-        this.cooldownSeconds = 0;
-        this.cooldownReason = '';
-        this.broadcastProgress();
+          this.isCoolingDown = false;
+          this.cooldownSeconds = 0;
+          this.cooldownReason = '';
+          this.broadcastProgress();
+        }
       }
 
       if (this.abortController?.signal.aborted) break;
 
       this.currentKeyInfo =
         keyInfo?.maskedKey ||
-        (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : `${provider === 'grok' ? 'Grok' : 'Gemini'} Key`);
+        (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : `${provider === 'grok' ? 'Groq' : 'Gemini'} Key`);
       item.currentStage = `Sending request using ${this.currentKeyInfo}...`;
       this.callbacks.onItemUpdate({ ...item });
       this.broadcastProgress(`Generating with ${this.currentKeyInfo}...`);
@@ -518,7 +528,7 @@ export class GeneratorQueue {
             isPromptPrefixEnabled: this.settings.isPromptPrefixEnabled,
             promptSuffix: this.settings.promptSuffix,
             isPromptSuffixEnabled: this.settings.isPromptSuffixEnabled,
-            provider,
+            provider: currentProvider,
             model: chosenModel,
             modelFallback: this.settings.modelFallback ?? true,
             apiKey: keyInfo?.apiKey,
@@ -568,8 +578,8 @@ export class GeneratorQueue {
           return false;
         }
 
-        // Handle 429 Rate Limit / Quota Exhaustion
-        if (res.status === 429) {
+        // Handle 429 Rate Limit / Quota Exhaustion / Temporary Provider Errors
+        if (res.status === 429 || resData?.error?.code === 'RATE_LIMITED' || resData?.error?.code === 'DAILY_QUOTA_EXHAUSTED' || resData?.error?.code === 'RESOURCE_EXHAUSTED') {
           if (this.maxParallel > 1) {
             this.maxParallel = 1;
             toast.warning('Rate limit encountered (429). Dropping to 1 parallel worker for the rest of the batch.');
@@ -581,39 +591,38 @@ export class GeneratorQueue {
             30;
 
           if (resData?.error?.code === 'DAILY_QUOTA_EXHAUSTED') {
-            await keyRotator.markKeyDailyExhausted(keyInfo?.keyId);
-            const nextKeyCheck = await keyRotator.getNextKey(provider);
-            if (nextKeyCheck.apiKey) {
-              item.currentStage = `Key reached daily quota. Switching to ${nextKeyCheck.maskedKey}...`;
-              this.callbacks.onItemUpdate({ ...item });
-              continue;
-            } else {
-              item.status = 'failed';
-              item.httpStatus = 429;
-              item.errorMessage = resData?.error?.message || 'Daily quota exhausted on all configured keys.';
-              item.errorDetails = 'Quota resets at midnight UTC. Add another key in Settings to continue.';
-              this.callbacks.onItemUpdate({ ...item });
-              return false;
-            }
-          }
-
-          // Temporary RPM / TPM rate limit
-          const cooldownWait = await keyRotator.markKeyRateLimited(keyInfo?.keyId, retryAfterSec);
-          item.currentStage = `Rate limit reached. Cooling down for ${cooldownWait}s...`;
-          this.callbacks.onItemUpdate({ ...item });
-
-          const nextKeyCheck = await keyRotator.getNextKey(provider);
-          if (nextKeyCheck.allResting) {
-            await this.waitWithCountdown(
-              cooldownWait,
-              `${provider === 'grok' ? 'Grok' : 'Gemini'} quota cooldown: waiting ${cooldownWait}s before resuming`
-            );
+            await keyRotator.markKeyDailyExhausted(keyInfo?.keyId, currentProvider);
           } else {
-            // Wait 2s jitter before trying next rotated key
-            await this.sleep(2000);
+            await keyRotator.markKeyRateLimited(keyInfo?.keyId, retryAfterSec, currentProvider);
           }
-          // Do not fail the item for standard rate limits - retry the same item
-          continue;
+
+          // Try next key for current provider
+          const nextKeyCheck = await keyRotator.getNextKey(currentProvider);
+          if (nextKeyCheck.apiKey && !nextKeyCheck.allResting) {
+            item.currentStage = `Switching to next ${currentProvider === 'grok' ? 'Groq' : 'Gemini'} key (${nextKeyCheck.maskedKey})...`;
+            this.callbacks.onItemUpdate({ ...item });
+            continue;
+          }
+
+          // All keys for current provider are resting or exhausted. Attempt cross-provider failover!
+          const alternateProvider: AiProvider = currentProvider === 'gemini' ? 'grok' : 'gemini';
+          const altKeyCheck = await keyRotator.getNextKey(alternateProvider);
+
+          if (altKeyCheck.apiKey && !altKeyCheck.allResting) {
+            currentProvider = alternateProvider;
+            item.currentStage = `Primary provider exhausted. Failover switched to ${currentProvider === 'grok' ? 'Groq' : 'Gemini'} (${altKeyCheck.maskedKey})...`;
+            this.callbacks.onItemUpdate({ ...item });
+            toast.warning(`Automatically failed over to ${currentProvider === 'grok' ? 'Groq' : 'Gemini'}`);
+            continue;
+          }
+
+          // Both providers exhausted
+          item.status = 'failed';
+          item.httpStatus = 429;
+          item.errorMessage = resData?.error?.message || 'Quota exhausted across all Gemini and Groq API keys.';
+          item.errorDetails = 'All keys are resting or rate limited. Please add another key in Settings to continue.';
+          this.callbacks.onItemUpdate({ ...item });
+          return false;
         }
 
         // Handle 401 / 403 Authentication Error
@@ -629,7 +638,7 @@ export class GeneratorQueue {
             item.status = 'failed';
             item.httpStatus = res.status;
             item.errorMessage = `HTTP ${res.status}: Invalid API Key. Authentication failed.`;
-            item.errorDetails = `Please enter a valid ${provider === 'grok' ? 'Grok' : 'Gemini'} API key in API Keys.`;
+            item.errorDetails = `Please enter a valid ${provider === 'grok' ? 'Groq' : 'Gemini'} API key in API Keys.`;
             this.callbacks.onItemUpdate({ ...item });
             return false;
           }
