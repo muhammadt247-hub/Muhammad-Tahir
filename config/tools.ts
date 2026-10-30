@@ -39,10 +39,11 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     id: 'image-converter',
     name: 'Image Converter',
     description: 'Convert, resize and compress images in your browser.',
+    href: '/tools/image-converter',
     iconName: 'FileImage',
     tag: 'Convert & Prepare',
-    badge: 'UPCOMING',
-    status: 'soon',
+    badge: 'NEW',
+    status: 'live',
   },
   {
     id: 'upscale-studio',
