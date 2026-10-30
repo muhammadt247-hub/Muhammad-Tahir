@@ -14,8 +14,8 @@ import {
   Info,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { TracerOptions } from "@/lib/vendor/imagetracer";
-import type { VectorizeResponse } from "@/workers/vectorize.worker";
+import type { PipelineSettings } from "@/lib/vectorize/pipeline";
+import type { VectorizeMessage } from "@/workers/vectorize.worker";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_MB = 25;
@@ -23,26 +23,26 @@ const MAX_FILE_MB = 25;
 type Mode = "auto" | "manual";
 type Preset = "lineart" | "flat" | "illustration" | "detailed";
 
-const PRESET_INFO: Record<Preset, { label: string; hint: string; options: TracerOptions }> = {
+const PRESET_INFO: Record<Preset, { label: string; hint: string; settings: Omit<PipelineSettings, "removeBackground" | "deep"> }> = {
   lineart: {
     label: "Line art (2 colors)",
     hint: "Black and white drawings, signatures, outlines.",
-    options: { numberofcolors: 2, pathomit: 10, ltres: 1, qtres: 1, blurradius: 0, rightangleenhance: true },
+    settings: { maxColors: 2, mergeDistance: 40, smoothRadius: 1, curveTolerance: 0.8, minArea: 20 },
   },
   flat: {
     label: "Logo / flat icon",
     hint: "Logos, icons and flat shapes with few colors.",
-    options: { numberofcolors: 12, pathomit: 8, ltres: 1, qtres: 1, blurradius: 0, rightangleenhance: true },
+    settings: { maxColors: 24, mergeDistance: 55, smoothRadius: 1, curveTolerance: 0.8, minArea: 20 },
   },
   illustration: {
     label: "Illustration",
     hint: "Cartoons and artwork with soft color areas.",
-    options: { numberofcolors: 24, pathomit: 8, ltres: 1, qtres: 1, blurradius: 1, blurdelta: 20 },
+    settings: { maxColors: 32, mergeDistance: 36, smoothRadius: 1, curveTolerance: 1, minArea: 16 },
   },
   detailed: {
     label: "Detailed",
     hint: "Many colors and fine details. Files get bigger.",
-    options: { numberofcolors: 48, pathomit: 4, ltres: 0.5, qtres: 0.5, blurradius: 1, blurdelta: 20 },
+    settings: { maxColors: 48, mergeDistance: 22, smoothRadius: 1, curveTolerance: 0.8, minArea: 8 },
   },
 };
 
@@ -100,14 +100,14 @@ export default function VectorizerPage() {
   const [preset, setPreset] = useState<Preset>("flat");
 
   // Manual settings
-  const [colors, setColors] = useState(16);
-  const [detail, setDetail] = useState(5);
-  const [noise, setNoise] = useState(8);
-  const [smooth, setSmooth] = useState(0);
-  const [maxEdge, setMaxEdge] = useState(1000);
-  const [removeWhite, setRemoveWhite] = useState(false);
-  const [whiteTolerance, setWhiteTolerance] = useState(14);
-  const [seamless, setSeamless] = useState(true);
+  const [colors, setColors] = useState(24);
+  const [merge, setMerge] = useState(55);
+  const [detail, setDetail] = useState(7);
+  const [noise, setNoise] = useState(20);
+  const [smooth, setSmooth] = useState(1);
+  const [maxEdge, setMaxEdge] = useState(2400);
+  const [transparentBg, setTransparentBg] = useState(true);
+  const [progress, setProgress] = useState<{ message: string; fraction: number } | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -150,28 +150,19 @@ export default function VectorizerPage() {
     setStats(null);
   };
 
-  const buildOptions = (usedPreset: Preset): TracerOptions => {
+  const buildSettings = (usedPreset: Preset): PipelineSettings => {
     if (mode === "manual") {
-      const res = 2.2 - detail * 0.2; // detail 1..10 -> 2.0..0.2
       return {
-        numberofcolors: colors,
-        ltres: res,
-        qtres: res,
-        pathomit: noise,
-        blurradius: smooth,
-        blurdelta: 20,
-        rightangleenhance: true,
-        colorquantcycles: 3,
-        strokewidth: seamless ? 1 : 0,
-        roundcoords: 1,
+        maxColors: colors,
+        mergeDistance: merge,
+        smoothRadius: smooth,
+        curveTolerance: 2.6 - detail * 0.2, // detail 1..10 -> 2.4..0.6
+        minArea: noise,
+        removeBackground: transparentBg,
+        deep: true,
       };
     }
-    return {
-      ...PRESET_INFO[usedPreset].options,
-      colorquantcycles: 3,
-      strokewidth: seamless ? 1 : 0,
-      roundcoords: 1,
-    };
+    return { ...PRESET_INFO[usedPreset].settings, removeBackground: transparentBg, deep: true };
   };
 
   const runVectorize = useCallback(
@@ -179,10 +170,11 @@ export default function VectorizerPage() {
       stopWorker();
       setBusy(true);
       setError(null);
+      setProgress({ message: "Reading your image...", fraction: 0.02 });
       const started = performance.now();
       try {
         const bmp = await createImageBitmap(src.file, { imageOrientation: "from-image" });
-        const edge = mode === "manual" ? maxEdge : 1000;
+        const edge = mode === "manual" ? maxEdge : 2400;
         const scale = Math.min(1, edge / Math.max(bmp.width, bmp.height));
         const w = Math.max(1, Math.round(bmp.width * scale));
         const h = Math.max(1, Math.round(bmp.height * scale));
@@ -191,6 +183,7 @@ export default function VectorizerPage() {
         canvas.height = h;
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (!ctx) throw new Error("Your browser could not prepare the image.");
+        ctx.imageSmoothingQuality = "high";
         ctx.drawImage(bmp, 0, 0, w, h);
         bmp.close?.();
         const imageData = ctx.getImageData(0, 0, w, h);
@@ -201,7 +194,7 @@ export default function VectorizerPage() {
           setAutoPreset(usedPreset);
           setPreset(usedPreset);
         }
-        const options = buildOptions(usedPreset);
+        const settings = buildSettings(usedPreset);
 
         const worker = new Worker(new URL("../../../../workers/vectorize.worker.ts", import.meta.url), {
           type: "module",
@@ -209,55 +202,49 @@ export default function VectorizerPage() {
         workerRef.current = worker;
         const id = String(Date.now());
 
-        const result = await new Promise<string>((resolve, reject) => {
+        const result = await new Promise<{ svg: string; paths: number }>((resolve, reject) => {
           const timer = window.setTimeout(() => {
-            reject(new Error("This is taking too long. Try a smaller size or fewer colors."));
-          }, 120000);
-          worker.onmessage = (ev: MessageEvent<VectorizeResponse>) => {
-            window.clearTimeout(timer);
-            if (ev.data.success && ev.data.svg) resolve(ev.data.svg);
-            else reject(new Error(ev.data.error || "Vectorizing failed."));
+            reject(new Error("This is taking too long. Try a smaller working size or fewer colors."));
+          }, 240000);
+          worker.onmessage = (ev: MessageEvent<VectorizeMessage>) => {
+            const msg = ev.data;
+            if (msg.type === "progress") {
+              setProgress({ message: msg.message, fraction: msg.fraction });
+            } else if (msg.type === "done") {
+              window.clearTimeout(timer);
+              resolve({ svg: msg.svg, paths: msg.paths });
+            } else {
+              window.clearTimeout(timer);
+              reject(new Error(msg.error || "Vectorizing failed."));
+            }
           };
           worker.onerror = () => {
             window.clearTimeout(timer);
             reject(new Error("The vectorizer could not start. Please refresh the page."));
           };
           worker.postMessage(
-            {
-              id,
-              width: w,
-              height: h,
-              buffer: imageData.data.buffer,
-              options,
-              removeWhite: mode === "manual" ? removeWhite : false,
-              whiteTolerance,
-            },
+            { id, width: w, height: h, buffer: imageData.data.buffer, settings },
             [imageData.data.buffer]
           );
         });
         stopWorker();
 
-        // Clean the result: drop invisible layers, keep the original picture size
-        let svg = result.replace(/<path[^>]*opacity="0"[^>]*\/>/g, "");
-        svg = svg.replace(/ desc="[^"]*"/, "");
-        svg = svg.replace(
-          /<svg width="\d+" height="\d+"/,
-          `<svg width="${src.width}" height="${src.height}" viewBox="0 0 ${w} ${h}"`
-        );
-        const pathCount = (svg.match(/<path/g) || []).length;
+        // Keep the original picture size
+        const svg = result.svg.replace("<svg ", `<svg width="${src.width}" height="${src.height}" `);
         const blob = new Blob([svg], { type: "image/svg+xml" });
         setSvgText(svg);
         setSvgUrl(URL.createObjectURL(blob));
-        setStats({ paths: pathCount, bytes: blob.size, ms: Math.round(performance.now() - started) });
+        setStats({ paths: result.paths, bytes: blob.size, ms: Math.round(performance.now() - started) });
       } catch (err) {
         clearResult();
         setError(err instanceof Error ? err.message : "Vectorizing failed.");
       } finally {
         setBusy(false);
+        setProgress(null);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, preset, colors, detail, noise, smooth, maxEdge, removeWhite, whiteTolerance, seamless, stopWorker]
+    [mode, preset, colors, merge, detail, noise, smooth, maxEdge, transparentBg, stopWorker]
   );
 
   const loadFile = async (file: File | undefined | null) => {
@@ -321,7 +308,7 @@ export default function VectorizerPage() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">Image → SVG Vectorizer</h1>
         <p className="text-sm text-muted-foreground">
-          Turn a logo, icon or illustration into a clean, scalable SVG. It runs in your browser. Your image is not uploaded and no credits are used.
+          Turn a logo, icon or illustration into a clean, scalable SVG. It studies the colors first, so it can take a few seconds. It runs in your browser. Your image is not uploaded and no credits are used.
         </p>
       </div>
 
@@ -439,52 +426,46 @@ export default function VectorizerPage() {
                 <div className="space-y-4 text-xs">
                   <label className="block space-y-1">
                     <span className="flex justify-between font-medium text-foreground">
-                      Colors <span className="text-muted-foreground">{colors}</span>
+                      Most colors to look for <span className="text-muted-foreground">{colors}</span>
                     </span>
-                    <input type="range" min={2} max={64} value={colors} onChange={(e) => setColors(+e.target.value)} className={rangeClass} />
+                    <input type="range" min={2} max={64} step={1} value={colors} onChange={(e) => setColors(+e.target.value)} className={rangeClass} />
                   </label>
                   <label className="block space-y-1">
                     <span className="flex justify-between font-medium text-foreground">
-                      Detail <span className="text-muted-foreground">{detail}</span>
+                      Merge similar colors <span className="text-muted-foreground">{merge}</span>
                     </span>
-                    <input type="range" min={1} max={10} value={detail} onChange={(e) => setDetail(+e.target.value)} className={rangeClass} />
+                    <input type="range" min={0} max={80} step={1} value={merge} onChange={(e) => setMerge(+e.target.value)} className={rangeClass} />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="flex justify-between font-medium text-foreground">
+                      Curve detail <span className="text-muted-foreground">{detail}</span>
+                    </span>
+                    <input type="range" min={1} max={10} step={1} value={detail} onChange={(e) => setDetail(+e.target.value)} className={rangeClass} />
                   </label>
                   <label className="block space-y-1">
                     <span className="flex justify-between font-medium text-foreground">
                       Remove small specks <span className="text-muted-foreground">{noise}</span>
                     </span>
-                    <input type="range" min={0} max={40} value={noise} onChange={(e) => setNoise(+e.target.value)} className={rangeClass} />
+                    <input type="range" min={0} max={80} step={1} value={noise} onChange={(e) => setNoise(+e.target.value)} className={rangeClass} />
                   </label>
                   <label className="block space-y-1">
                     <span className="flex justify-between font-medium text-foreground">
-                      Smoothing <span className="text-muted-foreground">{smooth}</span>
+                      Edge smoothing <span className="text-muted-foreground">{smooth}</span>
                     </span>
-                    <input type="range" min={0} max={5} value={smooth} onChange={(e) => setSmooth(+e.target.value)} className={rangeClass} />
+                    <input type="range" min={0} max={4} step={1} value={smooth} onChange={(e) => setSmooth(+e.target.value)} className={rangeClass} />
                   </label>
                   <label className="block space-y-1">
                     <span className="flex justify-between font-medium text-foreground">
                       Working size (long edge) <span className="text-muted-foreground">{maxEdge}px</span>
                     </span>
-                    <input type="range" min={400} max={2000} step={100} value={maxEdge} onChange={(e) => setMaxEdge(+e.target.value)} className={rangeClass} />
+                    <input type="range" min={800} max={3000} step={100} value={maxEdge} onChange={(e) => setMaxEdge(+e.target.value)} className={rangeClass} />
                   </label>
-                  <label className="flex items-center gap-2 font-medium text-foreground">
-                    <input type="checkbox" checked={removeWhite} onChange={(e) => setRemoveWhite(e.target.checked)} />
-                    Remove white background
-                  </label>
-                  {removeWhite && (
-                    <label className="block space-y-1">
-                      <span className="flex justify-between font-medium text-foreground">
-                        White tolerance <span className="text-muted-foreground">{whiteTolerance}</span>
-                      </span>
-                      <input type="range" min={0} max={60} value={whiteTolerance} onChange={(e) => setWhiteTolerance(+e.target.value)} className={rangeClass} />
-                    </label>
-                  )}
                 </div>
               )}
 
               <label className="flex items-center gap-2 text-xs font-medium text-foreground">
-                <input type="checkbox" checked={seamless} onChange={(e) => setSeamless(e.target.checked)} />
-                Seamless edges (no thin gaps between shapes)
+                <input type="checkbox" checked={transparentBg} onChange={(e) => setTransparentBg(e.target.checked)} />
+                Transparent background (remove the outer background)
               </label>
 
               <button
@@ -494,7 +475,7 @@ export default function VectorizerPage() {
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 disabled:opacity-60"
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                {busy ? "Tracing..." : "Vectorize again"}
+                {busy ? "Analyzing deeply..." : "Vectorize again"}
               </button>
             </div>
 
@@ -540,7 +521,12 @@ export default function VectorizerPage() {
               >
                 {busy && (
                   <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 text-xs font-semibold text-foreground">
-                    <Loader2 className="h-6 w-6 animate-spin text-primary" /> Tracing your image...
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" /> {progress ? progress.message : "Tracing your image..."}
+                    {progress && (
+                      <div className="w-40 h-1.5 rounded-full bg-black/10 overflow-hidden">
+                        <div className="h-full bg-primary transition-all" style={{ width: `${Math.round(progress.fraction * 100)}%` }} />
+                      </div>
+                    )}
                   </div>
                 )}
                 {svgUrl && !busy && (
@@ -583,8 +569,8 @@ export default function VectorizerPage() {
         </div>
         <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-0.5">
           <li>Too many shapes? Lower the colors, or raise &quot;Remove small specks&quot;.</li>
-          <li>Edges look rough? Raise the detail, or use a bigger working size.</li>
-          <li>White box around your logo? Turn on &quot;Remove white background&quot; in Manual mode.</li>
+          <li>Edges look rough? Raise &quot;Edge smoothing&quot;. Lost a tiny detail? Lower it, or lower &quot;Remove small specks&quot;.</li><li>Shades of one color split into patches? Raise &quot;Merge similar colors&quot;.</li>
+          <li>Want a see-through background? Keep &quot;Transparent background&quot; ticked. Turn it off to keep the white.</li>
           <li>Always check the SVG before you sell it, and only trace images you have the right to use.</li>
         </ul>
       </div>

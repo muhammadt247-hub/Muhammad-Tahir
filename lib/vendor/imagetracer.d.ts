@@ -23,6 +23,7 @@ export interface TracerOptions {
   desc?: boolean;
   blurradius?: number;
   blurdelta?: number;
+  pal?: { r: number; g: number; b: number; a: number }[];
 }
 
 declare const ImageTracer: {
