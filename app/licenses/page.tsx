@@ -59,6 +59,31 @@ export default function ThirdPartyLicensesPage() {
         <div className="glass-card rounded-2xl border border-border/50 p-6 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-bold text-base text-foreground">
+              ImageTracer.js
+            </h2>
+            <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-mono font-bold">
+              Unlicense (Public Domain)
+            </span>
+          </div>
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            Raster image tracing library used by the Image to SVG Vectorizer. It runs in your browser.
+          </p>
+          <div className="pt-2 flex items-center gap-4 text-xs font-medium">
+            <span className="text-muted-foreground">By András Jankovics</span>
+            <a
+              href="https://github.com/jankovicsandras/imagetracerjs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Source Repository <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        </div>
+
+        <div className="glass-card rounded-2xl border border-border/50 p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-bold text-base text-foreground">
               pdfjs-dist
             </h2>
             <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-mono font-bold">

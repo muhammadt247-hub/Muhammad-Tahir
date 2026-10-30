@@ -58,10 +58,11 @@ export const TOOLS_REGISTRY: ToolRegistryItem[] = [
     id: 'svg-vectorizer',
     name: 'Image to SVG Vectorizer',
     description: 'Turn raster images into clean, scalable vectors.',
+    href: '/tools/vectorizer',
     iconName: 'Shapes',
     tag: 'Convert & Prepare',
-    badge: 'UPCOMING',
-    status: 'soon',
+    badge: 'NEW',
+    status: 'live',
   },
   {
     id: 'prompt-engine',
