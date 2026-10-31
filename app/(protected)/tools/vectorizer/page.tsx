@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
   Download,
@@ -12,6 +12,12 @@ import {
   X,
   RefreshCw,
   Info,
+  Play,
+  Square,
+  Trash2,
+  Plus,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { PipelineSettings } from "@/lib/vectorize/pipeline";
@@ -19,6 +25,7 @@ import type { VectorizeMessage } from "@/workers/vectorize.worker";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_MB = 25;
+const MAX_BATCH = 500;
 
 type Mode = "auto" | "manual";
 type Preset = "lineart" | "flat" | "illustration" | "detailed";
@@ -86,6 +93,120 @@ function detectPreset(data: Uint8ClampedArray, pixelCount: number): Preset {
   return "detailed";
 }
 
+
+type BatchItem = {
+  id: number;
+  file: File;
+  status: "waiting" | "working" | "done" | "error";
+  svg?: string;
+  paths?: number;
+  preset?: Preset;
+  ms?: number;
+  error?: string;
+};
+
+// ---- Our own small ZIP maker (no extra library needed) ----
+const crcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(d: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < d.length; i++) c = crcTable[(c ^ d[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+async function deflateRaw(data: Uint8Array): Promise<Uint8Array | null> {
+  if (typeof CompressionStream === "undefined") return null;
+  try {
+    const stream = new Blob([data.slice().buffer]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+async function makeZip(entries: { name: string; text: string }[]): Promise<Blob> {
+  const enc = new TextEncoder();
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const parts: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const bytes = enc.encode(e.text);
+    const crc = crc32(bytes);
+    const packed = await deflateRaw(bytes);
+    const useDeflate = !!packed && packed.length < bytes.length;
+    const payload = useDeflate ? (packed as Uint8Array) : bytes;
+    const method = useDeflate ? 8 : 0;
+
+    const lh = new Uint8Array(30 + name.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);
+    lv.setUint16(8, method, true);
+    lv.setUint16(10, dosTime, true);
+    lv.setUint16(12, dosDate, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, payload.length, true);
+    lv.setUint32(22, bytes.length, true);
+    lv.setUint16(26, name.length, true);
+    lv.setUint16(28, 0, true);
+    lh.set(name, 30);
+    parts.push(lh, payload);
+
+    const ch = new Uint8Array(46 + name.length);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, method, true);
+    cv.setUint16(12, dosTime, true);
+    cv.setUint16(14, dosDate, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, payload.length, true);
+    cv.setUint32(24, bytes.length, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint32(42, offset, true);
+    ch.set(name, 46);
+    central.push(ch);
+    offset += lh.length + payload.length;
+  }
+  let centralSize = 0;
+  for (const c of central) centralSize += c.length;
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, entries.length, true);
+  ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+  const all = [...parts, ...central, end].map((u) => u.slice().buffer);
+  return new Blob(all, { type: "application/zip" });
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 type Source = {
   file: File;
   url: string;
@@ -117,6 +238,19 @@ export default function VectorizerPage() {
   const [stats, setStats] = useState<{ paths: number; bytes: number; ms: number } | null>(null);
   const [dragging, setDragging] = useState(false);
 
+  // Many images at once
+  const [batch, setBatch] = useState<BatchItem[]>([]);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ message: string; fraction: number } | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [zipping, setZipping] = useState(false);
+  const batchRef = useRef<BatchItem[]>([]);
+  batchRef.current = batch;
+  const nextId = useRef(1);
+  const cancelRef = useRef(false);
+  const batchWorkerRef = useRef<Worker | null>(null);
+  const rejectRef = useRef<((e: Error) => void) | null>(null);
+
   const workerRef = useRef<Worker | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sourceRef = useRef<Source | null>(null);
@@ -132,6 +266,13 @@ export default function VectorizerPage() {
   useEffect(() => {
     return () => stopWorker();
   }, [stopWorker]);
+
+  useEffect(() => {
+    return () => {
+      cancelRef.current = true;
+      batchWorkerRef.current?.terminate();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -273,6 +414,192 @@ export default function VectorizerPage() {
     }
   };
 
+  const patchItem = (id: number, patch: Partial<BatchItem>) => {
+    setBatch((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  };
+
+  const handleFiles = (list: FileList | null | undefined) => {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+    const good: File[] = [];
+    let skipped = 0;
+    for (const f of files) {
+      if (!ALLOWED.includes(f.type) || f.size > MAX_FILE_MB * 1024 * 1024) skipped++;
+      else good.push(f);
+    }
+    if (skipped) toast.error(`${skipped} file(s) skipped. Use JPG, PNG or WebP, up to ${MAX_FILE_MB} MB each.`);
+    if (!good.length) return;
+    if (batchRef.current.length === 0 && good.length === 1) {
+      void loadFile(good[0]);
+      return;
+    }
+    const room = MAX_BATCH - batchRef.current.length;
+    if (good.length > room) toast.error(`Only ${MAX_BATCH} images can be in one batch. Extra images were left out.`);
+    const added: BatchItem[] = good.slice(0, Math.max(0, room)).map((file) => ({
+      id: nextId.current++,
+      file,
+      status: "waiting" as const,
+    }));
+    if (added.length) setBatch((prev) => [...prev, ...added]);
+  };
+
+  // Trace one file (used by the batch). Returns the SVG text.
+  const traceFile = async (file: File, onProgress: (message: string, fraction: number) => void) => {
+    const started = performance.now();
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const origW = bmp.width;
+    const origH = bmp.height;
+    const edge = mode === "manual" ? maxEdge : 2400;
+    const scale = Math.min(1, edge / Math.max(origW, origH));
+    const w = Math.max(1, Math.round(origW * scale));
+    const h = Math.max(1, Math.round(origH * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new Error("Your browser could not prepare the image.");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+    const imageData = ctx.getImageData(0, 0, w, h);
+    canvas.width = 1;
+    canvas.height = 1;
+
+    let usedPreset: Preset = preset;
+    if (mode === "auto") usedPreset = detectPreset(imageData.data, w * h);
+    const settings = buildSettings(usedPreset);
+
+    const worker = new Worker(new URL("../../../../workers/vectorize.worker.ts", import.meta.url), {
+      type: "module",
+    });
+    batchWorkerRef.current = worker;
+    const id = String(Date.now());
+    try {
+      const result = await new Promise<{ svg: string; paths: number }>((resolve, reject) => {
+        rejectRef.current = reject;
+        const timer = window.setTimeout(() => {
+          reject(new Error("This image took too long. Try a smaller working size or fewer colors."));
+        }, 300000);
+        worker.onmessage = (ev: MessageEvent<VectorizeMessage>) => {
+          const msg = ev.data;
+          if (msg.type === "progress") {
+            onProgress(msg.message, msg.fraction);
+          } else if (msg.type === "done") {
+            window.clearTimeout(timer);
+            resolve({ svg: msg.svg, paths: msg.paths });
+          } else {
+            window.clearTimeout(timer);
+            reject(new Error(msg.error || "Vectorizing failed."));
+          }
+        };
+        worker.onerror = () => {
+          window.clearTimeout(timer);
+          reject(new Error("The vectorizer could not start. Please refresh the page."));
+        };
+        worker.postMessage({ id, width: w, height: h, buffer: imageData.data.buffer, settings }, [imageData.data.buffer]);
+      });
+      const svg = result.svg.replace("<svg ", `<svg width="${origW}" height="${origH}" `);
+      return { svg, paths: result.paths, preset: usedPreset, ms: Math.round(performance.now() - started) };
+    } finally {
+      worker.terminate();
+      batchWorkerRef.current = null;
+      rejectRef.current = null;
+    }
+  };
+
+  const startBatch = async () => {
+    if (batchRunning) return;
+    cancelRef.current = false;
+    setBatchRunning(true);
+    const todo = batchRef.current.filter((it) => it.status === "waiting");
+    for (const item of todo) {
+      if (cancelRef.current) break;
+      patchItem(item.id, { status: "working", error: undefined });
+      setBatchProgress({ message: "Reading the image...", fraction: 0.02 });
+      try {
+        const r = await traceFile(item.file, (message, fraction) => setBatchProgress({ message, fraction }));
+        patchItem(item.id, { status: "done", svg: r.svg, paths: r.paths, preset: r.preset, ms: r.ms });
+      } catch (err) {
+        if (cancelRef.current) patchItem(item.id, { status: "waiting" });
+        else patchItem(item.id, { status: "error", error: err instanceof Error ? err.message : "Vectorizing failed." });
+      }
+    }
+    setBatchRunning(false);
+    setBatchProgress(null);
+  };
+
+  const stopBatch = () => {
+    cancelRef.current = true;
+    batchWorkerRef.current?.terminate();
+    rejectRef.current?.(new Error("Stopped."));
+  };
+
+  const retryFailed = () => {
+    setBatch((prev) => prev.map((it) => (it.status === "error" ? { ...it, status: "waiting" as const, error: undefined } : it)));
+  };
+
+  const clearBatch = () => {
+    if (batchRunning) return;
+    setBatch([]);
+    setSelectedId(null);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  const downloadItem = (item: BatchItem) => {
+    if (!item.svg) return;
+    saveBlob(new Blob([item.svg], { type: "image/svg+xml" }), `${baseName(item.file.name)}-vector.svg`);
+  };
+
+  const downloadZip = async () => {
+    const done = batchRef.current.filter((it) => it.status === "done" && it.svg);
+    if (!done.length) return;
+    setZipping(true);
+    try {
+      const used = new Map<string, number>();
+      const entries = done.map((it) => {
+        const base = `${baseName(it.file.name)}-vector`;
+        const n = (used.get(base) || 0) + 1;
+        used.set(base, n);
+        return { name: n === 1 ? `${base}.svg` : `${base}-${n}.svg`, text: it.svg as string };
+      });
+      const blob = await makeZip(entries);
+      saveBlob(blob, "vectorized-svgs.zip");
+    } catch {
+      toast.error("Could not make the ZIP file. Please try again, or download the files one by one.");
+    } finally {
+      setZipping(false);
+    }
+  };
+
+  const selected = batch.find((it) => it.id === selectedId) || null;
+  const selectedSvg = selected?.svg;
+  const selectedFile = selected?.file;
+  const selSvgUrl = useMemo(
+    () => (selectedSvg ? URL.createObjectURL(new Blob([selectedSvg], { type: "image/svg+xml" })) : null),
+    [selectedSvg]
+  );
+  const selOrigUrl = useMemo(() => (selectedFile ? URL.createObjectURL(selectedFile) : null), [selectedFile]);
+  useEffect(() => {
+    return () => {
+      if (selSvgUrl) URL.revokeObjectURL(selSvgUrl);
+    };
+  }, [selSvgUrl]);
+  useEffect(() => {
+    return () => {
+      if (selOrigUrl) URL.revokeObjectURL(selOrigUrl);
+    };
+  }, [selOrigUrl]);
+
+  const doneCount = batch.filter((it) => it.status === "done").length;
+  const errorCount = batch.filter((it) => it.status === "error").length;
+  const waitingCount = batch.filter((it) => it.status === "waiting").length;
+  const workingItem = batch.find((it) => it.status === "working") || null;
+  const finishedCount = doneCount + errorCount;
+  const msList = batch.filter((it) => it.status === "done" && it.ms).map((it) => it.ms as number);
+  const avgMs = msList.length ? msList.reduce((a, b) => a + b, 0) / msList.length : 0;
+  const leftCount = waitingCount + (workingItem ? 1 : 0);
+  const etaMinutes = avgMs && leftCount ? Math.max(1, Math.round((avgMs * leftCount) / 60000)) : 0;
+
   const reset = () => {
     stopWorker();
     setBusy(false);
@@ -305,74 +632,8 @@ export default function VectorizerPage() {
 
   const rangeClass = "w-full accent-[#D9560B]";
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Image → SVG Vectorizer</h1>
-        <p className="text-sm text-muted-foreground">
-          Turn a logo, icon or illustration into a clean, scalable SVG. It studies the colors first, so it can take a few seconds. It runs in your browser. Your image is not uploaded and no credits are used.
-        </p>
-      </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        className="hidden"
-        onChange={(e) => void loadFile(e.target.files?.[0])}
-      />
-
-      {!source ? (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            void loadFile(e.dataTransfer.files?.[0]);
-          }}
-          onClick={() => inputRef.current?.click()}
-          className={`cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-colors ${
-            dragging ? "border-primary bg-primary/5" : "border-border/60 bg-card/60 hover:bg-accent/40"
-          }`}
-        >
-          <Upload className="h-8 w-8 mx-auto text-primary" />
-          <p className="mt-3 text-sm font-semibold text-foreground">
-            Drag and drop an image, or <span className="underline">browse</span>
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">JPG, PNG or WebP. Up to {MAX_FILE_MB} MB.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-          {/* Controls */}
-          <div className="space-y-4">
-            <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold text-foreground truncate">{source.file.name}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {source.width} × {source.height} px · {formatBytes(source.file.size)}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={reset}
-                  className="shrink-0 h-8 w-8 rounded-lg border border-border/60 flex items-center justify-center hover:bg-accent"
-                  aria-label="Remove image"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4">
-              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                <SlidersHorizontal className="h-3.5 w-3.5" /> Tracing controls
-              </div>
-
+  const settingsFields = (isBatch: boolean) => (
+    <>
               <div className="grid grid-cols-2 gap-1.5">
                 {(["auto", "manual"] as const).map((m) => (
                   <button
@@ -393,9 +654,11 @@ export default function VectorizerPage() {
               {mode === "auto" ? (
                 <div className="space-y-3">
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Auto looks at your image and picks the best settings. You can switch the style below.
+                    {isBatch
+                      ? "Auto looks at each image and picks the best settings for it."
+                      : "Auto looks at your image and picks the best settings. You can switch the style below."}
                   </p>
-                  {autoPreset && (
+                  {!isBatch && autoPreset && (
                     <div className="rounded-xl bg-primary/10 border border-primary/20 p-3 text-xs">
                       <div className="font-semibold text-foreground flex items-center gap-1.5">
                         <Sparkles className="h-3.5 w-3.5 text-primary" /> Detected: {PRESET_INFO[autoPreset].label}
@@ -403,7 +666,7 @@ export default function VectorizerPage() {
                       <div className="text-muted-foreground mt-0.5">{PRESET_INFO[autoPreset].hint}</div>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className={isBatch ? "hidden" : "grid grid-cols-2 gap-1.5"}>
                     {(Object.keys(PRESET_INFO) as Preset[]).map((p) => (
                       <button
                         key={p}
@@ -475,6 +738,253 @@ export default function VectorizerPage() {
                 <input type="checkbox" checked={transparentBg} onChange={(e) => setTransparentBg(e.target.checked)} />
                 Transparent background (remove the outer background)
               </label>
+    </>
+  );
+
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Image → SVG Vectorizer</h1>
+        <p className="text-sm text-muted-foreground">
+          Turn a logo, icon or illustration into a clean, scalable SVG. You can add one image or hundreds. It studies the colors first, so each image takes a few seconds. It runs in your browser. Your images are not uploaded and no credits are used.
+        </p>
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      {batch.length > 0 ? (
+        <div className="space-y-6">
+          <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-foreground">{batch.length} images</div>
+                <div className="text-xs text-muted-foreground">
+                  {doneCount} done · {errorCount} failed · {leftCount} left
+                  {batchRunning && etaMinutes > 0 ? ` · about ${etaMinutes} min to go` : ""}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {batchRunning ? (
+                  <button
+                    type="button"
+                    onClick={stopBatch}
+                    className="inline-flex items-center gap-2 rounded-xl bg-destructive text-white px-4 py-2 text-sm font-semibold hover:opacity-90"
+                  >
+                    <Square className="h-4 w-4" /> Stop
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={waitingCount === 0}
+                    onClick={() => void startBatch()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Play className="h-4 w-4" /> {finishedCount > 0 ? "Continue" : "Start vectorizing all"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={doneCount === 0 || zipping}
+                  onClick={() => void downloadZip()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Download all (ZIP){doneCount > 0 ? ` · ${doneCount}` : ""}
+                </button>
+                {errorCount > 0 && !batchRunning && (
+                  <button
+                    type="button"
+                    onClick={retryFailed}
+                    className="inline-flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-xs font-semibold hover:bg-accent"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" /> Retry failed
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={batchRunning}
+                  onClick={() => inputRef.current?.click()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-xs font-semibold hover:bg-accent disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add more
+                </button>
+                <button
+                  type="button"
+                  disabled={batchRunning}
+                  onClick={clearBatch}
+                  className="inline-flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-xs font-semibold hover:bg-accent disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Clear all
+                </button>
+              </div>
+            </div>
+            <div className="h-2 rounded-full bg-black/10 overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${Math.round((finishedCount / batch.length) * 100)}%` }}
+              />
+            </div>
+            {batchRunning && workingItem && (
+              <p className="text-xs text-muted-foreground">
+                Now: <span className="font-semibold text-foreground">{workingItem.file.name}</span>
+                {batchProgress ? ` · ${batchProgress.message}` : ""}
+              </p>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Keep this tab open while it works. Images are done one by one, so your computer stays usable.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+            <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4 self-start">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <SlidersHorizontal className="h-3.5 w-3.5" /> Settings for all images
+              </div>
+              <fieldset disabled={batchRunning} className="min-w-0 border-0 p-0 m-0 space-y-4">
+                {settingsFields(true)}
+              </fieldset>
+            </div>
+
+            <div className="space-y-4 min-w-0">
+              <div className="glass-card rounded-2xl border border-border/50 p-2 max-h-[420px] overflow-auto">
+                {batch.map((it) => (
+                  <div
+                    key={it.id}
+                    onClick={() => setSelectedId(it.id)}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2 text-xs cursor-pointer ${
+                      selectedId === it.id ? "bg-primary/10" : "hover:bg-accent/50"
+                    }`}
+                  >
+                    <span className="shrink-0 w-5 flex justify-center">
+                      {it.status === "done" && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                      {it.status === "working" && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                      {it.status === "waiting" && <Clock className="h-4 w-4 text-muted-foreground" />}
+                      {it.status === "error" && <AlertCircle className="h-4 w-4 text-destructive" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-foreground">{it.file.name}</span>
+                      <span className="block text-[11px] text-muted-foreground truncate">
+                        {it.status === "done" &&
+                          `${it.preset ? PRESET_INFO[it.preset].label + " · " : ""}${it.paths} shapes · ${formatBytes(
+                            new Blob([it.svg || ""]).size
+                          )} · ${((it.ms || 0) / 1000).toFixed(1)}s`}
+                        {it.status === "working" && "Working..."}
+                        {it.status === "waiting" && `Waiting · ${formatBytes(it.file.size)}`}
+                        {it.status === "error" && (it.error || "Failed")}
+                      </span>
+                    </span>
+                    {it.status === "done" && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadItem(it);
+                        }}
+                        className="shrink-0 h-8 w-8 rounded-lg border border-border/60 flex items-center justify-center hover:bg-accent"
+                        aria-label="Download this SVG"
+                      >
+                        <Download className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {selected && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-2">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Original</div>
+                    <div className="rounded-xl overflow-hidden border border-border/50 aspect-square flex items-center justify-center bg-white">
+                      {selOrigUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={selOrigUrl} alt="Original" className="max-h-full max-w-full object-contain" />
+                      )}
+                    </div>
+                  </div>
+                  <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-2">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">SVG result</div>
+                    <div
+                      className="rounded-xl overflow-hidden border border-border/50 aspect-square flex items-center justify-center"
+                      style={checkerStyle}
+                    >
+                      {selSvgUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={selSvgUrl} alt="SVG result" className="max-h-full max-w-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-muted-foreground bg-white/80 rounded-lg px-3 py-2">Not done yet</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : !source ? (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            handleFiles(e.dataTransfer.files);
+          }}
+          onClick={() => inputRef.current?.click()}
+          className={`cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-colors ${
+            dragging ? "border-primary bg-primary/5" : "border-border/60 bg-card/60 hover:bg-accent/40"
+          }`}
+        >
+          <Upload className="h-8 w-8 mx-auto text-primary" />
+          <p className="mt-3 text-sm font-semibold text-foreground">
+            Drag and drop images, or <span className="underline">browse</span>
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            JPG, PNG or WebP. Up to {MAX_FILE_MB} MB each. Choose many at once for a bulk batch (up to {MAX_BATCH}).
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+          {/* Controls */}
+          <div className="space-y-4">
+            <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-foreground truncate">{source.file.name}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {source.width} × {source.height} px · {formatBytes(source.file.size)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="shrink-0 h-8 w-8 rounded-lg border border-border/60 flex items-center justify-center hover:bg-accent"
+                  aria-label="Remove image"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-4">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                <SlidersHorizontal className="h-3.5 w-3.5" /> Tracing controls
+              </div>
+
+              {settingsFields(false)}
 
               <button
                 type="button"
