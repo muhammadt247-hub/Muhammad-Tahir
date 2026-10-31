@@ -1,4 +1,4 @@
-// Our own edge finding and curve fitting.
+// Our own edge finding and curve fitting. ok.
 // 1) Marching squares finds the exact (sub-pixel) edge of a smooth 0..1 field.
 // 2) Schneider-style least-squares fitting turns the edge points into smooth cubic Bezier curves.
 // Written from the published, well-known methods (marching squares; "An Algorithm for
