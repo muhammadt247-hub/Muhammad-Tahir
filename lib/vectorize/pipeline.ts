@@ -1,14 +1,15 @@
 // Our own "deep analysis" vectorizing pipeline.
 // Steps: find the real colors -> snap every pixel to them -> smooth the shape edges
-// -> trace each color with ImageTracer -> clean up the SVG text.
-import ImageTracer from '../vendor/imagetracer';
+// -> find the exact edge of every color layer -> fit smooth Bezier curves.
+import { ContourScratch, findLoops, loopArea, loopToPath } from './curves';
 
 export interface PipelineSettings {
   maxColors: number; // 2..64 most colors we will look for
   mergeDistance: number; // 0..60 colors closer than this are treated as one
   smoothRadius: number; // 0..6 edge smoothing (pixels at working size)
-  curveTolerance: number; // 0.3..3 bigger = smoother, simpler curves
-  minArea: number; // remove specks smaller than this (pixels)
+  curveTolerance: number; // 0.2..2 pixels: how far a curve may drift from the true edge
+  minArea: number; // remove shapes smaller than this (square pixels)
+  thinWidth: number; // 0..8 thin lines and halos narrower than this (pixels) are removed
   removeBackground: boolean;
   deep: boolean; // more careful (slower) color search
 }
@@ -28,6 +29,26 @@ function dist2(a: RGB, r: number, g: number, b: number) {
   const dg = a[1] - g;
   const db = a[2] - b;
   return dr * dr + dg * dg + db * db;
+}
+
+
+// Perceptual color distance: two colors with a distance under ~18 look like "the same color,
+// just a different shade". Distinct design colors are usually 30 or more apart.
+function toLab(r: number, g: number, b: number): [number, number, number] {
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const R = lin(r), G = lin(g), B = lin(b);
+  const x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+  const y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+  const z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+function labDistance(a: [number, number, number], b: [number, number, number]) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
 // Simple repeatable random numbers so results do not change between runs.
@@ -118,24 +139,19 @@ function findPalette(
   // Sort biggest first, then merge colors that are too close to a bigger one
   const order = centers.map((c, i) => ({ c, n: counts[i] })).filter((e) => e.n > 0);
   order.sort((a, b) => b.n - a.n);
-  const kept: { c: RGB; n: number }[] = [];
-  // Colors closer than the merge distance are one color. Very light colors (pale blue
-  // next to white) are the exception: they are real design colors, so they stay apart.
-  const farSq = mergeDistance * mergeDistance;
-  const lightSq = Math.min(mergeDistance, 12) * Math.min(mergeDistance, 12);
-  const isLight = (c: RGB) => Math.min(c[0], c[1], c[2]) >= 215;
+  // Colors that look like the same color in a different shade become one color.
+  const kept: { c: RGB; n: number; lab: [number, number, number] }[] = [];
   for (const e of order) {
+    const lab = toLab(e.c[0], e.c[1], e.c[2]);
     let merged = false;
     for (const big of kept) {
-      // a big light color is a real design color; a tiny one is just noise next to white
-      const mergeSq = (isLight(big.c) || isLight(e.c)) && e.n / n >= 0.006 ? lightSq : farSq;
-      if (dist2(big.c, e.c[0], e.c[1], e.c[2]) <= mergeSq) {
+      if (labDistance(big.lab, lab) <= mergeDistance) {
         big.n += e.n;
         merged = true;
         break;
       }
     }
-    if (!merged) kept.push({ c: e.c, n: e.n });
+    if (!merged) kept.push({ c: e.c, n: e.n, lab });
   }
   // Drop colors that are only a tiny blur of edge pixels
   const minShare = 0.0004;
@@ -208,48 +224,69 @@ function boxBlur(src: Float32Array, tmp: Float32Array, w: number, h: number, r: 
   }
 }
 
-// Smooth the shape edges: blur every color's mask, then give each pixel to the color
-// with the highest value. This removes jagged steps and thin color fringes.
-function smoothLabels(
+// Remove thin lines and halos (the blurry band between two colors). Every pixel that is
+// not part of a wide-enough shape is given to the nearest wide shape.
+function removeThin(labels: Uint8Array, w: number, h: number, labelCount: number, radius: number) {
+  const total = w * h;
+  const field = new Float32Array(total);
+  const tmp = new Float32Array(total);
+  const lost = new Uint8Array(total);
+  const counts = new Float64Array(labelCount);
+  for (let p = 0; p < total; p++) counts[labels[p]]++;
+  for (let c = 0; c < labelCount; c++) {
+    if (counts[c] === 0) continue;
+    for (let p = 0; p < total; p++) field[p] = labels[p] === c ? 1 : 0;
+    boxBlur(field, tmp, w, h, radius); // erode: keep only pixels whose whole neighbourhood is c
+    for (let p = 0; p < total; p++) field[p] = field[p] >= 0.9999 ? 1 : 0;
+    boxBlur(field, tmp, w, h, radius); // dilate back
+    for (let p = 0; p < total; p++) {
+      if (labels[p] === c && field[p] < 0.0001) lost[p] = 1;
+    }
+  }
+  // grow the wide shapes into the lost pixels (nearest wide shape wins)
+  const queue = new Int32Array(total);
+  let head = 0;
+  let tail = 0;
+  const near = (p: number, q: number) => {
+    if (lost[q]) lost[p] = lost[p]; // no-op, keeps the helper tiny
+  };
+  void near;
+  for (let p = 0; p < total; p++) {
+    if (lost[p]) continue;
+    const x = p % w;
+    const y = (p - x) / w;
+    if ((x > 0 && lost[p - 1]) || (x < w - 1 && lost[p + 1]) || (y > 0 && lost[p - w]) || (y < h - 1 && lost[p + w])) {
+      queue[tail++] = p;
+    }
+  }
+  while (head < tail) {
+    const p = queue[head++];
+    const l = labels[p];
+    const x = p % w;
+    const y = (p - x) / w;
+    const visit = (q: number) => {
+      if (lost[q]) {
+        lost[q] = 0;
+        labels[q] = l;
+        queue[tail++] = q;
+      }
+    };
+    if (x > 0) visit(p - 1);
+    if (x < w - 1) visit(p + 1);
+    if (y > 0) visit(p - w);
+    if (y < h - 1) visit(p + w);
+  }
+}
+
+// Find the background: the main color along the picture border. Only WIDE background
+// areas count. Thin white lines that join the inside of the artwork to the outside
+// (like circuit lines) are kept, so white rings do not turn see-through.
+function markBackground(
   labels: Uint8Array,
   w: number,
   h: number,
-  colorCount: number,
-  radius: number,
-  onStep?: (i: number) => void
-): Uint8Array {
-  if (radius <= 0) return labels;
-  const total = w * h;
-  const blurR = Math.max(1, Math.round(radius * 0.75));
-  const out = new Uint8Array(total);
-  const best = new Float32Array(total).fill(-1);
-  const mask = new Float32Array(total);
-  const tmp = new Float32Array(total);
-  for (let c = 0; c < colorCount; c++) {
-    let any = false;
-    for (let p = 0; p < total; p++) {
-      const v = labels[p] === c ? 1 : 0;
-      mask[p] = v;
-      if (v) any = true;
-    }
-    if (!any) continue;
-    // three gentle passes give a round (almost Gaussian) blur, so circles stay round
-    boxBlur(mask, tmp, w, h, blurR);
-    boxBlur(mask, tmp, w, h, blurR);
-    boxBlur(mask, tmp, w, h, blurR);
-    for (let p = 0; p < total; p++) {
-      if (mask[p] > best[p]) {
-        best[p] = mask[p];
-        out[p] = c;
-      }
-    }
-    onStep?.(c);
-  }
-  return out;
-}
-
-// Find the background: the main color along the picture border, joined to the border.
-function markBackground(labels: Uint8Array, w: number, h: number, colorCount: number): number {
+  colorCount: number
+): { mark: number; bg: number } {
   const edgeCounts = new Float64Array(colorCount);
   let edgeTotal = 0;
   const addEdge = (p: number) => {
@@ -266,35 +303,70 @@ function markBackground(labels: Uint8Array, w: number, h: number, colorCount: nu
   }
   let bg = 0;
   for (let c = 1; c < colorCount; c++) if (edgeCounts[c] > edgeCounts[bg]) bg = c;
-  if (edgeCounts[bg] / edgeTotal < 0.5) return -1;
+  if (edgeCounts[bg] / edgeTotal < 0.5) return { mark: -1, bg: -1 };
 
-  // flood fill from the border through background-colored pixels, mark them as "colorCount"
-  const mark = colorCount; // special label
-  const stack: number[] = [];
-  const push = (p: number) => {
-    if (labels[p] === bg) {
-      labels[p] = mark;
+  const total = w * h;
+  const R = 6; // channels narrower than about 13 pixels do not count as open background
+  const field = new Float32Array(total);
+  const tmp = new Float32Array(total);
+  for (let p = 0; p < total; p++) field[p] = labels[p] === bg ? 1 : 0;
+  boxBlur(field, tmp, w, h, R);
+  const core = new Uint8Array(total); // wide background
+  for (let p = 0; p < total; p++) core[p] = field[p] >= 0.9999 ? 1 : 0;
+
+  // flood fill the wide background from the picture border
+  const open = new Uint8Array(total);
+  let stack: number[] = [];
+  const seed = (p: number) => {
+    if (core[p] && !open[p]) {
+      open[p] = 1;
       stack.push(p);
     }
   };
   for (let x = 0; x < w; x++) {
-    push(x);
-    push((h - 1) * w + x);
+    seed(x);
+    seed((h - 1) * w + x);
   }
   for (let y = 0; y < h; y++) {
-    push(y * w);
-    push(y * w + w - 1);
+    seed(y * w);
+    seed(y * w + w - 1);
   }
   while (stack.length) {
     const p = stack.pop() as number;
     const x = p % w;
     const y = (p - x) / w;
-    if (x > 0) push(p - 1);
-    if (x < w - 1) push(p + 1);
-    if (y > 0) push(p - w);
-    if (y < h - 1) push(p + w);
+    if (x > 0) seed(p - 1);
+    if (x < w - 1) seed(p + 1);
+    if (y > 0) seed(p - w);
+    if (y < h - 1) seed(p + w);
   }
-  return mark;
+
+  // grow back out to the real background edge (undo the shrinking), only over background pixels
+  let frontier: number[] = [];
+  for (let p = 0; p < total; p++) if (open[p]) frontier.push(p);
+  for (let step = 0; step < R + 2 && frontier.length; step++) {
+    const next: number[] = [];
+    for (const p of frontier) {
+      const x = p % w;
+      const y = (p - x) / w;
+      const grow = (q: number) => {
+        if (!open[q] && labels[q] === bg) {
+          open[q] = 1;
+          next.push(q);
+        }
+      };
+      if (x > 0) grow(p - 1);
+      if (x < w - 1) grow(p + 1);
+      if (y > 0) grow(p - w);
+      if (y < h - 1) grow(p + w);
+    }
+    frontier = next;
+  }
+  stack = [];
+
+  const mark = colorCount; // special label for "removed background"
+  for (let p = 0; p < total; p++) if (open[p]) labels[p] = mark;
+  return { mark, bg };
 }
 
 function hex(n: number) {
@@ -322,88 +394,177 @@ export function runPipeline(
     }
   }
 
-  progress('Finding the real colors...', 0.08);
+  progress('Finding the real colors...', 0.06);
   const palette = findPalette(rgba, w, h, s.maxColors, s.mergeDistance, s.deep);
+  const K = palette.length;
 
-  progress('Matching every pixel to a color...', 0.25);
-  const labels0 = nearestLabels(rgba, total, palette);
+  progress('Matching every pixel to a color...', 0.18);
+  const labels = nearestLabels(rgba, total, palette);
 
-  progress('Smoothing the edges...', 0.4);
-  const labels = smoothLabels(labels0, w, h, palette.length, Math.round(s.smoothRadius), (c) =>
-    progress('Smoothing the edges...', 0.4 + (0.3 * (c + 1)) / palette.length)
-  );
-
-  // Which colors are really used
-  const used = new Int32Array(palette.length + 1);
-  for (let p = 0; p < total; p++) used[labels[p]]++;
+  if (s.thinWidth > 0) {
+    progress('Removing thin lines and halos...', 0.22);
+    removeThin(labels, w, h, K, Math.max(1, Math.round(s.thinWidth / 2)));
+  }
 
   let bgMark = -1;
-  if (s.removeBackground) bgMark = markBackground(labels, w, h, palette.length);
+  let bgIndex = -1;
+  if (s.removeBackground) {
+    const found = markBackground(labels, w, h, K); // background pixels get label K
+    bgMark = found.mark;
+    bgIndex = found.bg;
+  }
 
-  // Placeholder color for the removed background (a color not in the palette)
-  const candidates: RGB[] = [[255, 0, 255], [0, 255, 0], [0, 255, 255], [255, 255, 0]];
-  let placeholder: RGB = candidates[0];
-  let farthest = -1;
-  for (const cand of candidates) {
+  // True color of each shape = average of its inside pixels (not the blurry edge pixels)
+  progress('Measuring the true colors...', 0.26);
+  const sums = new Float64Array((K + 1) * 3);
+  const cnt = new Float64Array(K + 1);
+  const area = new Float64Array(K + 1);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      const l = labels[p];
+      area[l]++;
+      if (l >= K || x === 0 || y === 0 || x === w - 1 || y === h - 1) continue;
+      if (labels[p - 1] !== l || labels[p + 1] !== l || labels[p - w] !== l || labels[p + w] !== l) continue;
+      sums[l * 3] += rgba[p * 4];
+      sums[l * 3 + 1] += rgba[p * 4 + 1];
+      sums[l * 3 + 2] += rgba[p * 4 + 2];
+      cnt[l]++;
+    }
+  }
+  const colors: RGB[] = palette.map((c, i) => {
+    let r = c[0], g = c[1], b = c[2];
+    if (cnt[i] > 0) {
+      r = Math.round(sums[i * 3] / cnt[i]);
+      g = Math.round(sums[i * 3 + 1] / cnt[i]);
+      b = Math.round(sums[i * 3 + 2] / cnt[i]);
+    }
+    if (r >= 250 && g >= 250 && b >= 250) return [255, 255, 255] as RGB;
+    if (r <= 8 && g <= 8 && b <= 8) return [0, 0, 0] as RGB;
+    return [r, g, b] as RGB;
+  });
+
+  // Colors that only existed as thin halos are gone now. Keep the real ones.
+  const minPixels = Math.max(30, total * 0.0002);
+  const used: number[] = [];
+  for (let i = 0; i < K; i++) if (area[i] >= minPixels) used.push(i);
+  // Paint order: biggest color first (bottom), smallest last (top)
+  used.sort((a, b) => area[b] - area[a]);
+
+  // The colors used to measure every pixel (the removed background color is included,
+  // so the edge of the artwork is placed exactly where the picture changes color)
+  const soft = used.slice();
+  if (bgMark >= 0 && bgIndex >= 0 && !soft.includes(bgIndex)) soft.push(bgIndex);
+  const sr = soft.map((i) => colors[i][0]);
+  const sg = soft.map((i) => colors[i][1]);
+  const sb = soft.map((i) => colors[i][2]);
+  // Softness of each color: wide for colors far from all others, tight for similar colors
+  const inv2 = new Float64Array(soft.length);
+  const logNorm = new Float64Array(soft.length);
+  for (let j = 0; j < soft.length; j++) {
     let nearest = Infinity;
-    for (const pc of palette) nearest = Math.min(nearest, dist2(cand, pc[0], pc[1], pc[2]));
-    if (nearest > farthest) {
-      farthest = nearest;
-      placeholder = cand;
+    for (let k = 0; k < soft.length; k++) {
+      if (k === j) continue;
+      nearest = Math.min(nearest, Math.hypot(sr[j] - sr[k], sg[j] - sg[k], sb[j] - sb[k]));
     }
+    const sigma = Math.max(7, Math.min(45, nearest === Infinity ? 45 : nearest * 0.3));
+    inv2[j] = 1 / (2 * sigma * sigma);
+    logNorm[j] = -3 * Math.log(sigma);
   }
 
-  const tracerPalette: { r: number; g: number; b: number; a: number }[] = palette.map((c) => ({
-    r: c[0],
-    g: c[1],
-    b: c[2],
-    a: 255,
-  }));
-  tracerPalette.push({ r: placeholder[0], g: placeholder[1], b: placeholder[2], a: 255 });
+  progress('Measuring every pixel...', 0.3);
+  const best = new Float32Array(total).fill(-Infinity); // best log-weight at each pixel
+  for (let j = 0; j < soft.length; j++) {
+    const r = sr[j], g = sg[j], b = sb[j];
+    const k2 = inv2[j];
+    const ln = logNorm[j];
+    for (let p = 0; p < total; p++) {
+      const dr = rgba[p * 4] - r, dg = rgba[p * 4 + 1] - g, db = rgba[p * 4 + 2] - b;
+      const lw = -(dr * dr + dg * dg + db * db) * k2 + ln;
+      if (lw > best[p]) best[p] = lw;
+    }
+  }
+  const invZ = new Float32Array(total);
+  for (let j = 0; j < soft.length; j++) {
+    const r = sr[j], g = sg[j], b = sb[j];
+    const k2 = inv2[j];
+    const ln = logNorm[j];
+    for (let p = 0; p < total; p++) {
+      const dr = rgba[p * 4] - r, dg = rgba[p * 4 + 1] - g, db = rgba[p * 4 + 2] - b;
+      invZ[p] += Math.exp(-(dr * dr + dg * dg + db * db) * k2 + ln - best[p]);
+    }
+  }
+  for (let p = 0; p < total; p++) invZ[p] = 1 / invZ[p];
 
-  const quantized = new Uint8ClampedArray(total * 4);
-  for (let p = 0; p < total; p++) {
-    const c = tracerPalette[labels[p]];
-    quantized[p * 4] = c.r;
-    quantized[p * 4 + 1] = c.g;
-    quantized[p * 4 + 2] = c.b;
-    quantized[p * 4 + 3] = 255;
+  // Pixels near the removed background must not count as drawn white
+  let nearBg: Uint8Array | null = null;
+  if (bgMark >= 0) {
+    const f = new Float32Array(total);
+    const t = new Float32Array(total);
+    for (let p = 0; p < total; p++) f[p] = labels[p] === bgMark ? 1 : 0;
+    boxBlur(f, t, w, h, 3);
+    nearBg = new Uint8Array(total);
+    for (let p = 0; p < total; p++) nearBg[p] = f[p] > 0.0001 ? 1 : 0;
   }
 
-  progress('Tracing the shapes...', 0.75);
-  const raw = ImageTracer.imagedataToSVG(
-    { width: w, height: h, data: quantized },
-    {
-      pal: tracerPalette,
-      colorsampling: 0,
-      numberofcolors: tracerPalette.length,
-      colorquantcycles: 1,
-      mincolorratio: 0,
-      ltres: s.curveTolerance,
-      qtres: s.curveTolerance,
-      pathomit: Math.max(0, Math.round(s.minArea)),
-      rightangleenhance: true,
-      strokewidth: 0,
-      linefilter: false,
-      blurradius: 0,
-      roundcoords: 1,
-      desc: false,
-    }
-  );
+  const blurR = Math.max(1, Math.round(s.smoothRadius));
+  const acc = new Float32Array(total);
+  const field = new Float32Array(total);
+  const tmp = new Float32Array(total);
+  const scratch = new ContourScratch(w, h);
+  const tolerance = Math.max(0.15, s.curveTolerance);
 
-  progress('Cleaning the SVG...', 0.95);
-  const dropKey = `${placeholder[0]},${placeholder[1]},${placeholder[2]}`;
+  // Layer k covers everything painted at rank k or above, so neighbouring shapes overlap
+  // and there are never thin gaps. We go from the top layer down, adding one color at a time.
+  const parts: string[] = new Array(used.length).fill('');
+  for (let li = used.length - 1; li >= 0; li--) {
+    progress(`Tracing shapes (${used.length - li} of ${used.length})...`, 0.4 + (0.56 * (used.length - 1 - li)) / used.length);
+    const idx = used[li];
+    const j = soft.indexOf(idx);
+    const r = sr[j], g = sg[j], b = sb[j];
+    const k2 = inv2[j];
+    const ln = logNorm[j];
+    const isBgColor = idx === bgIndex && nearBg !== null;
+    for (let p = 0; p < total; p++) {
+      if (isBgColor && (nearBg as Uint8Array)[p]) continue;
+      const dr = rgba[p * 4] - r, dg = rgba[p * 4 + 1] - g, db = rgba[p * 4 + 2] - b;
+      acc[p] += Math.exp(-(dr * dr + dg * dg + db * db) * k2 + ln - best[p]) * invZ[p];
+    }
+    field.set(acc);
+    boxBlur(field, tmp, w, h, blurR);
+    boxBlur(field, tmp, w, h, blurR);
+
+    const loops = findLoops(field, w, h, 0.5, scratch);
+    let d = '';
+    for (const loop of loops) {
+      const area = Math.abs(loopArea(loop));
+      if (area < s.minArea) continue;
+      if (s.thinWidth > 0) {
+        // thickness of a long thin shape is about 2 x area / outline length; slivers are not real shapes
+        let perimeter = 0;
+        for (let i = 0; i < loop.length; i++) {
+          const q = loop[(i + 1) % loop.length];
+          perimeter += Math.hypot(q[0] - loop[i][0], q[1] - loop[i][1]);
+        }
+        if (perimeter > 0 && (2 * area) / perimeter < s.thinWidth * 0.75) continue;
+      }
+      d += loopToPath(loop, tolerance);
+    }
+    if (!d) continue;
+    const c = colors[idx];
+    parts[li] = `<path fill="#${hex(c[0])}${hex(c[1])}${hex(c[2])}" fill-rule="evenodd" d="${d}"/>`;
+  }
+
   let pathCount = 0;
-  const body = raw.replace(
-    /<path fill="rgb\((\d+),(\d+),(\d+)\)"[^>]*?opacity="([\d.]+)"[^>]*? d="([^"]*)"[^>]*\/>/g,
-    (_m, r: string, g: string, b: string, op: string, d: string) => {
-      if (parseFloat(op) < 0.5) return '';
-      if (bgMark >= 0 && `${r},${g},${b}` === dropKey) return '';
+  let body = '';
+  for (const part of parts) {
+    if (part) {
+      body += part;
       pathCount++;
-      return `<path fill="#${hex(+r)}${hex(+g)}${hex(+b)}" d="${d.trim()}"/>`;
     }
-  );
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">${body.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')}</svg>`;
-  const colorsUsed = Array.from(used).slice(0, palette.length).filter((n) => n > 0).length;
-  return { svg, colors: colorsUsed, paths: pathCount };
+  }
+
+  progress('Finishing the SVG...', 0.98);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">${body}</svg>`;
+  return { svg, colors: used.length, paths: pathCount };
 }
