@@ -104,28 +104,17 @@ async function looksLikeGraphics(file: File): Promise<boolean> {
   return top / (w * h) >= 0.6;
 }
 
-// Graphics mode: removes the white that touches the image edge. Light colors inside shapes stay.
-async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blob> {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const w = bmp.width;
-  const h = bmp.height;
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) throw new Error("Canvas is not supported in this browser.");
-  ctx.drawImage(bmp, 0, 0);
-  bmp.close();
-
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
+// Remove the outer white background and give every edge pixel the exact fill color of the
+// shape it belongs to. Only the see-through amount (alpha) changes at the edge, never the color.
+// So there is no white halo, and no strange in-between color.
+function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number, inner: boolean): number {
   const n = w * h;
-  const dist = new Uint8Array(n);
+  const BAND = 3; // how many pixels from the background count as "edge"
+
   const near = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     const p = i * 4;
     const m = Math.min(d[p], d[p + 1], d[p + 2]);
-    dist[i] = 255 - m;
     if (d[p + 3] < 10 || 255 - m <= tol) near[i] = 1;
   }
 
@@ -160,26 +149,109 @@ async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blo
     }
   }
 
-  const dilate = (src: Uint8Array) => {
-    const out = new Uint8Array(src);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        if (src[i]) continue;
-        if (
-          (x > 0 && src[i - 1]) ||
-          (x < w - 1 && src[i + 1]) ||
-          (y > 0 && src[i - w]) ||
-          (y < h - 1 && src[i + w])
-        ) {
-          out[i] = 1;
+  // 1) distance (in pixels) from the background, only for the first BAND pixels
+  const dist = new Uint8Array(n); // 0 = not near the edge (or background itself)
+  let queue = new Int32Array(1 << 16);
+  let qh = 0;
+  let qt = 0;
+  const qpush = (i: number) => {
+    if (qt >= queue.length) {
+      const bigger = new Int32Array(queue.length * 2);
+      bigger.set(queue);
+      queue = bigger;
+    }
+    queue[qt++] = i;
+  };
+  const eachNeighbor = (i: number, fn: (j: number) => void) => {
+    const x = i % w;
+    if (x > 0) fn(i - 1);
+    if (x < w - 1) fn(i + 1);
+    if (i >= w) fn(i - w);
+    if (i < n - w) fn(i + w);
+  };
+  for (let i = 0; i < n; i++) {
+    if (!bg[i]) continue;
+    eachNeighbor(i, (j) => {
+      if (!bg[j] && dist[j] === 0) {
+        dist[j] = 1;
+        qpush(j);
+      }
+    });
+  }
+  while (qh < qt) {
+    const i = queue[qh++];
+    if (dist[i] >= BAND) continue;
+    eachNeighbor(i, (j) => {
+      if (!bg[j] && dist[j] === 0) {
+        dist[j] = dist[i] + 1;
+        qpush(j);
+      }
+    });
+  }
+  qh = 0;
+  qt = 0;
+
+  // 2) "flat" pixels: solid color, all neighbours (8) about the same, none is background
+  const flat = new Uint8Array(n);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (bg[i]) continue;
+      const p = i * 4;
+      let ok = true;
+      for (let dy = -1; dy <= 1 && ok; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          const j = yy * w + xx;
+          if (bg[j]) {
+            ok = false;
+            break;
+          }
+          const q = j * 4;
+          if (
+            Math.abs(d[q] - d[p]) > 10 ||
+            Math.abs(d[q + 1] - d[p + 1]) > 10 ||
+            Math.abs(d[q + 2] - d[p + 2]) > 10
+          ) {
+            ok = false;
+            break;
+          }
         }
       }
+      if (ok) flat[i] = 1;
     }
-    return out;
-  };
-  const wide = dilate(dilate(bg));
+  }
 
+  // 3) every edge pixel finds the nearest flat pixel (its real fill color), up to 8 steps away
+  const src = new Int32Array(n).fill(-1);
+  const lvl = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (!flat[i]) continue;
+    let border = false;
+    eachNeighbor(i, (j) => {
+      if (!bg[j] && !flat[j]) border = true;
+    });
+    if (border) {
+      src[i] = i;
+      qpush(i);
+    }
+  }
+  while (qh < qt) {
+    const i = queue[qh++];
+    if (lvl[i] >= 8) continue;
+    eachNeighbor(i, (j) => {
+      if (!bg[j] && !flat[j] && src[j] < 0) {
+        src[j] = src[i];
+        lvl[j] = lvl[i] + 1;
+        qpush(j);
+      }
+    });
+  }
+
+  // 4) rewrite the edge pixels
   let cleared = 0;
   for (let i = 0; i < n; i++) {
     const p = i * 4;
@@ -188,17 +260,69 @@ async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blo
       cleared++;
       continue;
     }
-    if (wide[i]) {
-      const a = Math.min(1, dist[i] / 90);
-      if (a > 0 && a < 1) {
-        for (let c = 0; c < 3; c++) {
-          const v = (d[p + c] - 255 * (1 - a)) / a;
-          d[p + c] = v < 0 ? 0 : v > 255 ? 255 : v;
-        }
-        d[p + 3] = Math.round(a * d[p + 3]);
-      }
+    if (dist[i] === 0 || flat[i]) continue;
+    const c0 = d[p], c1 = d[p + 1], c2 = d[p + 2];
+    let a = -1;
+    let f0 = c0, f1 = c1, f2 = c2;
+    if (src[i] >= 0) {
+      const s = src[i] * 4;
+      f0 = d[s];
+      f1 = d[s + 1];
+      f2 = d[s + 2];
+      const u0 = 255 - f0, u1 = 255 - f1, u2 = 255 - f2;
+      const uu = u0 * u0 + u1 * u1 + u2 * u2;
+      if (uu < 900) continue; // fill is almost white: cannot tell it from the background, keep as is
+      const k = ((255 - c0) * u0 + (255 - c1) * u1 + (255 - c2) * u2) / uu;
+      const t = k < 0 ? 0 : k > 1 ? 1 : k;
+      const e0 = c0 - (255 - t * u0);
+      const e1 = c1 - (255 - t * u1);
+      const e2 = c2 - (255 - t * u2);
+      if (e0 * e0 + e1 * e1 + e2 * e2 <= 45 * 45) a = t; // a clean mix of fill color and white
     }
+    if (a < 0) {
+      // no clear fill color nearby (very thin line): use the whiteness of the pixel itself
+      const dd = 255 - Math.min(c0, c1, c2);
+      const t = Math.min(1, dd / 90);
+      if (t >= 1 || t <= 0) {
+        if (t <= 0) d[p + 3] = 0;
+        continue;
+      }
+      for (let c = 0; c < 3; c++) {
+        const v = (d[p + c] - 255 * (1 - t)) / t;
+        d[p + c] = v < 0 ? 0 : v > 255 ? 255 : v;
+      }
+      d[p + 3] = Math.round(t * d[p + 3]);
+      continue;
+    }
+    if (a < 0.04) {
+      d[p + 3] = 0;
+      continue;
+    }
+    d[p] = f0;
+    d[p + 1] = f1;
+    d[p + 2] = f2;
+    d[p + 3] = Math.round(a * d[p + 3]);
   }
+  return cleared;
+}
+
+// Graphics mode: removes the white that touches the image edge. Light colors inside shapes stay.
+// Edge pixels keep the exact fill color of their shape (no white halo).
+async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blob> {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const w = bmp.width;
+  const h = bmp.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) throw new Error("Canvas is not supported in this browser.");
+  ctx.drawImage(bmp, 0, 0);
+  bmp.close();
+
+  const img = ctx.getImageData(0, 0, w, h);
+  const n = w * h;
+  const cleared = removeWhiteCore(img.data, w, h, tol, inner);
 
   if (cleared === 0) {
     throw new Error("No white background found. Try Photo (AI) mode.");
