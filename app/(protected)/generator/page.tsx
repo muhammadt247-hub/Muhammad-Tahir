@@ -992,6 +992,8 @@ export default function GeneratorPage() {
       toast.success(`Exported ${validItems.length} metadata rows for ${settings.platform}`);
     }
 
+    validItems.forEach((it) => deleteSavedBatchItem(it.id));
+
     if (settings.rememberExportedImages) {
       const libraryEntriesToSave: LibraryFingerprintEntry[] = validItems
         .filter((it) => it.fingerprint)
@@ -1087,6 +1089,7 @@ export default function GeneratorPage() {
 
     try {
       await downloadEmbeddedFilesZip(zipEntries);
+      compatibleItems.forEach((it) => deleteSavedBatchItem(it.id));
       setEmbedStats({ successCount, skippedCount, failedFiles });
       setEmbedDialogStatus('complete');
 
