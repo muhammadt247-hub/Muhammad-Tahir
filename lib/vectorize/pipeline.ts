@@ -12,6 +12,7 @@ export interface PipelineSettings {
   thinWidth: number; // 0..8 thin lines and halos narrower than this (pixels) are removed
   removeBackground: boolean;
   deep: boolean; // more careful (slower) color search
+  softMerge?: number; // 0 = off. Borders softer than this (color change per pixel) are shading, not objects
 }
 
 export type ProgressFn = (message: string, fraction: number) => void;
@@ -285,7 +286,8 @@ function markBackground(
   labels: Uint8Array,
   w: number,
   h: number,
-  colorCount: number
+  colorCount: number,
+  palette: RGB[]
 ): { mark: number; bg: number } {
   const edgeCounts = new Float64Array(colorCount);
   let edgeTotal = 0;
@@ -303,13 +305,24 @@ function markBackground(
   }
   let bg = 0;
   for (let c = 1; c < colorCount; c++) if (edgeCounts[c] > edgeCounts[bg]) bg = c;
-  if (edgeCounts[bg] / edgeTotal < 0.5) return { mark: -1, bg: -1 };
+  // Colors that look like the background (tiny shade differences from JPEG) count as background too
+  const bgLab = toLab(palette[bg][0], palette[bg][1], palette[bg][2]);
+  const fam = new Uint8Array(colorCount);
+  let famEdge = 0;
+  for (let c = 0; c < colorCount; c++) {
+    const lc = toLab(palette[c][0], palette[c][1], palette[c][2]);
+    if (c === bg || labDistance(lc, bgLab) <= 14) {
+      fam[c] = 1;
+      famEdge += edgeCounts[c];
+    }
+  }
+  if (famEdge / edgeTotal < 0.5) return { mark: -1, bg: -1 };
 
   const total = w * h;
   const R = 6; // channels narrower than about 13 pixels do not count as open background
   const field = new Float32Array(total);
   const tmp = new Float32Array(total);
-  for (let p = 0; p < total; p++) field[p] = labels[p] === bg ? 1 : 0;
+  for (let p = 0; p < total; p++) field[p] = fam[labels[p]] ? 1 : 0;
   boxBlur(field, tmp, w, h, R);
   const core = new Uint8Array(total); // wide background
   for (let p = 0; p < total; p++) core[p] = field[p] >= 0.9999 ? 1 : 0;
@@ -350,7 +363,7 @@ function markBackground(
       const x = p % w;
       const y = (p - x) / w;
       const grow = (q: number) => {
-        if (!open[q] && labels[q] === bg) {
+        if (!open[q] && fam[labels[q]]) {
           open[q] = 1;
           next.push(q);
         }
@@ -367,6 +380,273 @@ function markBackground(
   const mark = colorCount; // special label for "removed background"
   for (let p = 0; p < total; p++) if (open[p]) labels[p] = mark;
   return { mark, bg };
+}
+
+
+// ---------- Object clean-up: merge regions that are only shading ----------
+// A real object has a sharp border. Shading (a soft gradient) fades slowly. We cut the picture
+// into regions, measure how sharp each shared border is, and fold the soft ones into the
+// bigger neighbour. Sharp borders (even between similar colors) are kept.
+export interface MergeInfo {
+  merged: number;
+  regions: number;
+}
+
+function mergeSoftRegions(
+  rgba: Uint8ClampedArray,
+  labels: Uint8Array,
+  w: number,
+  h: number,
+  palette: RGB[],
+  skipLabel: number,
+  softLimit: number
+): MergeInfo {
+  const n = w * h;
+  // 1) connected regions of equal label
+  const comp = new Int32Array(n).fill(-1);
+  const regLabel: number[] = [];
+  const regArea: number[] = [];
+  const stack = new Int32Array(n);
+  for (let s0 = 0; s0 < n; s0++) {
+    if (comp[s0] >= 0) continue;
+    const id = regLabel.length;
+    const l = labels[s0];
+    let sp = 0;
+    let area = 0;
+    stack[sp++] = s0;
+    comp[s0] = id;
+    while (sp > 0) {
+      const p = stack[--sp];
+      area++;
+      const x = p % w;
+      if (x > 0 && comp[p - 1] < 0 && labels[p - 1] === l) { comp[p - 1] = id; stack[sp++] = p - 1; }
+      if (x < w - 1 && comp[p + 1] < 0 && labels[p + 1] === l) { comp[p + 1] = id; stack[sp++] = p + 1; }
+      if (p >= w && comp[p - w] < 0 && labels[p - w] === l) { comp[p - w] = id; stack[sp++] = p - w; }
+      if (p < n - w && comp[p + w] < 0 && labels[p + w] === l) { comp[p + w] = id; stack[sp++] = p + w; }
+    }
+    regLabel.push(l);
+    regArea.push(area);
+  }
+  const R = regLabel.length;
+
+  // 2) how fast the color changes at every pixel (in Lab units per pixel)
+  const L = new Float32Array(n);
+  const A = new Float32Array(n);
+  const B = new Float32Array(n);
+  for (let p = 0; p < n; p++) {
+    const lab = toLab(rgba[p * 4], rgba[p * 4 + 1], rgba[p * 4 + 2]);
+    L[p] = lab[0];
+    A[p] = lab[1];
+    B[p] = lab[2];
+  }
+  const grad = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const p = y * w + x;
+      const gx = Math.hypot(L[p + 1] - L[p - 1], A[p + 1] - A[p - 1], B[p + 1] - B[p - 1]) / 2;
+      const gy = Math.hypot(L[p + w] - L[p - w], A[p + w] - A[p - w], B[p + w] - B[p - w]) / 2;
+      grad[p] = Math.max(gx, gy);
+    }
+  }
+
+  // 3) shared borders: sum of border sharpness and border length for every pair of regions
+  const adj: Map<number, { sum: number; cnt: number }>[] = [];
+  for (let i = 0; i < R; i++) adj.push(new Map());
+  const touch = (p: number, q: number) => {
+    const a = comp[p];
+    const b = comp[q];
+    if (a === b) return;
+    const g = Math.max(grad[p], grad[q]);
+    let e = adj[a].get(b);
+    if (!e) { e = { sum: 0, cnt: 0 }; adj[a].set(b, e); adj[b].set(a, e); }
+    e.sum += g;
+    e.cnt++;
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      if (x < w - 1) touch(p, p + 1);
+      if (y < h - 1) touch(p, p + w);
+    }
+  }
+
+  // 4) merge the softest borders first
+  const parent = new Int32Array(R);
+  for (let i = 0; i < R; i++) parent[i] = i;
+  const find = (i: number) => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  };
+  const pairs: { a: number; b: number; s: number }[] = [];
+  for (let a = 0; a < R; a++) {
+    for (const [b, e] of adj[a]) {
+      if (b > a && e.cnt >= 8) pairs.push({ a, b, s: e.sum / e.cnt });
+    }
+  }
+  pairs.sort((p, q) => p.s - q.s);
+  let merged = 0;
+  const target = new Int32Array(R);
+  for (let i = 0; i < R; i++) target[i] = regLabel[i];
+  const area = regArea.slice();
+  for (const pr of pairs) {
+    if (pr.s >= softLimit) break;
+    let ra = find(pr.a);
+    let rb = find(pr.b);
+    if (ra === rb) continue;
+    if (target[ra] === skipLabel || target[rb] === skipLabel) continue;
+    // recompute the current strength of the combined border
+    const e = adj[ra].get(rb);
+    if (!e || e.sum / e.cnt >= softLimit) continue;
+    if (area[ra] < area[rb]) { const t = ra; ra = rb; rb = t; }
+    // rb folds into ra
+    parent[rb] = ra;
+    area[ra] += area[rb];
+    for (const [c, ec] of adj[rb]) {
+      if (c === ra) continue;
+      const cur = adj[ra].get(c);
+      if (cur) {
+        cur.sum += ec.sum;
+        cur.cnt += ec.cnt;
+        adj[c].set(ra, cur);
+        adj[c].delete(rb);
+      } else {
+        adj[ra].set(c, ec);
+        adj[c].set(ra, ec);
+        adj[c].delete(rb);
+      }
+    }
+    adj[ra].delete(rb);
+    adj[rb].clear();
+    merged++;
+  }
+
+  // 5) write the result back: merged pixels take the label and the exact color of the bigger region
+  for (let p = 0; p < n; p++) {
+    const r = find(comp[p]);
+    const t = target[r];
+    if (t !== labels[p] && t !== skipLabel) {
+      labels[p] = t;
+      const c = palette[t];
+      rgba[p * 4] = c[0];
+      rgba[p * 4 + 1] = c[1];
+      rgba[p * 4 + 2] = c[2];
+    }
+  }
+  return { merged, regions: R };
+}
+
+// Edge pixels next to the removed background are a mix of the shape color and the background.
+// Give each one the exact color of its shape (found a few pixels inwards) and keep how much of it
+// is shape as a see-through value. So every shape keeps one clean color right up to its edge, and
+// the outline of the whole artwork sits exactly where the picture changes.
+function unmixEdges(
+  rgba: Uint8ClampedArray,
+  labels: Uint8Array,
+  mark: number,
+  w: number,
+  h: number,
+  W: RGB,
+  palette: RGB[]
+): Float32Array {
+  const n = w * h;
+  const BAND = 3;
+  const alpha = new Float32Array(n).fill(1);
+  const dist = new Uint8Array(n);
+  let queue = new Int32Array(1 << 16);
+  let qh = 0;
+  let qt = 0;
+  const qpush = (i: number) => {
+    if (qt >= queue.length) {
+      const bigger = new Int32Array(queue.length * 2);
+      bigger.set(queue);
+      queue = bigger;
+    }
+    queue[qt++] = i;
+  };
+  const each = (i: number, fn: (j: number) => void) => {
+    const x = i % w;
+    if (x > 0) fn(i - 1);
+    if (x < w - 1) fn(i + 1);
+    if (i >= w) fn(i - w);
+    if (i < n - w) fn(i + w);
+  };
+  for (let i = 0; i < n; i++) {
+    if (labels[i] !== mark) continue;
+    alpha[i] = 0;
+    each(i, (j) => {
+      if (labels[j] !== mark && dist[j] === 0) {
+        dist[j] = 1;
+        qpush(j);
+      }
+    });
+  }
+  while (qh < qt) {
+    const i = queue[qh++];
+    if (dist[i] >= BAND) continue;
+    each(i, (j) => {
+      if (labels[j] !== mark && dist[j] === 0) {
+        dist[j] = dist[i] + 1;
+        qpush(j);
+      }
+    });
+  }
+  qh = 0;
+  qt = 0;
+
+  // The true color of a shape = the color of the nearest solid pixel further inside (more than
+  // BAND pixels from the background). We use its palette color, so noise cannot disturb it.
+  const flat = new Uint8Array(n);
+  const src = new Int32Array(n).fill(-1);
+  const lvl = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (labels[i] === mark || dist[i] !== 0) continue;
+    let border = false;
+    each(i, (j) => {
+      if (labels[j] !== mark && dist[j] > 0) border = true;
+    });
+    if (border) {
+      flat[i] = 1;
+      src[i] = i;
+      qpush(i);
+    }
+  }
+  while (qh < qt) {
+    const i = queue[qh++];
+    if (lvl[i] >= 8) continue;
+    each(i, (j) => {
+      if (labels[j] !== mark && dist[j] > 0 && src[j] < 0) {
+        src[j] = src[i];
+        lvl[j] = lvl[i] + 1;
+        qpush(j);
+      }
+    });
+  }
+
+  for (let i = 0; i < n; i++) {
+    if (dist[i] === 0 || src[i] < 0) continue;
+    const p = i * 4;
+    const fc = palette[labels[src[i]]];
+    const f0 = fc[0], f1 = fc[1], f2 = fc[2];
+    const u0 = W[0] - f0, u1 = W[1] - f1, u2 = W[2] - f2;
+    const uu = u0 * u0 + u1 * u1 + u2 * u2;
+    if (uu < 900) continue; // shape color is almost the background color: cannot be told apart
+    const c0 = rgba[p], c1 = rgba[p + 1], c2 = rgba[p + 2];
+    const k = ((W[0] - c0) * u0 + (W[1] - c1) * u1 + (W[2] - c2) * u2) / uu;
+    const t = k < 0 ? 0 : k > 1 ? 1 : k;
+    const e0 = c0 - (W[0] - t * u0);
+    const e1 = c1 - (W[1] - t * u1);
+    const e2 = c2 - (W[2] - t * u2);
+    if (e0 * e0 + e1 * e1 + e2 * e2 > 45 * 45) continue; // not a clean mix: leave it alone
+    rgba[p] = f0;
+    rgba[p + 1] = f1;
+    rgba[p + 2] = f2;
+    labels[i] = labels[src[i]];
+    alpha[i] = t < 0.04 ? 0 : t;
+  }
+  return alpha;
 }
 
 function hex(n: number) {
@@ -409,9 +689,19 @@ export function runPipeline(
   let bgMark = -1;
   let bgIndex = -1;
   if (s.removeBackground) {
-    const found = markBackground(labels, w, h, K); // background pixels get label K
+    const found = markBackground(labels, w, h, K, palette); // background pixels get label K
     bgMark = found.mark;
     bgIndex = found.bg;
+  }
+  let edgeAlpha: Float32Array | null = null;
+  if (bgMark >= 0 && bgIndex >= 0) {
+    progress('Cleaning the edge colors...', 0.23);
+    edgeAlpha = unmixEdges(rgba, labels, bgMark, w, h, palette[bgIndex], palette);
+  }
+
+  if (s.softMerge && s.softMerge > 0) {
+    progress('Cleaning up shading patches...', 0.24);
+    mergeSoftRegions(rgba, labels, w, h, palette, bgMark, s.softMerge);
   }
 
   // True color of each shape = average of its inside pixels (not the blurry edge pixels)
@@ -531,6 +821,7 @@ export function runPipeline(
       acc[p] += Math.exp(-(dr * dr + dg * dg + db * db) * k2 + ln - best[p]) * invZ[p];
     }
     field.set(acc);
+    if (edgeAlpha) for (let p = 0; p < total; p++) field[p] *= edgeAlpha[p];
     boxBlur(field, tmp, w, h, blurR);
     boxBlur(field, tmp, w, h, blurR);
 

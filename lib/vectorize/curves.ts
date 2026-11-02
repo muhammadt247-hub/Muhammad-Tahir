@@ -1,4 +1,4 @@
-// Our own edge finding and curve fitting. ok.
+// Our own edge finding and curve fitting.
 // 1) Marching squares finds the exact (sub-pixel) edge of a smooth 0..1 field.
 // 2) Schneider-style least-squares fitting turns the edge points into smooth cubic Bezier curves.
 // Written from the published, well-known methods (marching squares; "An Algorithm for
@@ -269,7 +269,7 @@ function fitCubic(p: Pt[], first: number, last: number, t1: Pt, t2: Pt, err2: nu
 }
 
 // Remove points that are almost exactly on a straight line between their neighbours
-function thin(p: Pt[], tol: number): Pt[] {
+function thin(p: Pt[], tol: number, maxGap = 6): Pt[] {
   if (p.length < 8) return p;
   const keep: boolean[] = new Array(p.length).fill(false);
   keep[0] = true;
@@ -292,6 +292,16 @@ function thin(p: Pt[], tol: number): Pt[] {
     if (worst > tol && idx > 0) {
       keep[idx] = true;
       stack.push([a, idx], [idx, b]);
+    }
+  }
+  // Never leave a long gap: the curve fit only checks its error at the kept points, so a long
+  // straight edge with only two points could bulge between them without anyone noticing.
+  let last = 0;
+  for (let i = 1; i < p.length; i++) {
+    if (keep[i]) last = i;
+    else if (i - last >= maxGap) {
+      keep[i] = true;
+      last = i;
     }
   }
   return p.filter((_, i) => keep[i]);

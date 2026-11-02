@@ -34,22 +34,22 @@ const PRESET_INFO: Record<Preset, { label: string; hint: string; settings: Omit<
   lineart: {
     label: "Line art (2 colors)",
     hint: "Black and white drawings, signatures, outlines.",
-    settings: { maxColors: 2, mergeDistance: 30, smoothRadius: 1, curveTolerance: 0.6, minArea: 20, thinWidth: 2 },
+    settings: { maxColors: 2, mergeDistance: 30, smoothRadius: 1, curveTolerance: 0.6, minArea: 20, thinWidth: 2, softMerge: 0 },
   },
   flat: {
     label: "Flat icon (one color per area)",
     hint: "Logos and icons. Each color area becomes one flat color, no shades.",
-    settings: { maxColors: 24, mergeDistance: 18, smoothRadius: 1, curveTolerance: 0.6, minArea: 12, thinWidth: 4 },
+    settings: { maxColors: 24, mergeDistance: 18, smoothRadius: 1, curveTolerance: 0.6, minArea: 12, thinWidth: 4, softMerge: 4 },
   },
   illustration: {
     label: "Illustration",
     hint: "Cartoons and artwork with soft color areas.",
-    settings: { maxColors: 32, mergeDistance: 12, smoothRadius: 1, curveTolerance: 0.6, minArea: 10, thinWidth: 3 },
+    settings: { maxColors: 32, mergeDistance: 12, smoothRadius: 1, curveTolerance: 0.6, minArea: 10, thinWidth: 3, softMerge: 4 },
   },
   detailed: {
     label: "Detailed (keeps shading)",
     hint: "Many colors, shading and fine edges. Slower and bigger files.",
-    settings: { maxColors: 48, mergeDistance: 6, smoothRadius: 1, curveTolerance: 0.5, minArea: 6, thinWidth: 2 },
+    settings: { maxColors: 48, mergeDistance: 6, smoothRadius: 1, curveTolerance: 0.5, minArea: 6, thinWidth: 2, softMerge: 4 },
   },
 };
 
@@ -228,6 +228,7 @@ export default function VectorizerPage() {
   const [noise, setNoise] = useState(12);
   const [thin, setThin] = useState(4);
   const [smooth, setSmooth] = useState(1);
+  const [shading, setShading] = useState(4);
   const [maxEdge, setMaxEdge] = useState(2400);
   const [transparentBg, setTransparentBg] = useState(true);
   const [progress, setProgress] = useState<{ message: string; fraction: number } | null>(null);
@@ -305,6 +306,7 @@ export default function VectorizerPage() {
         curveTolerance: 1.2 - detail * 0.07, // detail 1..10 -> 1.13..0.5 (lower = follows the edge more closely)
         minArea: noise,
         thinWidth: thin,
+        softMerge: shading,
         removeBackground: transparentBg,
         deep: true,
       };
@@ -391,7 +393,7 @@ export default function VectorizerPage() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mode, preset, colors, merge, detail, noise, thin, smooth, maxEdge, transparentBg, stopWorker]
+    [mode, preset, colors, merge, detail, noise, thin, smooth, shading, maxEdge, transparentBg, stopWorker]
   );
 
   const loadFile = async (file: File | undefined | null) => {
@@ -743,6 +745,12 @@ export default function VectorizerPage() {
                       Remove thin lines and halos <span className="text-muted-foreground">{thin}px</span>
                     </span>
                     <input type="range" min={0} max={8} step={1} value={thin} onChange={(e) => setThin(+e.target.value)} className={rangeClass} />
+                  </label>
+                  <label className="block space-y-1">
+                    <span className="flex justify-between font-medium text-foreground">
+                      Clean shading patches <span className="text-muted-foreground">{shading}</span>
+                    </span>
+                    <input type="range" min={0} max={10} step={1} value={shading} onChange={(e) => setShading(+e.target.value)} className={rangeClass} />
                   </label>
                   <label className="block space-y-1">
                     <span className="flex justify-between font-medium text-foreground">
@@ -1204,6 +1212,7 @@ export default function VectorizerPage() {
         </div>
         <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-0.5">
           <li>Too many shapes? Lower the colors, or raise &quot;Remove small specks&quot;.</li>
+          <li>Blotchy patches inside a shape (soft shading)? Raise &quot;Clean shading patches&quot;. Lost a real detail? Lower it.</li>
           <li>Edges look rough? Raise &quot;Edge smoothing&quot;. Lost a tiny detail? Lower it, or lower &quot;Remove small specks&quot;.</li><li>Shades of one color split into patches? Raise &quot;Merge similar shades&quot;. Want the shading? Choose &quot;Detailed&quot;.</li><li>A thin outline or halo you want to keep? Lower &quot;Remove thin lines and halos&quot;.</li>
           <li>Want a see-through background? Keep &quot;Transparent background&quot; ticked. Turn it off to keep the white.</li>
           <li>Always check the SVG before you sell it, and only trace images you have the right to use.</li>
