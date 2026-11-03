@@ -158,7 +158,11 @@ export default function GeneratorPage() {
     });
 
     // Restore completed results from IndexedDB so refresh preserves data
-    getSavedBatchItems().then((savedItems) => {
+        getSavedBatchItems().then((allSaved) => {
+      let exportedIds: string[] = [];
+      try { exportedIds = JSON.parse(localStorage.getItem('exportedBatchIds') || '[]'); } catch {}
+      const savedItems = allSaved.filter((it) => !exportedIds.includes(it.id));
+      allSaved.filter((it) => exportedIds.includes(it.id)).forEach((it) => deleteSavedBatchItem(it.id));
       if (isMounted && savedItems && savedItems.length > 0) {
         setItems(savedItems);
         const done = savedItems.filter((i) => i.status === 'done').length;
@@ -993,6 +997,10 @@ export default function GeneratorPage() {
     }
 
     validItems.forEach((it) => deleteSavedBatchItem(it.id));
+        try {
+      const oldIds = JSON.parse(localStorage.getItem('exportedBatchIds') || '[]');
+      localStorage.setItem('exportedBatchIds', JSON.stringify([...oldIds, ...validItems.map((it) => it.id)].slice(-3000)));
+    } catch {}
 
     if (settings.rememberExportedImages) {
       const libraryEntriesToSave: LibraryFingerprintEntry[] = validItems
