@@ -20,7 +20,8 @@ import {
   Gift,
   User as UserIcon,
   LogOut,
-  Coins,
+    Coins,
+  MessageCircle,
 } from 'lucide-react';
 import { SITE_CONFIG } from '@/config/site';
 import { LogoMark } from '@/components/Logo';
@@ -306,6 +307,19 @@ export function Header() {
                   </a>
                 )}
 
+                                <a
+                  href="https://chat.whatsapp.com/DR28tu1Pklp6FfQkKAcDZH"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    'hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-green-500/10 text-green-600 border border-green-500/30 hover:bg-green-500/20 transition-colors',
+                    RING
+                  )}
+                  aria-label="Join our WhatsApp group"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  <span>Join WhatsApp</span>
+                </a>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
