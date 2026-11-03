@@ -281,7 +281,7 @@ export function Header() {
                 )}
               >
                 <Gift className="h-4 w-4" />
-                <span>Invite friends, get 100 credits</span>
+                <span>Invite friends, get 3000 credits</span>
               </Link>
             </div>
           )}
