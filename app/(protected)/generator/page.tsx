@@ -896,7 +896,9 @@ export default function GeneratorPage() {
   }, []);
 
   const handleClearAll = useCallback(() => {
-    cancelSimilarityCheck();
+        similarityRunIdRef.current++;
+    setIsAnalyzingSimilarity(false);
+    setSimilarityProgress(null);
     if (queueRef.current) {
       queueRef.current.stop();
       queueRef.current = null;
