@@ -16,6 +16,40 @@ import { COFFEE_IMAGE_1, COFFEE_IMAGE_2 } from './coffee-images';
 
 // Skrill account that receives the coffee payments
 export const SKRILL_EMAIL = 'donjhonoo786@gmail.com';
+
+type PayRow = { label: string; value: string };
+type PayMethod = { title: string; rows: PayRow[] };
+
+// All payment methods shown in the "Buy me a coffee" window
+const PAY_METHODS: PayMethod[] = [
+  {
+    title: 'Skrill',
+    rows: [{ label: 'Skrill email', value: SKRILL_EMAIL }],
+  },
+  {
+    title: 'JazzCash',
+    rows: [
+      { label: 'Account title', value: 'MUHAMMAD TAHIR' },
+      { label: 'JazzCash number', value: '+923216757002' },
+    ],
+  },
+  {
+    title: 'Askari Bank Limited',
+    rows: [
+      { label: 'Account title', value: 'MUHAMMAD TAHIR' },
+      { label: 'Account number', value: '00310900002946' },
+      { label: 'IBAN', value: 'PK81ASCM0000310900002946' },
+    ],
+  },
+  {
+    title: 'Meezan Bank (Meezan Digital Centre)',
+    rows: [
+      { label: 'Account title', value: 'MUHAMMAD TAHIR' },
+      { label: 'Account number', value: '00300107979373' },
+      { label: 'IBAN', value: 'PK20MEZN0000300107979373' },
+    ],
+  },
+];
 // Any button on the site can open the payment window with: window.dispatchEvent(new Event(OPEN_COFFEE_EVENT))
 export const OPEN_COFFEE_EVENT = 'open-coffee-dialog';
 
@@ -97,12 +131,12 @@ export function CoffeeSupport() {
     setHovered(false);
   };
 
-  const copyEmail = async () => {
+  const copyValue = async (label: string, value: string) => {
     try {
-      await navigator.clipboard.writeText(SKRILL_EMAIL);
-      toast.success('Skrill email copied!');
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied!`);
     } catch {
-      toast.error('Could not copy. Please select the email and copy it.');
+      toast.error('Could not copy. Please select the text and copy it.');
     }
   };
 
@@ -156,35 +190,45 @@ export function CoffeeSupport() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold">Buy me a coffee ☕</DialogTitle>
             <DialogDescription className="text-xs">
-              Thank you for supporting OrbinexaCSV! You can send any amount with Skrill.
+              Thank you for supporting OrbinexaCSV! You can send any amount with any method below.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
-            <div className="rounded-xl border border-border/60 bg-accent/40 p-3 space-y-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Skrill email
+            {PAY_METHODS.map((method) => (
+              <div key={method.title} className="rounded-xl border border-border/60 bg-accent/40 p-3 space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {method.title}
+                </div>
+                {method.rows.map((row) => (
+                  <div key={row.label} className="space-y-1">
+                    <div className="text-[10px] text-muted-foreground">{row.label}</div>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 min-w-0 truncate rounded-lg bg-background px-3 py-2 text-xs font-semibold text-foreground border border-border/60 select-all">
+                        {row.value}
+                      </code>
+                      <Button
+                        type="button"
+                        onClick={() => copyValue(row.label, row.value)}
+                        size="sm"
+                        className="gap-1.5 text-xs font-semibold shrink-0"
+                      >
+                        <Copy className="h-3.5 w-3.5" /> Copy
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 min-w-0 truncate rounded-lg bg-background px-3 py-2 text-xs font-semibold text-foreground border border-border/60 select-all">
-                  {SKRILL_EMAIL}
-                </code>
-                <Button type="button" onClick={copyEmail} size="sm" className="gap-1.5 text-xs font-semibold shrink-0">
-                  <Copy className="h-3.5 w-3.5" /> Copy
-                </Button>
-              </div>
-            </div>
+            ))}
 
-            <ol className="list-decimal pl-5 space-y-1 text-xs text-muted-foreground">
-              <li>Open your Skrill account (website or app).</li>
-              <li>Choose <span className="font-semibold text-foreground">Send money</span>.</li>
-              <li>Paste the email above and type the amount.</li>
-              <li>Confirm. Thank you!</li>
-            </ol>
+            <p className="text-xs text-muted-foreground">
+              Skrill: open Skrill, choose <span className="font-semibold text-foreground">Send money</span>, paste the
+              email and type the amount. For JazzCash or bank, use your banking app. Thank you!
+            </p>
           </div>
         </DialogContent>
       </Dialog>
