@@ -89,13 +89,60 @@ export function sortListings(list: MpListing[], key: SortKey): MpListing[] {
 export function getBadges(list: MpListing[]): Record<string, string[]> {
   const result: Record<string, string[]> = {};
   if (list.length < 2) return result;
-  const minPrice = Math.min(...list.map((l) => l.price));
-  const minHours = Math.min(...list.map((l) => l.delivery_hours));
+  const prices = list.map((l) => l.price);
+  const hours = list.map((l) => l.delivery_hours);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const minHours = Math.min(...hours);
+  const maxHours = Math.max(...hours);
   for (const l of list) {
     const badges: string[] = [];
-    if (l.price === minPrice) badges.push('Lowest price');
-    if (l.delivery_hours === minHours) badges.push('Fastest');
+    // A badge only shows when the vendors are really different
+    if (maxPrice !== minPrice && l.price === minPrice) badges.push('Lowest price');
+    if (maxHours !== minHours && l.delivery_hours === minHours) badges.push('Fastest');
     result[l.id] = badges;
   }
   return result;
+}
+
+// ---------- Orders ----------
+
+// Orders WhatsApp number (digits only, with country code)
+export const ORDERS_WHATSAPP = '923216757002';
+
+export interface OrderMessageInput {
+  orderNo: string;
+  customerName: string;
+  customerWhatsapp: string;
+  customerEmail: string;
+  productName: string;
+  packageTitle: string;
+  vendorName: string;
+  price: number;
+  notes: string;
+}
+
+// Builds the ready-to-send WhatsApp message. It never contains the vendor cost or commission.
+export function buildOrderMessage(o: OrderMessageInput): string {
+  const lines = [
+    'NEW ORDER - OrbinexaCSV',
+    'Order ID: ' + o.orderNo,
+    '',
+    'Customer: ' + o.customerName,
+    'WhatsApp: ' + o.customerWhatsapp,
+  ];
+  if (o.customerEmail) lines.push('Email: ' + o.customerEmail);
+  lines.push(
+    '',
+    'Package: ' + o.productName + ' (' + o.packageTitle + ')',
+    'Vendor: ' + o.vendorName,
+    'Price: ' + formatPkr(o.price),
+  );
+  if (o.notes) lines.push('', 'Notes: ' + o.notes);
+  lines.push('', 'I want to pay. Please send payment details.');
+  return lines.join('\n');
+}
+
+export function buildWhatsAppLink(message: string): string {
+  return 'https://wa.me/' + ORDERS_WHATSAPP + '?text=' + encodeURIComponent(message);
 }
