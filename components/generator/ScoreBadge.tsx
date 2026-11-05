@@ -17,16 +17,16 @@ export function ScoreBadge({ score, checklist = [] }: ScoreBadgeProps) {
 
   const tooltipText = "This score checks Adobe's published rules and good metadata practice. It cannot predict ranking or sales.";
 
-  // Score color tiers
+  // Score color tiers with solid opaque backgrounds and high contrast text
   const isHigh = score >= 80;
   const isMid = score >= 60 && score < 80;
   const isLow = score < 60;
 
   const badgeBg = isHigh
-    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
     : isMid
-    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-    : 'bg-destructive/15 text-destructive border-destructive/30';
+    ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-xs'
+    : 'bg-red-600 text-white border-red-700 shadow-xs';
 
   return (
     <div className="relative inline-block">

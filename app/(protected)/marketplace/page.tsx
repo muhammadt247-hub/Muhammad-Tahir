@@ -1,335 +1,450 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { Clock } from 'lucide-react';
-import { toast } from 'sonner';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Clock, Search, ShieldCheck, Store, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
-import { MARKETPLACE_ENABLED, ORDERS_WHATSAPP, formatPkr } from '@/lib/marketplace/shared';
+import {
+  MARKETPLACE_ENABLED,
+  MpProduct,
+  MpListing,
+  RawListingRow,
+  SortKey,
+  toListing,
+  formatPkr,
+  formatHours,
+  sortListings,
+  getBadges,
+  buildOrderMessage,
+  buildWhatsAppLink,
+} from '@/lib/marketplace/shared';
 
-interface MyOrder {
-  id: string;
-  order_no: string;
-  product_name: string;
-  package_title: string;
-  vendor_name: string;
-  price: number | string;
-  status: string;
-  problem_reason: string | null;
-  created_at: string;
-  delivery_due_at: string | null;
-  confirm_deadline_at: string | null;
+// ---------- Order form (opens on top of the page) ----------
+interface PlacedOrder {
+  orderNo: string;
+  link: string;
 }
 
-// Simple words for the customer
-const STATUS_TEXT: Record<string, { label: string; help: string }> = {
-  requested: {
-    label: 'Order received',
-    help: 'Send your order on WhatsApp. We will reply with the payment details.',
-  },
-  awaiting_payment: {
-    label: 'Waiting for your payment',
-    help: 'Please pay using the details we sent you on WhatsApp.',
-  },
-  payment_confirmed: {
-    label: 'Payment confirmed',
-    help: 'Your delivery time has started. We are preparing your order.',
-  },
-  with_vendor: {
-    label: 'Being prepared',
-    help: 'Your order is being prepared with the vendor.',
-  },
-  received_checked: {
-    label: 'Checked, almost ready',
-    help: 'We received your package and checked it. It is on its way to you.',
-  },
-  delivered: {
-    label: 'Delivered, please check',
-    help: 'Please check your package. If everything works, press Confirm. If not, report a problem.',
-  },
-  completed: { label: 'Completed', help: 'Thank you for your order.' },
-  disputed: {
-    label: 'Problem reported',
-    help: 'We are looking into your problem and will contact you on WhatsApp.',
-  },
-  cancelled: { label: 'Cancelled', help: 'This order was cancelled.' },
-  refunded: { label: 'Refunded', help: 'This order was refunded.' },
-};
+function OrderDialog({
+  listing,
+  productName,
+  onClose,
+}: {
+  listing: MpListing;
+  productName: string;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [email, setEmail] = useState('');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [placed, setPlaced] = useState<PlacedOrder | null>(null);
 
-function pad2(n: number): string {
-  return n < 10 ? '0' + n : String(n);
-}
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setFormError(null);
+    if (name.trim().length < 2) {
+      setFormError('Please enter your name.');
+      return;
+    }
+    if (!/^\+?[0-9 -]{7,20}$/.test(whatsapp.trim())) {
+      setFormError('Please enter a valid WhatsApp number, for example +923001234567.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc('mp_create_order', {
+        p_listing: listing.id,
+        p_name: name.trim(),
+        p_whatsapp: whatsapp.trim(),
+        p_email: email.trim() || null,
+        p_notes: notes.trim() || null,
+      });
+      if (error) throw new Error(error.message);
+      const row = Array.isArray(data) ? data[0] : data;
+      const orderNo: string | undefined = row?.out_order_no;
+      if (!orderNo) throw new Error('The order was not created. Please try again.');
+      const message = buildOrderMessage({
+        orderNo,
+        customerName: name.trim(),
+        customerWhatsapp: whatsapp.trim(),
+        customerEmail: email.trim(),
+        productName,
+        packageTitle: listing.title,
+        vendorName: listing.vendor?.name ?? 'Vendor',
+        price: listing.price,
+        notes: notes.trim(),
+      });
+      setPlaced({ orderNo, link: buildWhatsAppLink(message) });
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
-function formatDate(value: string | null): string {
-  if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return value;
-  }
-}
-
-function Countdown({ target, label }: { target: string; label: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const diff = new Date(target).getTime() - now;
-  const late = diff < 0;
-  const total = Math.floor(Math.abs(diff) / 1000);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const sec = total % 60;
   return (
     <div
-      className={
-        'inline-flex items-center gap-2 rounded-xl border px-3 py-2 ' +
-        (late
-          ? 'border-red-500/40 bg-red-500/10 text-red-600'
-          : 'border-border/60 bg-muted/50 text-foreground')
-      }
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={() => {
+        if (!busy) onClose();
+      }}
     >
-      <Clock className="h-4 w-4" />
-      <div className="leading-tight">
-        <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
-        <div className="font-mono text-lg font-extrabold tabular-nums">
-          {pad2(h)}:{pad2(m)}:{pad2(sec)}
-          <span className="ml-1.5 text-xs font-semibold">{late ? 'late' : 'left'}</span>
-        </div>
+      <div
+        className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border/60 bg-card p-5 sm:p-6 shadow-xl space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {placed ? (
+          <div className="space-y-4 text-center">
+            <h2 className="text-xl font-extrabold text-foreground">Order saved</h2>
+            <p className="text-sm text-muted-foreground">
+              Your order ID is <span className="font-bold text-foreground">{placed.orderNo}</span>
+            </p>
+            <div className="rounded-xl bg-muted/50 p-3 text-left text-xs text-muted-foreground space-y-1">
+              <p className="font-semibold text-foreground">Next steps</p>
+              <p>1. Press the green button to send your order on WhatsApp.</p>
+              <p>2. We reply with the payment details. You pay only us.</p>
+              <p>3. After we confirm your payment, the delivery time starts.</p>
+            </div>
+            <a
+              href={placed.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center rounded-xl bg-[#25D366] px-4 py-3 text-sm font-bold text-white hover:opacity-90"
+            >
+              Send order on WhatsApp
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              Close
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-xl font-extrabold text-foreground">Place your order</h2>
+              <p className="text-sm text-muted-foreground">
+                {productName} ({listing.title}) from {listing.vendor?.name ?? 'Vendor'}
+              </p>
+              <p className="text-lg font-extrabold text-foreground">{formatPkr(listing.price)}</p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground">Your name</label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground">Your WhatsApp number</label>
+              <Input
+                value={whatsapp}
+                onChange={(e) => setWhatsapp(e.target.value)}
+                placeholder="+923001234567"
+                maxLength={20}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground">Email (optional)</label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground">Notes (optional)</label>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} />
+            </div>
+
+            {formError && <p className="text-xs font-semibold text-red-600 break-words">{formError}</p>}
+
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy} className="flex-1">
+                {busy ? 'Saving...' : 'Place order'}
+              </Button>
+              <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+                Cancel
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              You do not pay now. We contact you on WhatsApp with the payment details.
+            </p>
+          </form>
+        )}
       </div>
     </div>
   );
 }
 
-export default function MyOrdersPage() {
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'price', label: 'Lowest price' },
+  { key: 'speed', label: 'Fastest delivery' },
+  { key: 'verified', label: 'Verified first' },
+];
+
+export default function MarketplacePage() {
   if (!MARKETPLACE_ENABLED) {
     return (
       <div className="max-w-xl mx-auto py-24 text-center space-y-2">
-        <h1 className="text-2xl font-extrabold text-foreground">My orders</h1>
+        <h1 className="text-2xl font-extrabold text-foreground">Marketplace</h1>
         <p className="text-sm text-muted-foreground">This page is not available yet.</p>
       </div>
     );
   }
-  return <MyOrders />;
+  return <MarketplaceHome />;
 }
 
-function MyOrders() {
+function MarketplaceHome() {
+  const [products, setProducts] = useState<MpProduct[]>([]);
+  const [listings, setListings] = useState<MpListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<MyOrder[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [reportingId, setReportingId] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
-
-  const load = useCallback(async () => {
-    try {
-      const supabase = createClient();
-      const { data: userData } = await supabase.auth.getUser();
-      const uid = userData.user?.id;
-      if (!uid) {
-        setError('Please log in to see your orders.');
-        return;
-      }
-      const { data, error: err } = await supabase
-        .from('mp_orders')
-        .select(
-          'id, order_no, product_name, package_title, vendor_name, price, status, problem_reason, created_at, delivery_due_at, confirm_deadline_at'
-        )
-        .eq('customer_id', uid)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (err) throw new Error(err.message);
-      setOrders((data ?? []) as MyOrder[]);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load your orders');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<SortKey>('price');
+  const [ordering, setOrdering] = useState<MpListing | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const supabase = createClient();
+        const [p, l] = await Promise.all([
+          supabase
+            .from('mp_products')
+            .select('id, name, slug, category, description, image_url')
+            .order('name'),
+          supabase
+            .from('mp_listings')
+            .select('id, title, price, delivery_hours, vendor_id, product_id, mp_vendors(id, name, slug, verified)')
+            .order('price'),
+        ]);
+        if (cancelled) return;
+        if (p.error) throw new Error(p.error.message);
+        if (l.error) throw new Error(l.error.message);
+        setProducts((p.data ?? []) as MpProduct[]);
+        setListings(((l.data ?? []) as unknown as RawListingRow[]).map(toListing));
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load the marketplace');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
     load();
-  }, [load]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const run = async (o: MyOrder, fn: string, args: Record<string, unknown>, okText: string) => {
-    if (busyId) return;
-    setBusyId(o.id);
+  const listingsByProduct = useMemo(() => {
+    const map: Record<string, MpListing[]> = {};
+    for (const l of listings) {
+      if (!map[l.product_id]) map[l.product_id] = [];
+      map[l.product_id].push(l);
+    }
+    return map;
+  }, [listings]);
+
+  const filteredProducts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(
+      (p) => p.name.toLowerCase().includes(q) || (p.category ?? '').toLowerCase().includes(q)
+    );
+  }, [products, query]);
+
+  const selected = products.find((p) => p.id === selectedId) ?? null;
+  const selectedListings = useMemo(
+    () => (selected ? sortListings(listingsByProduct[selected.id] ?? [], sort) : []),
+    [selected, listingsByProduct, sort]
+  );
+  const badges = useMemo(() => getBadges(selectedListings), [selectedListings]);
+
+  const openProduct = (id: string) => {
+    setSelectedId(id);
     try {
-      const supabase = createClient();
-      const { error: err } = await supabase.rpc(fn, args);
-      if (err) throw new Error(err.message);
-      toast.success(okText);
-      setReportingId(null);
-      setReason('');
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Something went wrong');
-    } finally {
-      setBusyId(null);
+      window.scrollTo({ top: 0 });
+    } catch {
+      // not important
     }
-  };
-
-  const confirmOrder = (o: MyOrder) => {
-    if (!window.confirm('Is everything working? Press OK to confirm and complete this order.')) return;
-    run(o, 'mp_customer_confirm', { p_order: o.id }, 'Thank you! Order completed.');
-  };
-
-  const cancelOrder = (o: MyOrder) => {
-    if (!window.confirm('Cancel order ' + o.order_no + '?')) return;
-    run(o, 'mp_customer_cancel', { p_order: o.id }, 'Order cancelled.');
-  };
-
-  const sendReport = (o: MyOrder) => {
-    if (reason.trim().length < 10) {
-      toast.error('Please describe the problem (at least 10 characters).');
-      return;
-    }
-    run(o, 'mp_customer_report', { p_order: o.id, p_reason: reason.trim() }, 'Problem reported. We will contact you.');
   };
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto space-y-4 pb-12">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-40" />
+      <div className="max-w-6xl mx-auto space-y-6 pb-12">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-36" />
+          <Skeleton className="h-36" />
+          <Skeleton className="h-36" />
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-12">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">My orders</h1>
-        <Link
-          href="/marketplace"
-          className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
-        >
-          Back to marketplace
-        </Link>
+  if (error) {
+    return (
+      <div className="max-w-xl mx-auto py-20 text-center space-y-2">
+        <h1 className="text-xl font-extrabold text-foreground">Could not load the marketplace</h1>
+        <p className="text-sm text-muted-foreground break-words">{error}</p>
       </div>
+    );
+  }
 
-      {error && <p className="text-sm font-semibold text-red-600 break-words">{error}</p>}
+  // ---------- Compare view: all vendors for one product ----------
+  if (selected) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6 pb-12">
+        <button
+          type="button"
+          onClick={() => setSelectedId(null)}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" /> All packages
+        </button>
 
-      {!error && orders.length === 0 && (
-        <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
-          You have no orders yet.
+        <div className="space-y-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">{selected.name}</h1>
+          {selected.description && <p className="text-sm text-muted-foreground">{selected.description}</p>}
         </div>
-      )}
 
-      <div className="space-y-4">
-        {orders.map((o) => {
-          const info = STATUS_TEXT[o.status] ?? { label: o.status, help: '' };
-          const waText = 'Hello, I have a question about my order ' + o.order_no + '.';
-          return (
-            <div
-              key={o.id}
-              className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm space-y-3"
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground mr-1">Sort by</span>
+          {SORT_OPTIONS.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => setSort(o.key)}
+              className={
+                'px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ' +
+                (sort === o.key
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent')
+              }
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-base font-extrabold text-foreground">{o.order_no}</span>
-                  <Badge variant={o.status === 'disputed' ? 'ai' : 'category'}>{info.label}</Badge>
-                </div>
-                <span className="text-xs text-muted-foreground">{formatDate(o.created_at)}</span>
-              </div>
+              {o.label}
+            </button>
+          ))}
+        </div>
 
-              <div className="text-sm space-y-0.5">
-                <p className="font-bold text-foreground">
-                  {o.product_name} ({o.package_title})
-                </p>
-                <p className="text-muted-foreground">Vendor: {o.vendor_name}</p>
-                <p className="text-muted-foreground">
-                  Price: <span className="font-bold text-foreground">{formatPkr(Number(o.price))}</span>
-                </p>
-              </div>
-
-              {info.help && <p className="text-xs text-muted-foreground">{info.help}</p>}
-
-              {o.delivery_due_at && ['payment_confirmed', 'with_vendor', 'received_checked', 'disputed'].includes(o.status) && (
-                <Countdown target={o.delivery_due_at} label="Delivery time left" />
-              )}
-              {o.confirm_deadline_at && o.status === 'delivered' && (
-                <Countdown target={o.confirm_deadline_at} label="Please confirm within" />
-              )}
-
-              {o.problem_reason && (
-                <div className="rounded-xl bg-red-500/10 p-3 text-xs text-red-700 dark:text-red-300 break-words">
-                  Your report: {o.problem_reason}
-                </div>
-              )}
-
-              {reportingId === o.id && (
-                <div className="space-y-2">
-                  <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    maxLength={1000}
-                    rows={3}
-                    placeholder="Tell us what is wrong..."
-                    className="w-full rounded-xl border border-border/60 bg-background p-3 text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" disabled={busyId === o.id} onClick={() => sendReport(o)}>
-                      Send report
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setReportingId(null);
-                        setReason('');
-                      }}
-                    >
-                      Cancel
-                    </Button>
+        {selectedListings.length === 0 ? (
+          <div className="rounded-2xl border border-border/60 bg-card p-8 text-center text-sm text-muted-foreground">
+            No vendors are offering this package yet.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {selectedListings.map((l) => (
+              <div
+                key={l.id}
+                className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center gap-4"
+              >
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-base font-bold text-foreground">
+                      <Store className="h-4 w-4 text-muted-foreground" />
+                      {l.vendor?.name ?? 'Vendor'}
+                    </span>
+                    {l.vendor?.verified && (
+                      <Badge variant="nonAi">
+                        <ShieldCheck className="h-3 w-3" /> Verified
+                      </Badge>
+                    )}
+                    {(badges[l.id] ?? []).map((b) => (
+                      <Badge key={b} variant="ai">
+                        {b}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <Tag className="h-3.5 w-3.5" /> {l.title}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" /> Delivery within {formatHours(l.delivery_hours)}
+                    </span>
+                    <span>New vendor, no ratings yet</span>
                   </div>
                 </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                {o.status === 'delivered' && reportingId !== o.id && (
-                  <>
-                    <Button size="sm" disabled={busyId === o.id} onClick={() => confirmOrder(o)}>
-                      Confirm, all good
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === o.id}
-                      onClick={() => setReportingId(o.id)}
-                    >
-                      Report a problem
-                    </Button>
-                  </>
-                )}
-                {['requested', 'awaiting_payment'].includes(o.status) && (
-                  <Button size="sm" variant="outline" disabled={busyId === o.id} onClick={() => cancelOrder(o)}>
-                    Cancel order
+                <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
+                  <div className="text-xl font-extrabold text-foreground">{formatPkr(l.price)}</div>
+                  <Button size="sm" onClick={() => setOrdering(l)}>
+                    Order
                   </Button>
-                )}
-                <a
-                  href={'https://wa.me/' + ORDERS_WHATSAPP + '?text=' + encodeURIComponent(waText)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center rounded-md bg-[#25D366] px-3 py-1.5 text-xs font-bold text-white hover:opacity-90"
-                >
-                  Message us on WhatsApp
-                </a>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        )}
+
+        {ordering && (
+          <OrderDialog listing={ordering} productName={selected.name} onClose={() => setOrdering(null)} />
+        )}
       </div>
+    );
+  }
+
+  // ---------- Home view: all packages ----------
+  return (
+    <div className="max-w-6xl mx-auto space-y-8 pb-12">
+      <div className="space-y-3">
+        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">Marketplace</h1>
+        <p className="text-sm text-muted-foreground max-w-2xl">
+          Compare trusted vendors for AI tools and digital subscriptions. You pay only through OrbinexaCSV,
+          and we check every delivery before it reaches you.
+        </p>
+      </div>
+
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search packages..."
+          className="pl-9"
+        />
+      </div>
+
+      {filteredProducts.length === 0 ? (
+        <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
+          No packages found.
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredProducts.map((p) => {
+            const list = listingsByProduct[p.id] ?? [];
+            const lowest = list.length > 0 ? Math.min(...list.map((l) => l.price)) : null;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => openProduct(p.id)}
+                className="text-left rounded-2xl border border-border/60 bg-card p-5 shadow-sm hover:shadow-md hover:border-primary/40 transition-all space-y-3"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <h2 className="text-lg font-bold text-foreground">{p.name}</h2>
+                  {p.category && <Badge variant="category">{p.category}</Badge>}
+                </div>
+                {p.description && <p className="text-xs text-muted-foreground line-clamp-2">{p.description}</p>}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs text-muted-foreground">
+                    {list.length} {list.length === 1 ? 'vendor' : 'vendors'}
+                  </span>
+                  {lowest !== null ? (
+                    <span className="text-sm font-bold text-foreground">From {formatPkr(lowest)}</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No offers yet</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

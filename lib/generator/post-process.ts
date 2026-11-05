@@ -144,29 +144,49 @@ export function postProcessMetadata<
     }
   }
 
-  // 2. Apply prefix & suffix
+  // 2. Budget and apply prefix, suffix, core title, and background phrase
   const prefix = options.isPrefixEnabled && options.titlePrefix ? `${options.titlePrefix.trim()} ` : '';
   const suffix = options.isSuffixEnabled && options.titleSuffix ? ` ${options.titleSuffix.trim()}` : '';
-  title = `${prefix}${title}${suffix}`.trim();
+  const fixedLength = prefix.length + suffix.length;
+  const maxLen = options.titleMaxLength;
+  const availableMax = Math.max(15, maxLen - fixedLength);
 
-  // 3. Add the background phrase (white or transparent) to the title
+  let coreTitle = cleanTitleText(item.title || '');
+
+  // 3. Add the background phrase (white or transparent) to the core title if space permits
   const bg = resolveBackground(options);
   if (bg !== 'none') {
     const phrase = `isolated on ${bg} background`;
     const alreadyThere =
       bg === 'white'
-        ? title.toLowerCase().includes('white background')
-        : title.toLowerCase().includes('transparent');
+        ? coreTitle.toLowerCase().includes('white background')
+        : coreTitle.toLowerCase().includes('transparent');
     if (!alreadyThere) {
-      const room = options.titleMaxLength - phrase.length - 1;
-      if (room >= 20) {
-        title = `${trimAtWordBoundary(title, room)} ${phrase}`.trim();
+      const room = availableMax - phrase.length - 1;
+      if (room >= 15) {
+        coreTitle = `${trimAtWordBoundary(coreTitle, room)} ${phrase}`.trim();
       }
     }
   }
 
-  // 4. Enforce title length limit at word boundary
-  title = trimAtWordBoundary(title, options.titleMaxLength);
+  // 4. Enforce available max length on core title at word boundary
+  coreTitle = trimAtWordBoundary(coreTitle, availableMax);
+
+  // 5. Combine prefix, core title, and suffix
+  let finalTitle = `${prefix}${coreTitle}${suffix}`.trim();
+
+  // Strict final enforcer: ensure combined length never exceeds maxLen
+  if (finalTitle.length > maxLen) {
+    const excess = finalTitle.length - maxLen;
+    const newAvailable = Math.max(10, availableMax - excess);
+    coreTitle = trimAtWordBoundary(coreTitle, newAvailable);
+    finalTitle = `${prefix}${coreTitle}${suffix}`.trim();
+    if (finalTitle.length > maxLen) {
+      finalTitle = trimAtWordBoundary(finalTitle, maxLen);
+    }
+  }
+
+  title = finalTitle;
 
   // 5. Clean and post-process keywords
   let keywords = dedupeKeywordsSmart((item.keywords || []).map((k) => k.trim()).filter(Boolean));

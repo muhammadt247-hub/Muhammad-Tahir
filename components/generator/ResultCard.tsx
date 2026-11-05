@@ -930,8 +930,8 @@ export function ResultCard({
                 <span className="truncate">Excluded ({excludedReasonText})</span>
               </span>
             ) : isReadyForExport ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-[11px] font-bold">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white border-emerald-700 text-[11px] font-bold shadow-xs">
+                <CheckCircle2 className="h-3.5 w-3.5 text-white shrink-0" />
                 <span>Exported</span>
               </span>
             ) : item.status === 'working' ? (

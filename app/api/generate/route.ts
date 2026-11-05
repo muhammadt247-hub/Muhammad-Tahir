@@ -409,13 +409,19 @@ export async function POST(req: NextRequest) {
     let responseSchema: typeof MetadataResponseSchema | typeof PromptResponseSchema;
 
     if (mode === 'metadata' || mode === 'retitle') {
+      const prefixStr = isPrefixEnabled && titlePrefix ? titlePrefix.trim() + ' ' : '';
+      const suffixStr = isSuffixEnabled && titleSuffix ? ' ' + titleSuffix.trim() : '';
+      const fixedLen = prefixStr.length + suffixStr.length;
       const isFreepik = platform === 'freepik';
       const maxTitle = isFreepik ? Math.min(100, titleMaxLength) : titleMaxLength;
+      const availableForAi = Math.max(15, maxTitle - fixedLen);
+      const targetMin = Math.round(availableForAi * 0.85);
+      const targetMax = availableForAi;
 
       systemInstruction = `You are an expert commercial microstock metadata generator for Adobe Stock, Shutterstock, and Freepik contributors.
 CRITICAL RULES:
 1. Describe ONLY what is directly visible in the image. Be concrete, commercial, and factual.
-2. Title: one plain English sentence under ${maxTitle} characters that names the main subject first, then the count, style and background. Use only letters, numbers, spaces and hyphens. No commas, colons, symbols, quotes or emoji. Never repeat a word or a concept. Check spelling and grammar. For icon sheets, name each icon once in plain words. Do NOT cut mid-word. Never start with "A photo of" or "An image of".
+2. Title: A descriptive, meaningful commercial stock title. The core generated text must be between ${targetMin} and ${targetMax} characters (total combined limit including prefix/suffix is ${maxTitle} characters). Utilize the character budget fully and naturally with specific visual details (subject, count, colors, composition, setting). Avoid unnecessarily short titles. Use only letters, numbers, spaces, hyphens, and apostrophes. No commas, colons, symbols, quotes, or emoji. Never repeat a word or concept. Never start with "A photo of" or "An image of".
 3. Keywords: only words for things that are clearly visible or are the obvious subject. Do not add abstract or conceptual guesses (customer, service, support, feedback, social, media, connection, network) unless the image clearly shows them. Do not use near-duplicates: never use more than one word from the same family (smile/smiley/smiling, phone/smartphone/mobile, tech/technology, web/internet/online), and never use both singular and plural. Do not add generic filler to reach the count. It is fine to return fewer keywords than the maximum. Order by relevance (most important first). Use single words and short 2-3 word phrases. Generate up to ${keywordsMaxCount} keywords.
 4. FORBIDDEN: NEVER include brand names, trademarks, company names, camera gear, software names, real people names, or the word "stock".
 5. NEVER use these banned title words: "${negativeTitleWords || ''}".
