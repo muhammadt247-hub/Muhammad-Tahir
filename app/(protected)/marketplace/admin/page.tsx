@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -116,14 +117,43 @@ function formatDate(value: string | null): string {
   }
 }
 
-function timeLeft(value: string | null): string {
-  if (!value) return '';
-  const diff = new Date(value).getTime() - Date.now();
-  const abs = Math.abs(diff);
-  const hours = Math.floor(abs / 3600000);
-  const mins = Math.floor((abs % 3600000) / 60000);
-  const text = hours > 0 ? hours + 'h ' + mins + 'm' : mins + 'm';
-  return diff >= 0 ? text + ' left' : text + ' late';
+function pad2(n: number): string {
+  return n < 10 ? '0' + n : String(n);
+}
+
+// A live clock that ticks every second: 23:59:41 left, or 00:12:05 late (red)
+function Countdown({ target, label }: { target: string; label: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const diff = new Date(target).getTime() - now;
+  const late = diff < 0;
+  const total = Math.floor(Math.abs(diff) / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  return (
+    <div
+      className={
+        'inline-flex items-center gap-2 rounded-xl border px-3 py-2 ' +
+        (late
+          ? 'border-red-500/40 bg-red-500/10 text-red-600'
+          : 'border-border/60 bg-muted/50 text-foreground')
+      }
+    >
+      <Clock className="h-4 w-4" />
+      <div className="leading-tight">
+        <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
+        <div className="font-mono text-lg font-extrabold tabular-nums">
+          {pad2(h)}:{pad2(m)}:{pad2(sec)}
+          <span className="ml-1.5 text-xs font-semibold">{late ? 'late' : 'left'}</span>
+        </div>
+        <div className="text-[11px] text-muted-foreground">Due {formatDate(target)}</div>
+      </div>
+    </div>
+  );
 }
 
 function onlyDigits(v: string): string {
@@ -329,17 +359,12 @@ function AdminOrders() {
                 </div>
 
                 {(o.delivery_due_at || o.confirm_deadline_at) && (
-                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-                    {o.delivery_due_at && !['delivered', 'completed', 'cancelled', 'refunded'].includes(o.status) && (
-                      <span>
-                        Delivery due: {formatDate(o.delivery_due_at)} ({timeLeft(o.delivery_due_at)})
-                      </span>
+                  <div className="flex flex-wrap gap-3">
+                    {o.delivery_due_at && ['payment_confirmed', 'with_vendor', 'received_checked', 'disputed'].includes(o.status) && (
+                      <Countdown target={o.delivery_due_at} label="Delivery time" />
                     )}
                     {o.confirm_deadline_at && o.status === 'delivered' && (
-                      <span>
-                        Customer must confirm by: {formatDate(o.confirm_deadline_at)} (
-                        {timeLeft(o.confirm_deadline_at)})
-                      </span>
+                      <Countdown target={o.confirm_deadline_at} label="Customer must confirm in" />
                     )}
                   </div>
                 )}
