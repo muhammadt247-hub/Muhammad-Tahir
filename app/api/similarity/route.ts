@@ -100,6 +100,7 @@ export async function POST(req: NextRequest) {
         headers: {
           'User-Agent': 'aistudio-build',
         },
+        timeout: 45000,
       },
     });
 

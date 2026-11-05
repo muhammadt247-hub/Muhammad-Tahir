@@ -10,6 +10,7 @@ export function getGeminiClient(): GoogleGenAI {
         headers: {
           'User-Agent': 'aistudio-build',
         },
+        timeout: 45000,
       },
     });
   }

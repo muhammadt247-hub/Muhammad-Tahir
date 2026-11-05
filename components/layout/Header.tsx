@@ -22,6 +22,7 @@ import {
   LogOut,
     Coins,
   MessageCircle,
+  ShoppingBag,
 } from 'lucide-react';
 import { SITE_CONFIG } from '@/config/site';
 import { LogoMark } from '@/components/Logo';
@@ -206,6 +207,19 @@ export function Header() {
               >
                 Generator
               </Link>
+
+              {process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED === 'true' && (
+                <Link
+                  href="/marketplace"
+                  className={cn(
+                    'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all pop-10',
+                    RING,
+                    pathname === '/marketplace' || pathname.startsWith('/marketplace') ? ACTIVE : IDLE
+                  )}
+                >
+                  Marketplace
+                </Link>
+              )}
 
               <span
                 className="px-3 md:px-4 py-2 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed inline-flex items-center gap-1.5 select-none"
@@ -561,6 +575,20 @@ export function Header() {
                 <Wand2 className="h-4 w-4" />
                 <span>Background Remover</span>
               </Link>
+
+              {process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED === 'true' && (
+                <Link
+                  href="/marketplace"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
+                    'flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors',
+                    pathname === '/marketplace' || pathname.startsWith('/marketplace') ? ACTIVE : IDLE
+                  )}
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                  <span>Marketplace</span>
+                </Link>
+              )}
 
               <Link
                 href="/tools"

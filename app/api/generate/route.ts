@@ -390,6 +390,7 @@ export async function POST(req: NextRequest) {
         headers: {
           'User-Agent': 'aistudio-build',
         },
+        timeout: 45000,
       },
     });
 
@@ -422,7 +423,7 @@ export async function POST(req: NextRequest) {
 CRITICAL RULES:
 1. Describe ONLY what is directly visible in the image. Be concrete, commercial, and factual.
 2. Title: A descriptive, meaningful commercial stock title. The core generated text must be between ${targetMin} and ${targetMax} characters (total combined limit including prefix/suffix is ${maxTitle} characters). Utilize the character budget fully and naturally with specific visual details (subject, count, colors, composition, setting). Avoid unnecessarily short titles. Use only letters, numbers, spaces, hyphens, and apostrophes. No commas, colons, symbols, quotes, or emoji. Never repeat a word or concept. Never start with "A photo of" or "An image of".
-3. Keywords: only words for things that are clearly visible or are the obvious subject. Do not add abstract or conceptual guesses (customer, service, support, feedback, social, media, connection, network) unless the image clearly shows them. Do not use near-duplicates: never use more than one word from the same family (smile/smiley/smiling, phone/smartphone/mobile, tech/technology, web/internet/online), and never use both singular and plural. Do not add generic filler to reach the count. It is fine to return fewer keywords than the maximum. Order by relevance (most important first). Use single words and short 2-3 word phrases. Generate up to ${keywordsMaxCount} keywords.
+3. Keywords: Generate exactly ${keywordsMaxCount} distinct, relevant keywords. Prioritize the most important visual subjects first. Include relevant objects, materials, colors, clothing, activities, environments, industries, uses, and commercial concepts when genuinely supported by the image. Use a natural mixture of single words and descriptive 2–3 word phrases according to the selected keyword style. Avoid duplicate words, redundant phrases, irrelevant synonyms, and unsupported concepts. Never invent visual details or add unrelated generic filler. Treat the selected keyword count as the required output quantity, not just a maximum.
 4. FORBIDDEN: NEVER include brand names, trademarks, company names, camera gear, software names, real people names, or the word "stock".
 5. NEVER use these banned title words: "${negativeTitleWords || ''}".
 6. NEVER use these banned keywords: "${negativeKeywords || ''}".
