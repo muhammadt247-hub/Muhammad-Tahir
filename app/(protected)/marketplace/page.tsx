@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { ArrowLeft, Clock, Search, ShieldCheck, Store, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -121,6 +122,12 @@ function OrderDialog({
             >
               Send order on WhatsApp
             </a>
+            <Link
+              href="/marketplace/orders"
+              className="block text-sm font-semibold text-primary hover:underline"
+            >
+              View my orders
+            </Link>
             <button
               type="button"
               onClick={onClose}
@@ -392,7 +399,15 @@ function MarketplaceHome() {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
       <div className="space-y-3">
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">Marketplace</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">Marketplace</h1>
+          <Link
+            href="/marketplace/orders"
+            className="inline-flex h-9 items-center rounded-lg border border-border/60 px-4 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+          >
+            My orders
+          </Link>
+        </div>
         <p className="text-sm text-muted-foreground max-w-2xl">
           Compare trusted vendors for AI tools and digital subscriptions. You pay only through OrbinexaCSV,
           and we check every delivery before it reaches you.

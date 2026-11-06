@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -283,9 +284,17 @@ function AdminOrders() {
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Marketplace orders</h1>
-        <Button size="sm" variant="outline" onClick={() => load()}>
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/marketplace/admin/catalog"
+            className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Catalog
+          </Link>
+          <Button size="sm" variant="outline" onClick={() => load()}>
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
