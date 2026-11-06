@@ -40,10 +40,9 @@ function singularKey(word: string): string {
 
 const KEYWORD_STOP_WORDS = new Set(['a', 'an', 'the', 'of', 'on', 'and', 'with', 'for', 'in', 'at', 'to']);
 
-// Remove exact and singular/plural duplicates, and allow at most 2 keywords sharing the same root word.
+// Remove exact, case-insensitive, and singular/plural duplicates.
 export function dedupeKeywordsSmart(keywords: string[]): string[] {
   const seenFull = new Set<string>();
-  const rootCount = new Map<string, number>();
   const result: string[] = [];
 
   for (const raw of keywords) {
@@ -52,14 +51,7 @@ export function dedupeKeywordsSmart(keywords: string[]): string[] {
     const fullKey = kw.split(/\s+/).map(singularKey).join(' ');
     if (seenFull.has(fullKey)) continue;
 
-    const roots = kw
-      .split(/\s+/)
-      .filter((t) => !KEYWORD_STOP_WORDS.has(t))
-      .map(singularKey);
-    if (roots.some((r) => (rootCount.get(r) || 0) >= 2)) continue;
-
     seenFull.add(fullKey);
-    for (const r of new Set(roots)) rootCount.set(r, (rootCount.get(r) || 0) + 1);
     result.push(kw);
   }
   return result;
