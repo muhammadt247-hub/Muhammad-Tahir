@@ -41,7 +41,28 @@ export interface RawListingRow {
   mp_vendors: MpVendorInfo | MpVendorInfo[] | null;
 }
 
-export type SortKey = 'price' | 'speed' | 'verified';
+export type SortKey = 'price' | 'speed' | 'verified' | 'rating';
+
+// Vendor score numbers (from the database function mp_vendor_scores)
+export interface VendorScore {
+  vendor_id: string;
+  orders_window: number;
+  completed_total: number;
+  review_count: number;
+  avg_rating: number | null;
+  completion_pct: number | null;
+  ontime_pct: number | null;
+  complaints_pct: number | null;
+  score: number | null;
+  is_new: boolean;
+}
+
+export interface VendorReview {
+  rating: number;
+  comment: string | null;
+  created_at: string;
+  customer_label: string | null;
+}
 
 export function toListing(row: RawListingRow): MpListing {
   const v = Array.isArray(row.mp_vendors) ? row.mp_vendors[0] ?? null : row.mp_vendors;
@@ -66,9 +87,21 @@ export function formatHours(hours: number): string {
   return days + (days === 1 ? ' day' : ' days');
 }
 
-export function sortListings(list: MpListing[], key: SortKey): MpListing[] {
+export function sortListings(
+  list: MpListing[],
+  key: SortKey,
+  scores: Record<string, VendorScore> = {}
+): MpListing[] {
   const copy = [...list];
   copy.sort((a, b) => {
+    if (key === 'rating') {
+      const ar = scores[a.vendor_id]?.avg_rating;
+      const br = scores[b.vendor_id]?.avg_rating;
+      const av = ar === null || ar === undefined ? -1 : Number(ar);
+      const bv = br === null || br === undefined ? -1 : Number(br);
+      if (av !== bv) return bv - av;
+      return a.price - b.price;
+    }
     if (key === 'speed') {
       if (a.delivery_hours !== b.delivery_hours) return a.delivery_hours - b.delivery_hours;
       return a.price - b.price;

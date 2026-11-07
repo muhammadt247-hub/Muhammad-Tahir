@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Clock, Search, ShieldCheck, Store, Tag } from 'lucide-react';
+import { ArrowLeft, Clock, Search, ShieldCheck, Star, Store, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,8 @@ import {
   MpListing,
   RawListingRow,
   SortKey,
+  VendorScore,
+  VendorReview,
   toListing,
   formatPkr,
   formatHours,
@@ -191,6 +193,7 @@ function OrderDialog({
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'price', label: 'Lowest price' },
   { key: 'speed', label: 'Fastest delivery' },
+  { key: 'rating', label: 'Best rated' },
   { key: 'verified', label: 'Verified first' },
 ];
 
@@ -215,6 +218,29 @@ function MarketplaceHome() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortKey>('price');
   const [ordering, setOrdering] = useState<MpListing | null>(null);
+  const [scores, setScores] = useState<Record<string, VendorScore>>({});
+  const [openReviews, setOpenReviews] = useState<string | null>(null);
+  const [reviewList, setReviewList] = useState<VendorReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  const toggleReviews = async (vendorId: string) => {
+    if (openReviews === vendorId) {
+      setOpenReviews(null);
+      return;
+    }
+    setOpenReviews(vendorId);
+    setReviewList([]);
+    setReviewsLoading(true);
+    try {
+      const supabase = createClient();
+      const { data } = await supabase.rpc('mp_vendor_reviews', { p_vendor: vendorId, p_limit: 10 });
+      setReviewList((data ?? []) as VendorReview[]);
+    } catch {
+      setReviewList([]);
+    } finally {
+      setReviewsLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -236,6 +262,19 @@ function MarketplaceHome() {
         if (l.error) throw new Error(l.error.message);
         setProducts((p.data ?? []) as MpProduct[]);
         setListings(((l.data ?? []) as unknown as RawListingRow[]).map(toListing));
+        // Scores are a bonus: if they fail, the page still works
+        try {
+          const sc = await supabase.rpc('mp_vendor_scores');
+          if (!cancelled && !sc.error) {
+            const map: Record<string, VendorScore> = {};
+            ((sc.data ?? []) as VendorScore[]).forEach((x) => {
+              map[x.vendor_id] = x;
+            });
+            setScores(map);
+          }
+        } catch {
+          // ignore
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load the marketplace');
       } finally {
@@ -267,8 +306,8 @@ function MarketplaceHome() {
 
   const selected = products.find((p) => p.id === selectedId) ?? null;
   const selectedListings = useMemo(
-    () => (selected ? sortListings(listingsByProduct[selected.id] ?? [], sort) : []),
-    [selected, listingsByProduct, sort]
+    () => (selected ? sortListings(listingsByProduct[selected.id] ?? [], sort, scores) : []),
+    [selected, listingsByProduct, sort, scores]
   );
   const badges = useMemo(() => getBadges(selectedListings), [selectedListings]);
 
@@ -374,8 +413,57 @@ function MarketplaceHome() {
                     <span className="inline-flex items-center gap-1">
                       <Clock className="h-3.5 w-3.5" /> Delivery within {formatHours(l.delivery_hours)}
                     </span>
-                    <span>New vendor, no ratings yet</span>
+                    {(() => {
+                      const sc = scores[l.vendor_id];
+                      if (!sc) return <span>New vendor, no ratings yet</span>;
+                      return (
+                        <>
+                          {sc.review_count > 0 && sc.avg_rating !== null ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleReviews(l.vendor_id)}
+                              className="inline-flex items-center gap-1 font-semibold text-foreground hover:underline"
+                            >
+                              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+                              {Number(sc.avg_rating).toFixed(1)} ({sc.review_count}{' '}
+                              {sc.review_count === 1 ? 'review' : 'reviews'})
+                            </button>
+                          ) : (
+                            <span>No ratings yet</span>
+                          )}
+                          {sc.is_new ? (
+                            <span className="font-semibold text-amber-600">New vendor</span>
+                          ) : (
+                            sc.score !== null && (
+                              <span className="font-semibold text-foreground">Score {Math.round(Number(sc.score))}/100</span>
+                            )
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
+                  {openReviews === l.vendor_id && (
+                    <div className="rounded-xl bg-muted/40 p-3 space-y-2">
+                      {reviewsLoading && <p className="text-xs text-muted-foreground">Loading reviews...</p>}
+                      {!reviewsLoading && reviewList.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No reviews yet.</p>
+                      )}
+                      {reviewList.map((r, i) => (
+                        <div key={i} className="text-xs">
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star
+                                key={n}
+                                className={'h-3 w-3 ' + (n <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40')}
+                              />
+                            ))}
+                            <span className="ml-1 font-semibold text-foreground">{r.customer_label ?? 'Customer'}</span>
+                          </div>
+                          {r.comment && <p className="text-muted-foreground break-words">{r.comment}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
                   <div className="text-xl font-extrabold text-foreground">{formatPkr(l.price)}</div>
