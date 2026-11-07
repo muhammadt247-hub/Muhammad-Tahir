@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Clock } from 'lucide-react';
+import { Clock, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -129,6 +129,10 @@ function MyOrders() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [reviews, setReviews] = useState<Record<string, number>>({});
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [stars, setStars] = useState(0);
+  const [comment, setComment] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -149,6 +153,12 @@ function MyOrders() {
         .limit(100);
       if (err) throw new Error(err.message);
       setOrders((data ?? []) as MyOrder[]);
+      const { data: rv } = await supabase.from('mp_reviews').select('order_id, rating').eq('customer_id', uid);
+      const map: Record<string, number> = {};
+      (rv ?? []).forEach((r: { order_id: string; rating: number }) => {
+        map[r.order_id] = r.rating;
+      });
+      setReviews(map);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load your orders');
@@ -171,6 +181,9 @@ function MyOrders() {
       toast.success(okText);
       setReportingId(null);
       setReason('');
+      setReviewingId(null);
+      setStars(0);
+      setComment('');
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Something went wrong');
@@ -187,6 +200,14 @@ function MyOrders() {
   const cancelOrder = (o: MyOrder) => {
     if (!window.confirm('Cancel order ' + o.order_no + '?')) return;
     run(o, 'mp_customer_cancel', { p_order: o.id }, 'Order cancelled.');
+  };
+
+  const sendReview = (o: MyOrder) => {
+    if (stars < 1) {
+      toast.error('Please tap the stars to give a rating.');
+      return;
+    }
+    run(o, 'mp_submit_review', { p_order: o.id, p_rating: stars, p_comment: comment.trim() || null }, 'Thank you for your review!');
   };
 
   const sendReport = (o: MyOrder) => {
@@ -268,6 +289,47 @@ function MyOrders() {
                 </div>
               )}
 
+              {o.status === 'completed' && reviews[o.id] !== undefined && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  Your review:
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Star
+                      key={n}
+                      className={'h-4 w-4 ' + (n <= reviews[o.id] ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40')}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {o.status === 'completed' && reviews[o.id] === undefined && reviewingId === o.id && (
+                <div className="space-y-2 rounded-xl border border-border/60 bg-muted/30 p-3">
+                  <p className="text-sm font-bold text-foreground">How was this vendor?</p>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button key={n} type="button" onClick={() => setStars(n)} aria-label={n + ' stars'}>
+                        <Star className={'h-8 w-8 ' + (n <= stars ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40')} />
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    maxLength={500}
+                    rows={2}
+                    placeholder="Write a short comment (optional)"
+                    className="w-full rounded-xl border border-border/60 bg-background p-3 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={busyId === o.id} onClick={() => sendReview(o)}>
+                      Send review
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => { setReviewingId(null); setStars(0); setComment(''); }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {reportingId === o.id && (
                 <div className="space-y-2">
                   <textarea
@@ -311,6 +373,11 @@ function MyOrders() {
                       Report a problem
                     </Button>
                   </>
+                )}
+                {o.status === 'completed' && reviews[o.id] === undefined && reviewingId !== o.id && (
+                  <Button size="sm" onClick={() => { setReviewingId(o.id); setStars(0); setComment(''); }}>
+                    Rate this vendor
+                  </Button>
                 )}
                 {['requested', 'awaiting_payment'].includes(o.status) && (
                   <Button size="sm" variant="outline" disabled={busyId === o.id} onClick={() => cancelOrder(o)}>
