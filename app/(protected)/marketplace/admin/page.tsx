@@ -100,6 +100,17 @@ const FILTERS: { key: string; label: string }[] = [
 
 const CLOSED = ['completed', 'cancelled', 'refunded'];
 
+// A short "what to press next" line for the admin
+const NEXT_STEP: Record<string, string> = {
+  requested: 'Next: send the payment details on WhatsApp, then press "Payment details sent".',
+  awaiting_payment: 'Next: when the customer has paid, press "Payment received". This starts the delivery clock.',
+  payment_confirmed: 'Next: contact the vendor, then press "Sent to vendor".',
+  with_vendor: 'Next: when you have the package and checked it, press "Received and checked".',
+  received_checked: 'Next: give the package to the customer, then press "Delivered to customer".',
+  delivered: 'Next: wait for the customer to confirm. You can send a reminder on WhatsApp.',
+  disputed: 'The customer reported a problem. Contact the customer and the vendor, then choose what to do.',
+};
+
 // An order needs your attention when a deadline has passed or the customer reported a problem
 function needsAttention(o: { status: string; delivery_due_at: string | null; confirm_deadline_at: string | null }): string | null {
   const now = Date.now();
@@ -196,6 +207,7 @@ function AdminOrders() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [filter, setFilter] = useState('attention');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -226,6 +238,15 @@ function AdminOrders() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  // Look for new orders every 30 seconds, and make the counters re-check deadlines every 30 seconds
+  useEffect(() => {
+    const id = setInterval(() => {
+      load();
+      setTick((t) => t + 1);
+    }, 30000);
+    return () => clearInterval(id);
   }, [load]);
 
   const changeStatus = async (o: OrderRow, a: Action) => {
@@ -266,17 +287,29 @@ function AdminOrders() {
     }
   };
 
+  const matches = (o: OrderRow, key: string): boolean => {
+    const p = getPrivate(o);
+    if (key === 'attention') return needsAttention(o) !== null;
+    if (key === 'open') return !CLOSED.includes(o.status);
+    if (key === 'problems') return o.status === 'disputed';
+    if (key === 'payout') return o.status === 'completed' && !p?.vendor_paid_at;
+    if (key === 'done') return CLOSED.includes(o.status);
+    return true;
+  };
+
+  // The numbers shown on the filter buttons
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const f of FILTERS) c[f.key] = orders.filter((o) => matches(o, f.key)).length;
+    return c;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, tick]);
+  const newCount = useMemo(() => orders.filter((o) => o.status === 'requested').length, [orders]);
+
   const visible = useMemo(() => {
-    return orders.filter((o) => {
-      const p = getPrivate(o);
-      if (filter === 'attention') return needsAttention(o) !== null;
-      if (filter === 'open') return !CLOSED.includes(o.status);
-      if (filter === 'problems') return o.status === 'disputed';
-      if (filter === 'payout') return o.status === 'completed' && !p?.vendor_paid_at;
-      if (filter === 'done') return CLOSED.includes(o.status);
-      return true;
-    });
-  }, [orders, filter]);
+    return orders.filter((o) => matches(o, filter));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, filter, tick]);
 
   if (loading) {
     return (
@@ -328,11 +361,31 @@ function AdminOrders() {
             }
           >
             {f.label}
+            {f.key !== 'all' && f.key !== 'done' && counts[f.key] > 0 && (
+              <span
+                className={
+                  'ml-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold ' +
+                  (filter === f.key ? 'bg-white text-primary' : 'bg-red-600 text-white')
+                }
+              >
+                {counts[f.key]}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
       {error && <p className="text-xs font-semibold text-red-600 break-words">{error}</p>}
+
+      {newCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setFilter('open')}
+          className="w-full rounded-xl bg-amber-500/15 px-4 py-3 text-left text-sm font-bold text-amber-700 dark:text-amber-300"
+        >
+          You have {newCount} new {newCount === 1 ? 'order' : 'orders'} waiting. Tap to see them.
+        </button>
+      )}
 
       {visible.length === 0 ? (
         <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
@@ -387,6 +440,10 @@ function AdminOrders() {
                     {o.notes && <p className="text-muted-foreground break-words">Notes: {o.notes}</p>}
                   </div>
                 </div>
+
+                {NEXT_STEP[o.status] && (
+                  <p className="text-xs font-semibold text-muted-foreground">{NEXT_STEP[o.status]}</p>
+                )}
 
                 {alert && (
                   <div className="rounded-xl bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-300">
