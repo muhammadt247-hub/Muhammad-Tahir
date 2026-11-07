@@ -90,6 +90,7 @@ const ACTIONS: Record<string, Action[]> = {
 };
 
 const FILTERS: { key: string; label: string }[] = [
+  { key: 'attention', label: 'Needs attention' },
   { key: 'open', label: 'Open' },
   { key: 'problems', label: 'Problems' },
   { key: 'payout', label: 'To pay vendor' },
@@ -98,6 +99,21 @@ const FILTERS: { key: string; label: string }[] = [
 ];
 
 const CLOSED = ['completed', 'cancelled', 'refunded'];
+
+// An order needs your attention when a deadline has passed or the customer reported a problem
+function needsAttention(o: { status: string; delivery_due_at: string | null; confirm_deadline_at: string | null }): string | null {
+  const now = Date.now();
+  if (o.status === 'disputed') return 'Customer reported a problem';
+  if (
+    ['payment_confirmed', 'with_vendor', 'received_checked'].includes(o.status) &&
+    o.delivery_due_at &&
+    new Date(o.delivery_due_at).getTime() < now
+  )
+    return 'Delivery is late';
+  if (o.status === 'delivered' && o.confirm_deadline_at && new Date(o.confirm_deadline_at).getTime() < now)
+    return 'Customer did not confirm in time';
+  return null;
+}
 
 function getPrivate(o: OrderRow): PrivateRow | null {
   const p = o.mp_order_private;
@@ -178,7 +194,7 @@ function AdminOrders() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
-  const [filter, setFilter] = useState('open');
+  const [filter, setFilter] = useState('attention');
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -253,6 +269,7 @@ function AdminOrders() {
   const visible = useMemo(() => {
     return orders.filter((o) => {
       const p = getPrivate(o);
+      if (filter === 'attention') return needsAttention(o) !== null;
       if (filter === 'open') return !CLOSED.includes(o.status);
       if (filter === 'problems') return o.status === 'disputed';
       if (filter === 'payout') return o.status === 'completed' && !p?.vendor_paid_at;
@@ -326,8 +343,12 @@ function AdminOrders() {
           {visible.map((o) => {
             const p = getPrivate(o);
             const actions = ACTIONS[o.status] ?? [];
+            const alert = needsAttention(o);
             const waText =
-              'Hello ' + o.customer_name + ', this is OrbinexaCSV about your order ' + o.order_no + '.';
+              o.status === 'delivered'
+                ? 'Hello ' + o.customer_name + ', this is OrbinexaCSV. Your order ' + o.order_no +
+                  ' was delivered. Please check it and press Confirm on the My orders page, or tell us if there is a problem.'
+                : 'Hello ' + o.customer_name + ', this is OrbinexaCSV about your order ' + o.order_no + '.';
             return (
               <div
                 key={o.id}
@@ -366,6 +387,12 @@ function AdminOrders() {
                     {o.notes && <p className="text-muted-foreground break-words">Notes: {o.notes}</p>}
                   </div>
                 </div>
+
+                {alert && (
+                  <div className="rounded-xl bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-700 dark:text-amber-300">
+                    Needs your attention: {alert}
+                  </div>
+                )}
 
                 {(o.delivery_due_at || o.confirm_deadline_at) && (
                   <div className="flex flex-wrap gap-3">
@@ -412,7 +439,7 @@ function AdminOrders() {
                     rel="noopener noreferrer"
                     className="inline-flex items-center rounded-md bg-[#25D366] px-3 py-1.5 text-xs font-bold text-white hover:opacity-90"
                   >
-                    WhatsApp customer
+                    {o.status === 'delivered' ? 'Remind customer on WhatsApp' : 'WhatsApp customer'}
                   </a>
                 </div>
               </div>
