@@ -338,7 +338,7 @@ export class GeneratorQueue {
             await saveBatchItem(item);
             this.callbacks.onItemCompleted?.(item);
 
-            const delaySec = this.settings.interImageDelaySeconds ?? 10;
+            const delaySec = this.settings.interImageDelaySeconds ?? 2;
             if (delaySec > 0 && this.isRunning && !this.abortController?.signal.aborted) {
               await this.sleep(delaySec * 1000);
             }

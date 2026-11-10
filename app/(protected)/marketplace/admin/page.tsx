@@ -208,6 +208,7 @@ function AdminOrders() {
   const [filter, setFilter] = useState('attention');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [pendingVendors, setPendingVendors] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -219,6 +220,8 @@ function AdminOrders() {
         return;
       }
       setIsAdmin(true);
+      const pv = await supabase.from('mp_vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending');
+      setPendingVendors(pv.count ?? 0);
       const { data, error: err } = await supabase
         .from('mp_orders')
         .select(
@@ -376,6 +379,15 @@ function AdminOrders() {
       </div>
 
       {error && <p className="text-xs font-semibold text-red-600 break-words">{error}</p>}
+
+      {pendingVendors > 0 && (
+        <Link
+          href="/marketplace/admin/catalog"
+          className="block w-full rounded-xl bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300"
+        >
+          {pendingVendors} vendor {pendingVendors === 1 ? 'application is' : 'applications are'} waiting for your approval. Tap to open the Vendors tab.
+        </Link>
+      )}
 
       {newCount > 0 && (
         <button

@@ -489,12 +489,20 @@ function MarketplaceHome() {
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">Marketplace</h1>
+          <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/marketplace/orders"
             className="inline-flex h-9 items-center rounded-lg border border-border/60 px-4 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
           >
             My orders
           </Link>
+          <Link
+            href="/marketplace/vendor"
+            className="inline-flex h-9 items-center rounded-lg border border-border/60 px-4 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+          >
+            Become a vendor
+          </Link>
+          </div>
         </div>
         <p className="text-sm text-muted-foreground max-w-2xl">
           Compare trusted vendors for AI tools and digital subscriptions. You pay only through OrbinexaCSV,
