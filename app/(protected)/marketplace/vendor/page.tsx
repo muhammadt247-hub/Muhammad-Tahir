@@ -119,7 +119,7 @@ function VendorHome() {
   }
 
   const waText = vendor
-    ? 'Hello, I applied as a vendor on OrbinexaCSV. Shop name: ' + vendor.name + '. Please check my application.'
+    ? 'Hello, I applied as a vendor on OrbinexaCSV. My vendor name is ' + vendor.name + '. Please check my application.'
     : '';
 
   return (
@@ -142,8 +142,11 @@ function VendorHome() {
             </p>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-foreground">Shop name</label>
+            <label className="text-xs font-semibold text-foreground">Your real shop or business name (private)</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Example: Ali Digital Store" />
+            <p className="text-[11px] text-muted-foreground">
+              Only OrbinexaCSV sees this. Customers will see a brand name that the website makes for you, like ZYRO or VYNE. You cannot change it.
+            </p>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-semibold text-foreground">Your WhatsApp number (with country code)</label>
@@ -154,7 +157,7 @@ function VendorHome() {
             <Input value={products} onChange={(e) => setProducts(e.target.value)} maxLength={500} placeholder="Example: CapCut Pro, ChatGPT Plus, Canva Pro" />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-foreground">Tell us about your shop</label>
+            <label className="text-xs font-semibold text-foreground">Tell us about your shop (private)</label>
             <textarea
               value={about}
               onChange={(e) => setAbout(e.target.value)}
@@ -189,6 +192,10 @@ function VendorHome() {
               {vendor.status === 'rejected' && 'Not approved'}
             </Badge>
           </div>
+
+          <p className="text-xs text-muted-foreground">
+            Your vendor name is <span className="font-bold text-foreground">{vendor.name}</span>. Customers see only this name. It was made by the website and cannot be changed.
+          </p>
 
           {vendor.status === 'pending' && (
             <>
