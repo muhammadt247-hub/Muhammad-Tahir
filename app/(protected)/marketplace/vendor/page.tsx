@@ -1,141 +1,68 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ShieldCheck, Store } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
-import { MARKETPLACE_ENABLED, formatPkr } from '@/lib/marketplace/shared';
+import { MARKETPLACE_ENABLED, ORDERS_WHATSAPP } from '@/lib/marketplace/shared';
 
-interface Product {
+interface MyVendor {
   id: string;
   name: string;
-  slug: string;
-  category: string | null;
-  description: string | null;
-  status: string;
-}
-
-interface VendorPrivate {
-  whatsapp: string | null;
-  notes: string | null;
-}
-
-interface Vendor {
-  id: string;
-  name: string;
-  slug: string;
   about: string | null;
   status: string;
   verified: boolean;
-  mp_vendor_private: VendorPrivate | VendorPrivate[] | null;
 }
 
-interface Listing {
-  id: string;
-  vendor_id: string;
-  product_id: string;
-  title: string;
-  price: number | string;
-  delivery_hours: number;
-  status: string;
-  mp_listing_costs: { vendor_price: number | string } | { vendor_price: number | string }[] | null;
-}
-
-type Tab = 'listings' | 'products' | 'vendors';
-
-const SELECT_CLASS = 'h-10 w-full rounded-lg border border-border/60 bg-background px-3 text-sm';
-
-function slugify(text: string): string {
-  const s = text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return s || 'item';
-}
-
-function randomSuffix(): string {
-  return Math.random().toString(36).slice(2, 6);
-}
-
-function firstOf<T>(value: T | T[] | null): T | null {
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
-
-export default function CatalogPage() {
+export default function VendorPage() {
   if (!MARKETPLACE_ENABLED) {
     return (
       <div className="max-w-xl mx-auto py-24 text-center space-y-2">
-        <h1 className="text-2xl font-extrabold text-foreground">Marketplace</h1>
+        <h1 className="text-2xl font-extrabold text-foreground">Vendor page</h1>
         <p className="text-sm text-muted-foreground">This page is not available yet.</p>
       </div>
     );
   }
-  return <Catalog />;
+  return <VendorHome />;
 }
 
-function Catalog() {
+function VendorHome() {
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(true);
+  const [vendor, setVendor] = useState<MyVendor | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('listings');
-  const [products, setProducts] = useState<Product[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [listings, setListings] = useState<Listing[]>([]);
+
+  const [name, setName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [about, setAbout] = useState('');
+  const [products, setProducts] = useState('');
   const [busy, setBusy] = useState(false);
-
-  // product form
-  const [pName, setPName] = useState('');
-  const [pCategory, setPCategory] = useState('');
-  const [pDesc, setPDesc] = useState('');
-
-  // vendor form
-  const [vName, setVName] = useState('');
-  const [vAbout, setVAbout] = useState('');
-  const [vWhatsapp, setVWhatsapp] = useState('');
-  const [vNotes, setVNotes] = useState('');
-  const [vVerified, setVVerified] = useState(false);
-
-  // listing form
-  const [lProduct, setLProduct] = useState('');
-  const [lVendor, setLVendor] = useState('');
-  const [lTitle, setLTitle] = useState('');
-  const [lCost, setLCost] = useState('');
-  const [lHours, setLHours] = useState('24');
 
   const load = useCallback(async () => {
     try {
       const supabase = createClient();
-      const adminCheck = await supabase.rpc('mp_is_admin');
-      if (adminCheck.error) throw new Error(adminCheck.error.message);
-      if (adminCheck.data !== true) {
-        setIsAdmin(false);
+      const { data: userData } = await supabase.auth.getUser();
+      const uid = userData.user?.id;
+      if (!uid) {
+        setLoggedIn(false);
         return;
       }
-      setIsAdmin(true);
-      const [p, v, l] = await Promise.all([
-        supabase.from('mp_products').select('id, name, slug, category, description, status').order('name'),
-        supabase
-          .from('mp_vendors')
-          .select('id, name, slug, about, status, verified, mp_vendor_private(whatsapp, notes)')
-          .order('name'),
-        supabase
-          .from('mp_listings')
-          .select('id, vendor_id, product_id, title, price, delivery_hours, status, mp_listing_costs(vendor_price)')
-          .order('created_at', { ascending: false }),
-      ]);
-      if (p.error) throw new Error(p.error.message);
-      if (v.error) throw new Error(v.error.message);
-      if (l.error) throw new Error(l.error.message);
-      setProducts((p.data ?? []) as Product[]);
-      setVendors((v.data ?? []) as unknown as Vendor[]);
-      setListings((l.data ?? []) as unknown as Listing[]);
+      setLoggedIn(true);
+      const { data, error: err } = await supabase
+        .from('mp_vendors')
+        .select('id, name, about, status, verified')
+        .eq('owner_id', uid)
+        .maybeSingle();
+      if (err) throw new Error(err.message);
+      setVendor((data as MyVendor | null) ?? null);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load the catalog');
+      setError(e instanceof Error ? e.message : 'Could not load your vendor page');
     } finally {
       setLoading(false);
     }
@@ -145,518 +72,150 @@ function Catalog() {
     load();
   }, [load]);
 
-  const productName = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const p of products) m[p.id] = p.name;
-    return m;
-  }, [products]);
-
-  const vendorName = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const v of vendors) m[v.id] = v.name;
-    return m;
-  }, [vendors]);
-
-  // Runs one action, shows a toast, reloads the lists
-  const act = async (okText: string, fn: () => Promise<void>): Promise<boolean> => {
-    if (busy) return false;
+  const submit = async () => {
+    if (busy) return;
+    if (name.trim().length < 2) return toast.error('Please write your shop name.');
+    if (whatsapp.replace(/[^0-9]/g, '').length < 10) return toast.error('Please write your WhatsApp number with country code.');
+    if (about.trim().length < 10) return toast.error('Please tell us a little about your shop (at least 10 characters).');
+    if (products.trim().length < 3) return toast.error('Please write what you sell.');
     setBusy(true);
     try {
-      await fn();
-      toast.success(okText);
+      const supabase = createClient();
+      const { error: err } = await supabase.rpc('mp_vendor_apply', {
+        p_name: name.trim(),
+        p_whatsapp: whatsapp.trim(),
+        p_about: about.trim(),
+        p_products: products.trim(),
+      });
+      if (err) throw new Error(err.message);
+      toast.success('Application sent. Now tap the green WhatsApp button to tell us.');
       await load();
-      return true;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Something went wrong');
-      return false;
+      toast.error(e instanceof Error ? e.message : 'Could not send your application');
     } finally {
       setBusy(false);
     }
   };
 
-  // ---------- Products ----------
-  const addProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = pName.trim();
-    if (name.length < 2) {
-      toast.error('Enter the product name.');
-      return;
-    }
-    const ok = await act('Product added', async () => {
-      const supabase = createClient();
-      const base = slugify(name);
-      const row = {
-        name,
-        category: pCategory.trim() || null,
-        description: pDesc.trim() || null,
-        status: 'active',
-      };
-      let res = await supabase.from('mp_products').insert({ ...row, slug: base });
-      if (res.error && res.error.code === '23505') {
-        res = await supabase.from('mp_products').insert({ ...row, slug: base + '-' + randomSuffix() });
-      }
-      if (res.error) throw new Error(res.error.message);
-    });
-    if (ok) {
-      setPName('');
-      setPCategory('');
-      setPDesc('');
-    }
-  };
-
-  const setProductStatus = (p: Product, status: 'active' | 'hidden') =>
-    act(p.name + ' is now ' + status, async () => {
-      const { error: err } = await createClient().from('mp_products').update({ status }).eq('id', p.id);
-      if (err) throw new Error(err.message);
-    });
-
-  // ---------- Vendors ----------
-  const addVendor = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = vName.trim();
-    if (name.length < 2) {
-      toast.error('Enter the vendor name.');
-      return;
-    }
-    const ok = await act('Vendor added', async () => {
-      const supabase = createClient();
-      const base = slugify(name);
-      const row = {
-        name,
-        about: vAbout.trim() || null,
-        status: 'approved',
-        verified: vVerified,
-      };
-      let res = await supabase.from('mp_vendors').insert({ ...row, slug: base }).select('id').single();
-      if (res.error && res.error.code === '23505') {
-        res = await supabase
-          .from('mp_vendors')
-          .insert({ ...row, slug: base + '-' + randomSuffix() })
-          .select('id')
-          .single();
-      }
-      if (res.error || !res.data) throw new Error(res.error?.message ?? 'Could not add the vendor');
-      const priv = await supabase.from('mp_vendor_private').insert({
-        vendor_id: res.data.id,
-        whatsapp: vWhatsapp.trim() || null,
-        notes: vNotes.trim() || null,
-      });
-      if (priv.error) throw new Error(priv.error.message);
-    });
-    if (ok) {
-      setVName('');
-      setVAbout('');
-      setVWhatsapp('');
-      setVNotes('');
-      setVVerified(false);
-    }
-  };
-
-  const setVendorStatus = (v: Vendor, status: 'approved' | 'suspended') =>
-    act(v.name + ' is now ' + status, async () => {
-      const { error: err } = await createClient().from('mp_vendors').update({ status }).eq('id', v.id);
-      if (err) throw new Error(err.message);
-    });
-
-  const toggleVerified = (v: Vendor) =>
-    act(v.name + (v.verified ? ' is no longer verified' : ' is now verified'), async () => {
-      const { error: err } = await createClient().from('mp_vendors').update({ verified: !v.verified }).eq('id', v.id);
-      if (err) throw new Error(err.message);
-    });
-
-  // ---------- Listings ----------
-  const addListing = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cost = Number(lCost);
-    const hours = Number(lHours);
-    if (!lProduct || !lVendor) {
-      toast.error('Choose a product and a vendor.');
-      return;
-    }
-    if (lTitle.trim().length < 1) {
-      toast.error('Enter the package title, for example 1 month.');
-      return;
-    }
-    if (!Number.isFinite(cost) || cost <= 0) {
-      toast.error('Enter the vendor price.');
-      return;
-    }
-    if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
-      toast.error('Delivery hours must be between 1 and 720.');
-      return;
-    }
-    const ok = await act('Package added', async () => {
-      const supabase = createClient();
-      const ins = await supabase
-        .from('mp_listings')
-        .insert({
-          vendor_id: lVendor,
-          product_id: lProduct,
-          title: lTitle.trim(),
-          price: 0,
-          delivery_hours: hours,
-          status: 'active',
-        })
-        .select('id')
-        .single();
-      if (ins.error || !ins.data) {
-        const dup = ins.error?.code === '23505';
-        throw new Error(dup ? 'This vendor already has a package with that title.' : ins.error?.message ?? 'Could not add');
-      }
-      const priced = await supabase.rpc('mp_set_listing_price', { p_listing: ins.data.id, p_vendor_price: cost });
-      if (priced.error) {
-        // do not leave a package without a price
-        await supabase.from('mp_listings').delete().eq('id', ins.data.id);
-        throw new Error(priced.error.message);
-      }
-    });
-    if (ok) {
-      setLTitle('');
-      setLCost('');
-    }
-  };
-
-  const changePrice = async (l: Listing) => {
-    const input = window.prompt('New vendor price (Rs) for ' + l.title + ':');
-    if (input === null) return;
-    const cost = Number(input);
-    if (!Number.isFinite(cost) || cost <= 0) {
-      toast.error('Enter a number bigger than 0.');
-      return;
-    }
-    await act('Price updated', async () => {
-      const { error: err } = await createClient().rpc('mp_set_listing_price', {
-        p_listing: l.id,
-        p_vendor_price: cost,
-      });
-      if (err) throw new Error(err.message);
-    });
-  };
-
-  const setListingStatus = (l: Listing, status: 'active' | 'paused') =>
-    act('Package is now ' + status, async () => {
-      const { error: err } = await createClient().from('mp_listings').update({ status }).eq('id', l.id);
-      if (err) throw new Error(err.message);
-    });
-
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto space-y-4 pb-12">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-40" />
+      <div className="max-w-2xl mx-auto space-y-4 pb-12">
+        <Skeleton className="h-10 w-56" />
+        <Skeleton className="h-64" />
       </div>
     );
   }
 
-  if (!isAdmin) {
+  if (!loggedIn) {
     return (
-      <div className="max-w-xl mx-auto py-24 text-center space-y-2">
-        <h1 className="text-2xl font-extrabold text-foreground">Admin only</h1>
-        <p className="text-sm text-muted-foreground">{error ?? 'You do not have access to this page.'}</p>
+      <div className="max-w-xl mx-auto py-24 text-center space-y-3">
+        <h1 className="text-2xl font-extrabold text-foreground">Become a vendor</h1>
+        <p className="text-sm text-muted-foreground">Please sign up or log in first, then come back to this page.</p>
+        <Link href="/login" className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground">
+          Log in
+        </Link>
       </div>
     );
   }
 
-  const previewCost = Number(lCost);
-  const previewPrice = Number.isFinite(previewCost) && previewCost > 0 ? Math.ceil(previewCost * 1.05) : null;
+  const waText = vendor
+    ? 'Hello, I applied as a vendor on OrbinexaCSV. Shop name: ' + vendor.name + '. Please check my application.'
+    : '';
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+    <div className="max-w-2xl mx-auto space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Marketplace vendor portal</h1>
-        <Link
-          href="/marketplace"
-          className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
-        >
+        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Vendor page</h1>
+        <Link href="/marketplace" className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
           Back to marketplace
         </Link>
       </div>
 
-      {error && <p className="text-xs font-semibold text-red-600 break-words">{error}</p>}
+      {error && <p className="text-sm font-semibold text-red-600 break-words">{error}</p>}
 
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            ['listings', 'Packages and prices'],
-            ['products', 'Products'],
-            ['vendors', 'Vendors'],
-          ] as [Tab, string][]
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={
-              'px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ' +
-              (tab === key
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent')
-            }
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {!vendor && !error && (
+        <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-4 shadow-sm">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Apply to sell on OrbinexaCSV</h2>
+            <p className="text-xs text-muted-foreground">
+              Fill in this form. We will check your request and tell you on WhatsApp. Customers pay only OrbinexaCSV, and we pay you after each order is completed.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">Shop name</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Example: Ali Digital Store" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">Your WhatsApp number (with country code)</label>
+            <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} maxLength={20} placeholder="+92 300 1234567" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">What do you sell?</label>
+            <Input value={products} onChange={(e) => setProducts(e.target.value)} maxLength={500} placeholder="Example: CapCut Pro, ChatGPT Plus, Canva Pro" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">Tell us about your shop</label>
+            <textarea
+              value={about}
+              onChange={(e) => setAbout(e.target.value)}
+              maxLength={500}
+              rows={4}
+              placeholder="How long have you been selling? How do you deliver?"
+              className="w-full rounded-xl border border-border/60 bg-background p-3 text-sm"
+            />
+          </div>
+          <Button disabled={busy} onClick={submit}>
+            {busy ? 'Sending...' : 'Send my application'}
+          </Button>
+        </div>
+      )}
 
-      {/* ---------------- PACKAGES AND PRICES ---------------- */}
-      {tab === 'listings' && (
-        <div className="space-y-6">
-          <form
-            onSubmit={addListing}
-            className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm space-y-4"
-          >
-            <h2 className="text-lg font-bold text-foreground">Add a package</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Product</label>
-                <select className={SELECT_CLASS} value={lProduct} onChange={(e) => setLProduct(e.target.value)}>
-                  <option value="">Choose...</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Vendor</label>
-                <select className={SELECT_CLASS} value={lVendor} onChange={(e) => setLVendor(e.target.value)}>
-                  <option value="">Choose...</option>
-                  {vendors.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Package title</label>
-                <Input
-                  value={lTitle}
-                  onChange={(e) => setLTitle(e.target.value)}
-                  placeholder="1 month"
-                  maxLength={80}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Vendor price (Rs)</label>
-                <Input
-                  value={lCost}
-                  onChange={(e) => setLCost(e.target.value)}
-                  placeholder="600"
-                  inputMode="decimal"
-                  maxLength={12}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Delivery time (hours)</label>
-                <Input
-                  value={lHours}
-                  onChange={(e) => setLHours(e.target.value)}
-                  inputMode="numeric"
-                  maxLength={3}
-                />
-              </div>
-              <div className="flex items-end text-sm text-muted-foreground">
-                {previewPrice !== null ? (
-                  <span>
-                    Customer will pay about{' '}
-                    <span className="font-bold text-foreground">{formatPkr(previewPrice)}</span> (your commission
-                    included)
-                  </span>
-                ) : (
-                  <span>The customer price is worked out for you.</span>
-                )}
-              </div>
-            </div>
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Saving...' : 'Add package'}
-            </Button>
-          </form>
-
-          <div className="space-y-3">
-            {listings.length === 0 && (
-              <div className="rounded-2xl border border-border/60 bg-card p-8 text-center text-sm text-muted-foreground">
-                No packages yet.
-              </div>
+      {vendor && (
+        <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-lg font-extrabold text-foreground">
+              <Store className="h-5 w-5 text-muted-foreground" />
+              {vendor.name}
+            </span>
+            {vendor.verified && (
+              <Badge variant="nonAi">
+                <ShieldCheck className="h-3 w-3" /> Verified
+              </Badge>
             )}
-            {listings.map((l) => {
-              const cost = firstOf(l.mp_listing_costs);
-              const costNum = cost ? Number(cost.vendor_price) : null;
-              return (
-                <div
-                  key={l.id}
-                  className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
-                >
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold text-foreground">
-                        {productName[l.product_id] ?? 'Product'} ({l.title})
-                      </span>
-                      <Badge variant={l.status === 'active' ? 'nonAi' : 'category'}>{l.status}</Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Vendor: {vendorName[l.vendor_id] ?? 'Vendor'} | Delivery: {l.delivery_hours}h
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Vendor price {costNum !== null ? formatPkr(costNum) : '-'} | Customer price{' '}
-                      <span className="font-bold text-foreground">{formatPkr(Number(l.price))}</span>
-                      {costNum !== null && <> | Your commission {formatPkr(Number(l.price) - costNum)}</>}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => changePrice(l)}>
-                      Change price
-                    </Button>
-                    {l.status === 'active' ? (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setListingStatus(l, 'paused')}>
-                        Pause
-                      </Button>
-                    ) : (
-                      <Button size="sm" disabled={busy} onClick={() => setListingStatus(l, 'active')}>
-                        Activate
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            <Badge variant={vendor.status === 'approved' ? 'nonAi' : 'category'}>
+              {vendor.status === 'pending' && 'Pending'}
+              {vendor.status === 'approved' && 'Approved'}
+              {vendor.status === 'suspended' && 'Suspended'}
+              {vendor.status === 'rejected' && 'Not approved'}
+            </Badge>
           </div>
-        </div>
-      )}
 
-      {/* ---------------- PRODUCTS ---------------- */}
-      {tab === 'products' && (
-        <div className="space-y-6">
-          <form
-            onSubmit={addProduct}
-            className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm space-y-4"
-          >
-            <h2 className="text-lg font-bold text-foreground">Add a product</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Product name</label>
-                <Input value={pName} onChange={(e) => setPName(e.target.value)} placeholder="CapCut Pro" maxLength={80} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Category (optional)</label>
-                <Input
-                  value={pCategory}
-                  onChange={(e) => setPCategory(e.target.value)}
-                  placeholder="Video editing"
-                  maxLength={60}
-                />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <label className="text-xs font-semibold text-foreground">Short description (optional)</label>
-                <Input value={pDesc} onChange={(e) => setPDesc(e.target.value)} maxLength={300} />
-              </div>
-            </div>
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Saving...' : 'Add product'}
-            </Button>
-          </form>
-
-          <div className="space-y-3">
-            {products.map((p) => (
-              <div
-                key={p.id}
-                className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
+          {vendor.status === 'pending' && (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Your application is waiting for approval. Tap the green button to message us on WhatsApp so we see it quickly.
+              </p>
+              <a
+                href={'https://wa.me/' + ORDERS_WHATSAPP + '?text=' + encodeURIComponent(waText)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-md bg-[#25D366] px-4 py-2 text-sm font-bold text-white hover:opacity-90"
               >
-                <div className="flex-1 min-w-0 space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-foreground">{p.name}</span>
-                    {p.category && <Badge variant="category">{p.category}</Badge>}
-                    <Badge variant={p.status === 'active' ? 'nonAi' : 'category'}>{p.status}</Badge>
-                  </div>
-                  {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
-                </div>
-                {p.status === 'active' ? (
-                  <Button size="sm" variant="outline" disabled={busy} onClick={() => setProductStatus(p, 'hidden')}>
-                    Hide
-                  </Button>
-                ) : (
-                  <Button size="sm" disabled={busy} onClick={() => setProductStatus(p, 'active')}>
-                    Show
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ---------------- VENDORS ---------------- */}
-      {tab === 'vendors' && (
-        <div className="space-y-6">
-          <form
-            onSubmit={addVendor}
-            className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm space-y-4"
-          >
-            <h2 className="text-lg font-bold text-foreground">Add a vendor</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Vendor name (customers see this)</label>
-                <Input value={vName} onChange={(e) => setVName(e.target.value)} maxLength={80} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">About (customers see this, optional)</label>
-                <Input value={vAbout} onChange={(e) => setVAbout(e.target.value)} maxLength={300} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Vendor WhatsApp (only you see this)</label>
-                <Input value={vWhatsapp} onChange={(e) => setVWhatsapp(e.target.value)} maxLength={30} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-foreground">Private notes (only you see this)</label>
-                <Input value={vNotes} onChange={(e) => setVNotes(e.target.value)} maxLength={500} />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input type="checkbox" checked={vVerified} onChange={(e) => setVVerified(e.target.checked)} />
-              Verified vendor
-            </label>
-            <Button type="submit" disabled={busy}>
-              {busy ? 'Saving...' : 'Add vendor'}
-            </Button>
-          </form>
-
-          <div className="space-y-3">
-            {vendors.map((v) => {
-              const priv = firstOf(v.mp_vendor_private);
-              return (
-                <div
-                  key={v.id}
-                  className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
-                >
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-bold text-foreground">{v.name}</span>
-                      <Badge variant={v.status === 'approved' ? 'nonAi' : 'category'}>{v.status}</Badge>
-                      {v.verified && <Badge variant="ai">Verified</Badge>}
-                    </div>
-                    {v.about && <p className="text-xs text-muted-foreground">{v.about}</p>}
-                    {priv?.whatsapp && <p className="text-xs text-muted-foreground">WhatsApp: {priv.whatsapp}</p>}
-                    {priv?.notes && <p className="text-xs text-muted-foreground break-words">Notes: {priv.notes}</p>}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" disabled={busy} onClick={() => toggleVerified(v)}>
-                      {v.verified ? 'Remove verified' : 'Make verified'}
-                    </Button>
-                    {v.status === 'approved' ? (
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setVendorStatus(v, 'suspended')}>
-                        Suspend
-                      </Button>
-                    ) : (
-                      <Button size="sm" disabled={busy} onClick={() => setVendorStatus(v, 'approved')}>
-                        Approve
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                Tell us on WhatsApp
+              </a>
+            </>
+          )}
+          {vendor.status === 'approved' && (
+            <p className="text-sm text-muted-foreground">
+              You are approved. Your package tools (add packages, offers and status updates) are coming in the next update.
+            </p>
+          )}
+          {vendor.status === 'suspended' && (
+            <p className="text-sm text-muted-foreground">Your shop is paused. Please contact us on WhatsApp.</p>
+          )}
+          {vendor.status === 'rejected' && (
+            <p className="text-sm text-muted-foreground">Your application was not approved. Please contact us on WhatsApp if you have a question.</p>
+          )}
         </div>
       )}
     </div>
