@@ -254,7 +254,7 @@ function MarketplaceHome() {
             .order('name'),
           supabase
             .from('mp_listings')
-            .select('id, title, price, delivery_hours, vendor_id, product_id, mp_vendors(id, name, slug, verified)')
+            .select('id, title, price, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, mp_vendors(id, name, slug, verified)')
             .order('price'),
         ]);
         if (cancelled) return;
@@ -398,6 +398,11 @@ function MarketplaceHome() {
                     {l.vendor?.verified && (
                       <Badge variant="nonAi">
                         <ShieldCheck className="h-3 w-3" /> Verified
+                      </Badge>
+                    )}
+                    {l.has_warranty && (
+                      <Badge variant="nonAi">
+                        <ShieldCheck className="h-3 w-3" /> {l.warranty_text ? l.warranty_text : 'Warranty included'}
                       </Badge>
                     )}
                     {(badges[l.id] ?? []).map((b) => (

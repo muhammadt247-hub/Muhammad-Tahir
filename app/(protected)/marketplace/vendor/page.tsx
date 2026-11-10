@@ -214,7 +214,7 @@ function VendorHome() {
           )}
           {vendor.status === 'approved' && (
             <p className="text-sm text-muted-foreground">
-              You are approved. Your package tools (add packages, offers and status updates) are coming in the next update.
+              You are approved. Add your packages below. Customers see them right away. You can change or pause a package at any time.
             </p>
           )}
           {vendor.status === 'suspended' && (
@@ -225,6 +225,343 @@ function VendorHome() {
           )}
         </div>
       )}
+
+      {vendor && vendor.status === 'approved' && <MyPackages />}
+    </div>
+  );
+}
+
+interface ProductOption {
+  id: string;
+  name: string;
+}
+
+interface MyListing {
+  id: string;
+  product_id: string;
+  product_name: string;
+  title: string;
+  vendor_price: number | string | null;
+  delivery_hours: number;
+  has_warranty: boolean;
+  warranty_text: string | null;
+  duration_months: number | null;
+  is_custom: boolean;
+  status: string;
+}
+
+const DURATIONS: { key: string; label: string; months: number | null }[] = [
+  { key: '1', label: '1 month', months: 1 },
+  { key: '3', label: '3 months', months: 3 },
+  { key: '6', label: '6 months', months: 6 },
+  { key: '12', label: '1 year', months: 12 },
+  { key: 'custom', label: 'Custom package', months: null },
+];
+
+const DELIVERY_CHOICES: { hours: number; label: string }[] = [
+  { hours: 1, label: 'Within 1 hour' },
+  { hours: 3, label: 'Within 3 hours' },
+  { hours: 6, label: 'Within 6 hours' },
+  { hours: 12, label: 'Within 12 hours' },
+  { hours: 24, label: 'Within 1 day' },
+  { hours: 48, label: 'Within 2 days' },
+  { hours: 72, label: 'Within 3 days' },
+  { hours: 168, label: 'Within 7 days' },
+];
+
+function money(v: number | string | null): string {
+  if (v === null || v === undefined) return '-';
+  return 'Rs ' + Math.round(Number(v)).toLocaleString('en-US');
+}
+
+function MyPackages() {
+  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [rows, setRows] = useState<MyListing[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [productId, setProductId] = useState('');
+  const [durKey, setDurKey] = useState('1');
+  const [customTitle, setCustomTitle] = useState('');
+  const [price, setPrice] = useState('');
+  const [hours, setHours] = useState(24);
+  const [warranty, setWarranty] = useState(false);
+  const [warrantyText, setWarrantyText] = useState('');
+  const [formOpen, setFormOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const supabase = createClient();
+      const [p, l] = await Promise.all([
+        supabase.from('mp_products').select('id, name').order('name'),
+        supabase.rpc('mp_vendor_my_listings'),
+      ]);
+      if (p.error) throw new Error(p.error.message);
+      if (l.error) throw new Error(l.error.message);
+      setProducts((p.data ?? []) as ProductOption[]);
+      setRows((l.data ?? []) as MyListing[]);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load your packages');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setProductId('');
+    setDurKey('1');
+    setCustomTitle('');
+    setPrice('');
+    setHours(24);
+    setWarranty(false);
+    setWarrantyText('');
+    setFormOpen(false);
+  };
+
+  const startEdit = (r: MyListing) => {
+    setEditingId(r.id);
+    setProductId(r.product_id);
+    const match = DURATIONS.find((d) => d.months !== null && d.months === r.duration_months && d.label === r.title);
+    if (match && !r.is_custom) {
+      setDurKey(match.key);
+      setCustomTitle('');
+    } else {
+      setDurKey('custom');
+      setCustomTitle(r.title);
+    }
+    setPrice(r.vendor_price === null ? '' : String(Math.round(Number(r.vendor_price))));
+    setHours(r.delivery_hours);
+    setWarranty(r.has_warranty);
+    setWarrantyText(r.warranty_text ?? '');
+    setFormOpen(true);
+    try {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch {
+      // not important
+    }
+  };
+
+  const save = async (override?: { row: MyListing; status: string }) => {
+    if (busy) return;
+    let args: Record<string, unknown>;
+    if (override) {
+      const r = override.row;
+      args = {
+        p_listing: r.id,
+        p_product: r.product_id,
+        p_title: r.title,
+        p_vendor_price: Number(r.vendor_price),
+        p_delivery_hours: r.delivery_hours,
+        p_has_warranty: r.has_warranty,
+        p_warranty_text: r.warranty_text,
+        p_duration_months: r.duration_months,
+        p_is_custom: r.is_custom,
+        p_status: override.status,
+      };
+    } else {
+      const dur = DURATIONS.find((d) => d.key === durKey) ?? DURATIONS[0];
+      const title = dur.key === 'custom' ? customTitle.trim() : dur.label;
+      if (!productId) return toast.error('Please choose a product.');
+      if (title.length < 2) return toast.error('Please write a name for your custom package.');
+      const num = Number(price);
+      if (!num || num <= 0) return toast.error('Please enter your price.');
+      args = {
+        p_listing: editingId,
+        p_product: productId,
+        p_title: title,
+        p_vendor_price: num,
+        p_delivery_hours: hours,
+        p_has_warranty: warranty,
+        p_warranty_text: warranty ? warrantyText.trim() || null : null,
+        p_duration_months: dur.months,
+        p_is_custom: dur.key === 'custom',
+        p_status: editingId ? rows.find((x) => x.id === editingId)?.status ?? 'active' : 'active',
+      };
+    }
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      const { error: err } = await supabase.rpc('mp_vendor_save_listing', args);
+      if (err) throw new Error(err.message);
+      toast.success(override ? 'Package updated.' : editingId ? 'Package saved.' : 'Package added. Customers can see it now.');
+      if (!override) resetForm();
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save the package');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <Skeleton className="h-40" />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-xl font-extrabold text-foreground">My packages</h2>
+        {!formOpen && (
+          <Button size="sm" onClick={() => setFormOpen(true)}>
+            Add a package
+          </Button>
+        )}
+      </div>
+
+      {error && <p className="text-sm font-semibold text-red-600 break-words">{error}</p>}
+
+      {formOpen && (
+        <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-4 shadow-sm">
+          <h3 className="text-base font-bold text-foreground">{editingId ? 'Change package' : 'New package'}</h3>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">Product</label>
+            <select
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              disabled={!!editingId}
+              className="h-10 w-full rounded-xl border border-border/60 bg-background px-3 text-sm"
+            >
+              <option value="">Choose a product...</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-muted-foreground">Do not see your product? Ask us on WhatsApp and we will add it.</p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">How long does the package last?</label>
+            <div className="flex flex-wrap gap-2">
+              {DURATIONS.map((d) => (
+                <button
+                  key={d.key}
+                  type="button"
+                  onClick={() => setDurKey(d.key)}
+                  className={
+                    'px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ' +
+                    (durKey === d.key
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent')
+                  }
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+            {durKey === 'custom' && (
+              <Input
+                value={customTitle}
+                onChange={(e) => setCustomTitle(e.target.value)}
+                maxLength={40}
+                placeholder="Example: 2 months, or Team plan (5 seats)"
+              />
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground">Your price (Rs)</label>
+              <Input
+                value={price}
+                onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ''))}
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="Example: 600"
+              />
+              <p className="text-[11px] text-muted-foreground">This is the amount you receive. OrbinexaCSV adds its own fee for the customer.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-foreground">Delivery time</label>
+              <select
+                value={hours}
+                onChange={(e) => setHours(Number(e.target.value))}
+                className="h-10 w-full rounded-xl border border-border/60 bg-background px-3 text-sm"
+              >
+                {DELIVERY_CHOICES.map((c) => (
+                  <option key={c.hours} value={c.hours}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <input type="checkbox" checked={warranty} onChange={(e) => setWarranty(e.target.checked)} />
+              This package has a warranty
+            </label>
+            {warranty && (
+              <Input
+                value={warrantyText}
+                onChange={(e) => setWarrantyText(e.target.value)}
+                maxLength={80}
+                placeholder="Example: 30 days warranty, free replacement"
+              />
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={busy} onClick={() => save()}>
+              {busy ? 'Saving...' : editingId ? 'Save changes' : 'Add package'}
+            </Button>
+            <Button variant="outline" onClick={resetForm}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {!error && rows.length === 0 && !formOpen && (
+        <div className="rounded-2xl border border-border/60 bg-card p-8 text-center text-sm text-muted-foreground">
+          You have no packages yet. Press Add a package to start selling.
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {rows.map((r) => (
+          <div key={r.id} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold text-foreground">
+                  {r.product_name} ({r.title})
+                </span>
+                <Badge variant={r.status === 'active' ? 'nonAi' : 'category'}>{r.status === 'active' ? 'Live' : 'Paused'}</Badge>
+                {r.has_warranty && (
+                  <Badge variant="nonAi">
+                    <ShieldCheck className="h-3 w-3" /> {r.warranty_text || 'Warranty'}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Your price {money(r.vendor_price)} | Delivery within {r.delivery_hours < 24 ? r.delivery_hours + ' h' : Math.round(r.delivery_hours / 24) + ' day(s)'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => startEdit(r)}>
+                Edit
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => save({ row: r, status: r.status === 'active' ? 'paused' : 'active' })}
+              >
+                {r.status === 'active' ? 'Pause' : 'Make live'}
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

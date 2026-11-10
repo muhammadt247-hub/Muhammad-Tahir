@@ -27,6 +27,9 @@ export interface MpListing {
   delivery_hours: number;
   vendor_id: string;
   product_id: string;
+  has_warranty: boolean;
+  warranty_text: string | null;
+  duration_months: number | null;
   vendor: MpVendorInfo | null;
 }
 
@@ -38,6 +41,9 @@ export interface RawListingRow {
   delivery_hours: number;
   vendor_id: string;
   product_id: string;
+  has_warranty?: boolean | null;
+  warranty_text?: string | null;
+  duration_months?: number | null;
   mp_vendors: MpVendorInfo | MpVendorInfo[] | null;
 }
 
@@ -73,6 +79,9 @@ export function toListing(row: RawListingRow): MpListing {
     delivery_hours: row.delivery_hours,
     vendor_id: row.vendor_id,
     product_id: row.product_id,
+    has_warranty: row.has_warranty === true,
+    warranty_text: row.warranty_text ?? null,
+    duration_months: row.duration_months ?? null,
     vendor: v ?? null,
   };
 }
