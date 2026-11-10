@@ -250,12 +250,12 @@ interface MyListing {
   status: string;
 }
 
-const DURATIONS: { key: string; label: string; months: number | null }[] = [
-  { key: '1', label: '1 month', months: 1 },
-  { key: '3', label: '3 months', months: 3 },
-  { key: '6', label: '6 months', months: 6 },
-  { key: '12', label: '1 year', months: 12 },
-  { key: 'custom', label: 'Custom package', months: null },
+// Quick buttons only. The vendor can type any package name or duration they like.
+const DURATIONS: { label: string; months: number }[] = [
+  { label: '1 month', months: 1 },
+  { label: '3 months', months: 3 },
+  { label: '6 months', months: 6 },
+  { label: '1 year', months: 12 },
 ];
 
 const DELIVERY_CHOICES: { hours: number; label: string }[] = [
@@ -283,8 +283,7 @@ function MyPackages() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [productId, setProductId] = useState('');
-  const [durKey, setDurKey] = useState('1');
-  const [customTitle, setCustomTitle] = useState('');
+  const [pkgTitle, setPkgTitle] = useState('');
   const [price, setPrice] = useState('');
   const [hours, setHours] = useState(24);
   const [warranty, setWarranty] = useState(false);
@@ -317,8 +316,7 @@ function MyPackages() {
   const resetForm = () => {
     setEditingId(null);
     setProductId('');
-    setDurKey('1');
-    setCustomTitle('');
+    setPkgTitle('');
     setPrice('');
     setHours(24);
     setWarranty(false);
@@ -329,14 +327,7 @@ function MyPackages() {
   const startEdit = (r: MyListing) => {
     setEditingId(r.id);
     setProductId(r.product_id);
-    const match = DURATIONS.find((d) => d.months !== null && d.months === r.duration_months && d.label === r.title);
-    if (match && !r.is_custom) {
-      setDurKey(match.key);
-      setCustomTitle('');
-    } else {
-      setDurKey('custom');
-      setCustomTitle(r.title);
-    }
+    setPkgTitle(r.title);
     setPrice(r.vendor_price === null ? '' : String(Math.round(Number(r.vendor_price))));
     setHours(r.delivery_hours);
     setWarranty(r.has_warranty);
@@ -367,10 +358,10 @@ function MyPackages() {
         p_status: override.status,
       };
     } else {
-      const dur = DURATIONS.find((d) => d.key === durKey) ?? DURATIONS[0];
-      const title = dur.key === 'custom' ? customTitle.trim() : dur.label;
+      const title = pkgTitle.trim();
+      const preset = DURATIONS.find((d) => d.label.toLowerCase() === title.toLowerCase());
       if (!productId) return toast.error('Please choose a product.');
-      if (title.length < 2) return toast.error('Please write a name for your custom package.');
+      if (title.length < 2) return toast.error('Please write the package duration or name.');
       const num = Number(price);
       if (!num || num <= 0) return toast.error('Please enter your price.');
       args = {
@@ -381,8 +372,8 @@ function MyPackages() {
         p_delivery_hours: hours,
         p_has_warranty: warranty,
         p_warranty_text: warranty ? warrantyText.trim() || null : null,
-        p_duration_months: dur.months,
-        p_is_custom: dur.key === 'custom',
+        p_duration_months: preset ? preset.months : null,
+        p_is_custom: !preset,
         p_status: editingId ? rows.find((x) => x.id === editingId)?.status ?? 'active' : 'active',
       };
     }
@@ -439,32 +430,26 @@ function MyPackages() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-foreground">How long does the package last?</label>
-            <div className="flex flex-wrap gap-2">
+            <label className="text-xs font-semibold text-foreground">Package duration or name (you write it)</label>
+            <Input
+              value={pkgTitle}
+              onChange={(e) => setPkgTitle(e.target.value)}
+              maxLength={40}
+              placeholder="Example: 45 days, 2 months, or Team plan (5 seats)"
+            />
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-[11px] text-muted-foreground">Quick fill:</span>
               {DURATIONS.map((d) => (
                 <button
-                  key={d.key}
+                  key={d.label}
                   type="button"
-                  onClick={() => setDurKey(d.key)}
-                  className={
-                    'px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ' +
-                    (durKey === d.key
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent')
-                  }
+                  onClick={() => setPkgTitle(d.label)}
+                  className="px-3 py-1 rounded-full text-xs font-semibold border border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   {d.label}
                 </button>
               ))}
             </div>
-            {durKey === 'custom' && (
-              <Input
-                value={customTitle}
-                onChange={(e) => setCustomTitle(e.target.value)}
-                maxLength={40}
-                placeholder="Example: 2 months, or Team plan (5 seats)"
-              />
-            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
