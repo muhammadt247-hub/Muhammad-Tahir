@@ -313,6 +313,7 @@ function MyPackages() {
   const [warranty, setWarranty] = useState(false);
   const [warrantyText, setWarrantyText] = useState('');
   const [description, setDescription] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -365,6 +366,24 @@ function MyPackages() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
       // not important
+    }
+  };
+
+  const deletePackage = async (r: MyListing) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const supabase = createClient();
+      const { error: err } = await supabase.rpc('mp_vendor_delete_listing', { p_listing: r.id });
+      if (err) throw new Error(err.message);
+      toast.success('Package deleted.');
+      setConfirmDeleteId(null);
+      if (editingId === r.id) resetForm();
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not delete the package');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -649,6 +668,20 @@ function MyPackages() {
               >
                 {r.status === 'active' ? 'Pause' : 'Make live'}
               </Button>
+              {confirmDeleteId === r.id ? (
+                <>
+                  <Button size="sm" variant="destructive" disabled={busy} onClick={() => deletePackage(r)}>
+                    Yes, delete
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmDeleteId(null)}>
+                    No
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmDeleteId(r.id)}>
+                  Delete
+                </Button>
+              )}
             </div>
           </div>
         ))}
