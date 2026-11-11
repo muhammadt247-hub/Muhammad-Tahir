@@ -291,12 +291,13 @@ export function Header() {
               <Link
                 href="/account"
                 className={cn(
-                  'inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold text-primary bg-primary/10 border border-primary/25 hover:bg-primary/20 transition-colors',
+                  'inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-1 rounded-full text-xs font-semibold text-primary bg-primary/10 border border-primary/25 hover:bg-primary/20 transition-colors',
                   RING
                 )}
               >
-                <Gift className="h-4 w-4" />
-                <span>Invite friends, get 3000 credits</span>
+                <Gift className="h-3.5 w-3.5 shrink-0" />
+                <span className="xl:hidden">Invite &amp; earn 3000</span>
+                <span className="hidden xl:inline">Invite friends, get 3000 credits</span>
               </Link>
             </div>
           )}
