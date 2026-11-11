@@ -39,6 +39,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { HelpDialog } from './HelpDialog';
 import { SettingsDialog } from './SettingsDialog';
 import { useAuth } from '@/components/AuthProvider';
+import { createClient } from '@/lib/supabase/client';
 import { useCredits } from '@/components/CreditsProvider';
 import { CreditsDialog } from '@/components/credits/CreditsDialog';
 
@@ -59,6 +60,33 @@ export function Header() {
 
   const { user, profile, signOut } = useAuth();
   const isLoggedIn = !!user;
+  const [isVendorOnly, setIsVendorOnly] = useState(false);
+
+  // A vendor (who is not the admin) only sees the marketplace parts of the site
+  useEffect(() => {
+    if (!user || process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED !== 'true') {
+      setIsVendorOnly(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const adminCheck = await supabase.rpc('mp_is_admin');
+        if (adminCheck.data === true) {
+          if (!cancelled) setIsVendorOnly(false);
+          return;
+        }
+        const { data } = await supabase.from('mp_vendors').select('id').eq('owner_id', user.id).maybeSingle();
+        if (!cancelled) setIsVendorOnly(!!data);
+      } catch {
+        if (!cancelled) setIsVendorOnly(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
   const {
     balance,
     received,
@@ -167,7 +195,7 @@ export function Header() {
         <div className="flex h-full items-center justify-between gap-4">
           {/* LEFT: Brand and logo */}
           <Link
-            href={isLoggedIn ? '/generator' : '/login'}
+            href={isLoggedIn ? (isVendorOnly ? '/marketplace' : '/generator') : '/login'}
             className={cn('flex items-center gap-3 group rounded-xl shrink-0', RING)}
             aria-label="OrbinexaCSV Home"
           >
@@ -197,6 +225,8 @@ export function Header() {
           {/* DESKTOP NAVIGATION (logged in only) */}
           {isLoggedIn && (
             <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-6">
+{!isVendorOnly && (
+<>
               <Link
                 href="/generator"
                 className={cn(
@@ -207,6 +237,8 @@ export function Header() {
               >
                 Generator
               </Link>
+</>
+)}
 
               {process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED === 'true' && (
                 <Link
@@ -221,6 +253,21 @@ export function Header() {
                 </Link>
               )}
 
+              {isVendorOnly && (
+                <Link
+                  href="/marketplace/vendor"
+                  className={cn(
+                    'px-3 md:px-4 py-2 rounded-xl text-sm font-semibold transition-all pop-10',
+                    RING,
+                    pathname.startsWith('/marketplace/vendor') ? ACTIVE : IDLE
+                  )}
+                >
+                  My vendor page
+                </Link>
+              )}
+
+{!isVendorOnly && (
+<>
               <span
                 className="px-3 md:px-4 py-2 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed inline-flex items-center gap-1.5 select-none"
                 aria-disabled="true"
@@ -282,11 +329,13 @@ export function Header() {
               >
                 ☕ Buy me coffee
               </button>
+</>
+)}
             </nav>
           )}
 
           {/* CENTER: Referral link */}
-          {isLoggedIn && (
+          {isLoggedIn && !isVendorOnly && (
             <div className="hidden lg:flex flex-1 justify-center px-2">
               <Link
                 href="/account"
@@ -540,6 +589,8 @@ export function Header() {
         {isLoggedIn && mobileMenuOpen && (
           <div className="md:hidden absolute top-full left-0 right-0 border-b border-border/50 bg-card/95 backdrop-blur-md shadow-2xl p-4 space-y-3 z-50 animate-in fade-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="space-y-1">
+{!isVendorOnly && (
+<>
               <Link
                 href="/generator"
                 onClick={() => setMobileMenuOpen(false)}
@@ -551,7 +602,11 @@ export function Header() {
                 <Sparkles className="h-4 w-4" />
                 <span>Generator</span>
               </Link>
+</>
+)}
 
+{!isVendorOnly && (
+<>
               <div
                 className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed select-none"
                 aria-disabled="true"
@@ -576,6 +631,8 @@ export function Header() {
                 <Wand2 className="h-4 w-4" />
                 <span>Background Remover</span>
               </Link>
+</>
+)}
 
               {process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED === 'true' && (
                 <Link
@@ -591,6 +648,22 @@ export function Header() {
                 </Link>
               )}
 
+              {isVendorOnly && (
+                <Link
+                  href="/marketplace/vendor"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
+                    'flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors',
+                    pathname.startsWith('/marketplace/vendor') ? ACTIVE : IDLE
+                  )}
+                >
+                  <UserIcon className="h-4 w-4" />
+                  <span>My vendor page</span>
+                </Link>
+              )}
+
+{!isVendorOnly && (
+<>
               <Link
                 href="/tools"
                 onClick={() => setMobileMenuOpen(false)}
@@ -610,6 +683,8 @@ export function Header() {
               >
                 ☕ Buy me coffee
               </button>
+</>
+)}
             </div>
 
             <div className="pt-2 border-t border-border/40 space-y-1">
