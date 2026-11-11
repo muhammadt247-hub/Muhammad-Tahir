@@ -219,6 +219,31 @@ function MarketplaceHome() {
   const [sort, setSort] = useState<SortKey>('price');
   const [ordering, setOrdering] = useState<MpListing | null>(null);
   const [scores, setScores] = useState<Record<string, VendorScore>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [vendorStatus, setVendorStatus] = useState<string | null>(null);
+
+  // Who is looking at this page? Admin and vendors get their own buttons.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const adminCheck = await supabase.rpc('mp_is_admin');
+        if (!cancelled && adminCheck.data === true) setIsAdmin(true);
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = userData.user?.id;
+        if (uid) {
+          const { data: v } = await supabase.from('mp_vendors').select('status').eq('owner_id', uid).maybeSingle();
+          if (!cancelled && v) setVendorStatus((v as { status: string }).status);
+        }
+      } catch {
+        // the buttons are a convenience, the page works without them
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [openReviews, setOpenReviews] = useState<string | null>(null);
   const [reviewList, setReviewList] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
@@ -505,8 +530,24 @@ function MarketplaceHome() {
             href="/marketplace/vendor"
             className="inline-flex h-9 items-center rounded-lg border border-border/60 px-4 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
           >
-            Become a vendor
+            {vendorStatus === null ? 'Become a vendor' : vendorStatus === 'approved' ? 'My vendor page' : 'My vendor application'}
           </Link>
+          {isAdmin && (
+            <>
+              <Link
+                href="/marketplace/admin"
+                className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Admin orders
+              </Link>
+              <Link
+                href="/marketplace/admin/catalog"
+                className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Catalog
+              </Link>
+            </>
+          )}
           </div>
         </div>
         <p className="text-sm text-muted-foreground max-w-2xl">

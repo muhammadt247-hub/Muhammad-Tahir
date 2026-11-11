@@ -294,6 +294,21 @@ function LoginForm() {
             Sign up
           </Link>
         </div>
+
+        {process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED === 'true' && (
+          <div className="text-center text-xs text-muted-foreground">
+            {(searchParams.get('next') ?? '').startsWith('/marketplace/vendor') ? (
+              <>Vendor login: after you log in, you go straight to your vendor page.</>
+            ) : (
+              <>
+                Selling on OrbinexaCSV?{' '}
+                <Link href="/login?next=/marketplace/vendor" className="text-primary font-semibold hover:underline">
+                  Vendor login
+                </Link>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
