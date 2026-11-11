@@ -400,6 +400,21 @@ function MyPackages() {
           setBusy(false);
           return;
         }
+        const ai = await fetch('/api/marketplace/vendor-guard', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ texts }),
+        });
+        const aiRes = (await ai.json().catch(() => null)) as { ok?: boolean; reason?: string; error?: { message?: string } } | null;
+        if (!ai.ok) throw new Error(aiRes?.error?.message ?? 'Safety check failed. Please try again.');
+        if (aiRes && aiRes.ok === false) {
+          toast.error(
+            `Not allowed: the safety check says your text looks like a contact attempt (${aiRes.reason ?? 'contact details'}). Customers contact only OrbinexaCSV. This was reported to the admin.`,
+            { duration: 9000 }
+          );
+          setBusy(false);
+          return;
+        }
       }
       if (!override && args.p_product === OTHER) {
         const made = await supabase.rpc('mp_vendor_add_product', { p_name: newProductName.trim() });
