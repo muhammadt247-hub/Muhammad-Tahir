@@ -2,9 +2,9 @@ export const AI_CONFIG = {
   DEFAULT_MODEL: 'gemini-3.8-flash',
   MODEL_FALLBACKS: [
     'gemini-3.8-flash',
+    'gemini-3.1-flash-lite', // fast model second: if the main model is slow, switch to this one quickly
     'gemini-3.7-flash',
     'gemini-3.5-flash',
-    'gemini-3.1-flash-lite',
   ],
   AVAILABLE_MODELS: [
     { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Default)', description: 'Fast multimodal model, optimal for stock metadata' },

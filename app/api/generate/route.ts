@@ -647,6 +647,7 @@ CRITICAL RULES:
       const startedAt = Date.now();
       const TOTAL_BUDGET_MS = 30000;
       const PER_ATTEMPT_MS = 20000;
+      const SLOW_MODEL_MS = 12000; // a big model gets 12 s, then we move on to the fast lite model
       let useThinkingConfig = true;
 
       for (const curModel of modelsToTry) {
@@ -676,7 +677,7 @@ CRITICAL RULES:
                   ...(useThinkingConfig ? { thinkingConfig: { thinkingLevel: 'low' as any } } : {}),
                 },
               }),
-              Math.min(PER_ATTEMPT_MS, remaining)
+              Math.min(curModel.includes('lite') ? PER_ATTEMPT_MS : SLOW_MODEL_MS, remaining)
             );
 
             const textOutput = response.text?.trim() || '{}';
