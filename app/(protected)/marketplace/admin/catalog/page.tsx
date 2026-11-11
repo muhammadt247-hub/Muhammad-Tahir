@@ -44,6 +44,7 @@ interface Listing {
   status: string;
   has_warranty?: boolean | null;
   warranty_text?: string | null;
+  description?: string | null;
   mp_listing_costs: { vendor_price: number | string } | { vendor_price: number | string }[] | null;
 }
 
@@ -76,6 +77,7 @@ function PackageEditor({ l, productLabel, onSaved }: { l: Listing; productLabel:
   const [hours, setHours] = useState(String(l.delivery_hours));
   const [vendorPrice, setVendorPrice] = useState(cost ? String(Math.round(Number(cost.vendor_price))) : '');
   const [status, setStatus] = useState(l.status);
+  const [details, setDetails] = useState(l.description ?? '');
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -92,6 +94,7 @@ function PackageEditor({ l, productLabel, onSaved }: { l: Listing; productLabel:
           title: t,
           has_warranty: hasWarranty,
           warranty_text: hasWarranty ? warrantyText.trim() || null : null,
+          description: details.trim() || null,
           delivery_hours: h,
           status,
           updated_at: new Date().toISOString(),
@@ -142,6 +145,15 @@ function PackageEditor({ l, productLabel, onSaved }: { l: Listing; productLabel:
         Has warranty
       </label>
       {hasWarranty && <Input value={warrantyText} onChange={(e) => setWarrantyText(e.target.value)} maxLength={80} placeholder="Warranty text" />}
+      <div className="space-y-1">
+        <label className="text-[11px] font-semibold text-foreground">Package details (customers read this)</label>
+        <textarea
+          value={details}
+          onChange={(e) => setDetails(e.target.value.slice(0, 3000))}
+          rows={8}
+          className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-xs font-mono"
+        />
+      </div>
       <Button size="sm" disabled={saving} onClick={save}>
         {saving ? 'Saving...' : 'Save package'}
       </Button>
@@ -210,7 +222,7 @@ function Catalog() {
           .order('name'),
         supabase
           .from('mp_listings')
-          .select('id, vendor_id, product_id, title, price, delivery_hours, status, has_warranty, warranty_text, mp_listing_costs(vendor_price)')
+          .select('id, vendor_id, product_id, title, price, delivery_hours, status, has_warranty, warranty_text, description, mp_listing_costs(vendor_price)')
           .order('created_at', { ascending: false }),
       ]);
       if (p.error) throw new Error(p.error.message);

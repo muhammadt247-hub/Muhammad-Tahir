@@ -30,6 +30,7 @@ export interface MpListing {
   has_warranty: boolean;
   warranty_text: string | null;
   duration_months: number | null;
+  description: string | null;
   vendor: MpVendorInfo | null;
 }
 
@@ -44,6 +45,7 @@ export interface RawListingRow {
   has_warranty?: boolean | null;
   warranty_text?: string | null;
   duration_months?: number | null;
+  description?: string | null;
   mp_vendors: MpVendorInfo | MpVendorInfo[] | null;
 }
 
@@ -82,6 +84,7 @@ export function toListing(row: RawListingRow): MpListing {
     has_warranty: row.has_warranty === true,
     warranty_text: row.warranty_text ?? null,
     duration_months: row.duration_months ?? null,
+    description: row.description ?? null,
     vendor: v ?? null,
   };
 }

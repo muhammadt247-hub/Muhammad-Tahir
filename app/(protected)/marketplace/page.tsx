@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
+import { RichDescription } from '@/components/marketplace/RichDescription';
 import {
   MARKETPLACE_ENABLED,
   MpProduct,
@@ -245,6 +246,7 @@ function MarketplaceHome() {
     };
   }, []);
   const [openReviews, setOpenReviews] = useState<string | null>(null);
+  const [openDetails, setOpenDetails] = useState<string | null>(null);
   const [reviewList, setReviewList] = useState<VendorReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
 
@@ -279,7 +281,7 @@ function MarketplaceHome() {
             .order('name'),
           supabase
             .from('mp_listings')
-            .select('id, title, price, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, mp_vendors(id, name, slug, verified)')
+            .select('id, title, price, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, description, mp_vendors(id, name, slug, verified)')
             .order('price'),
         ]);
         if (cancelled) return;
@@ -472,6 +474,20 @@ function MarketplaceHome() {
                       );
                     })()}
                   </div>
+                  {l.description && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenDetails(openDetails === l.id ? null : l.id)}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      {openDetails === l.id ? 'Hide package details' : 'Show package details'}
+                    </button>
+                  )}
+                  {l.description && openDetails === l.id && (
+                    <div className="rounded-xl bg-muted/40 p-3">
+                      <RichDescription text={l.description} />
+                    </div>
+                  )}
                   {openReviews === l.vendor_id && (
                     <div className="rounded-xl bg-muted/40 p-3 space-y-2">
                       {reviewsLoading && <p className="text-xs text-muted-foreground">Loading reviews...</p>}

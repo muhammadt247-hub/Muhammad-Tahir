@@ -14,7 +14,7 @@ import { AI_CONFIG } from '@/config/ai';
 export const maxDuration = 30;
 
 const BodySchema = z.object({
-  texts: z.record(z.string(), z.string().max(200)).refine((t) => Object.keys(t).length >= 1 && Object.keys(t).length <= 5),
+  texts: z.record(z.string(), z.string().max(3000)).refine((t) => Object.keys(t).length >= 1 && Object.keys(t).length <= 5),
 });
 
 const textHash = (t: string) => createHash('md5').update(t.trim().toLowerCase()).digest('hex');
