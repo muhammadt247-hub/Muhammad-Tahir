@@ -53,8 +53,8 @@ export function ReferralCard() {
         <div className="space-y-1">
           <h2 className="text-sm font-bold text-foreground">Invite friends, earn credits</h2>
           <p className="text-xs text-muted-foreground">
-            Share your link. When a friend signs up with it, confirms their email and starts using
-            the tool (their first 10 credits), you get your reward. You can earn from up to 10 friends.
+            Share your link. When a friend signs up with it, confirms their email and uses the tool
+            on at least 2 different days, you get your reward. You can earn from up to 10 friends.
           </p>
         </div>
       </div>
