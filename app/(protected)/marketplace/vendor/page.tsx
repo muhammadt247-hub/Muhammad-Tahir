@@ -231,6 +231,8 @@ function VendorHome() {
   );
 }
 
+const OTHER = '__other__';
+
 interface ProductOption {
   id: string;
   name: string;
@@ -283,6 +285,7 @@ function MyPackages() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [productId, setProductId] = useState('');
+  const [newProductName, setNewProductName] = useState('');
   const [pkgTitle, setPkgTitle] = useState('');
   const [price, setPrice] = useState('');
   const [hours, setHours] = useState(24);
@@ -316,6 +319,7 @@ function MyPackages() {
   const resetForm = () => {
     setEditingId(null);
     setProductId('');
+    setNewProductName('');
     setPkgTitle('');
     setPrice('');
     setHours(24);
@@ -361,6 +365,7 @@ function MyPackages() {
       const title = pkgTitle.trim();
       const preset = DURATIONS.find((d) => d.label.toLowerCase() === title.toLowerCase());
       if (!productId) return toast.error('Please choose a product.');
+      if (productId === OTHER && newProductName.trim().length < 2) return toast.error('Please write the product name.');
       if (title.length < 2) return toast.error('Please write the package duration or name.');
       const num = Number(price);
       if (!num || num <= 0) return toast.error('Please enter your price.');
@@ -380,6 +385,11 @@ function MyPackages() {
     setBusy(true);
     try {
       const supabase = createClient();
+      if (!override && args.p_product === OTHER) {
+        const made = await supabase.rpc('mp_vendor_add_product', { p_name: newProductName.trim() });
+        if (made.error) throw new Error(made.error.message);
+        args = { ...args, p_product: made.data as string };
+      }
       const { error: err } = await supabase.rpc('mp_vendor_save_listing', args);
       if (err) throw new Error(err.message);
       toast.success(override ? 'Package updated.' : editingId ? 'Package saved.' : 'Package added. Customers can see it now.');
@@ -425,8 +435,17 @@ function MyPackages() {
                   {p.name}
                 </option>
               ))}
+              {!editingId && <option value={OTHER}>Other (I will write the product name)</option>}
             </select>
-            <p className="text-[11px] text-muted-foreground">Do not see your product? Ask us on WhatsApp and we will add it.</p>
+            {productId === OTHER && (
+              <Input
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+                maxLength={40}
+                placeholder="Write the product name, for example: Midjourney Pro"
+              />
+            )}
+            <p className="text-[11px] text-muted-foreground">Your product is not in the list? Choose Other and write its name.</p>
           </div>
 
           <div className="space-y-1">
