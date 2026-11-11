@@ -385,6 +385,22 @@ function MyPackages() {
     setBusy(true);
     try {
       const supabase = createClient();
+      if (!override) {
+        const texts: Record<string, string> = { package_name: String(args.p_title ?? '') };
+        if (args.p_warranty_text) texts.warranty = String(args.p_warranty_text);
+        if (args.p_product === OTHER) texts.product_name = newProductName.trim();
+        const check = await supabase.rpc('mp_vendor_check_text', { p_texts: texts });
+        if (check.error) throw new Error(check.error.message);
+        const res = check.data as { ok: boolean; reason?: string } | null;
+        if (res && res.ok === false) {
+          toast.error(
+            `Not allowed: your text has ${res.reason ?? 'contact details'}. Real names, phone numbers, WhatsApp and links are not allowed. Customers contact only OrbinexaCSV. This was reported to the admin.`,
+            { duration: 9000 }
+          );
+          setBusy(false);
+          return;
+        }
+      }
       if (!override && args.p_product === OTHER) {
         const made = await supabase.rpc('mp_vendor_add_product', { p_name: newProductName.trim() });
         if (made.error) throw new Error(made.error.message);

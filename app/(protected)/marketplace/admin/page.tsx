@@ -209,6 +209,7 @@ function AdminOrders() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [pendingVendors, setPendingVendors] = useState(0);
+  const [vendorWarnings, setVendorWarnings] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -222,6 +223,8 @@ function AdminOrders() {
       setIsAdmin(true);
       const pv = await supabase.from('mp_vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending');
       setPendingVendors(pv.count ?? 0);
+      const wa = await supabase.from('mp_vendor_alerts').select('id', { count: 'exact', head: true }).eq('seen', false);
+      setVendorWarnings(wa.count ?? 0);
       const { data, error: err } = await supabase
         .from('mp_orders')
         .select(
@@ -386,6 +389,15 @@ function AdminOrders() {
           className="block w-full rounded-xl bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300"
         >
           {pendingVendors} vendor {pendingVendors === 1 ? 'application is' : 'applications are'} waiting for your approval. Tap to open the Vendors tab.
+        </Link>
+      )}
+
+      {vendorWarnings > 0 && (
+        <Link
+          href="/marketplace/admin/catalog"
+          className="block w-full rounded-xl bg-red-500/15 px-4 py-3 text-sm font-bold text-red-700 dark:text-red-300"
+        >
+          {vendorWarnings} vendor {vendorWarnings === 1 ? 'warning' : 'warnings'}: a vendor tried to write contact details or a real name. Tap to open the Vendors tab.
         </Link>
       )}
 

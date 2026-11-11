@@ -85,6 +85,7 @@ function Catalog() {
   const [products, setProducts] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
+  const [alerts, setAlerts] = useState<{ id: string; vendor_id: string; field: string; content: string; reason: string; seen: boolean; created_at: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
   // product form
@@ -133,6 +134,12 @@ function Catalog() {
       setProducts((p.data ?? []) as Product[]);
       setVendors((v.data ?? []) as unknown as Vendor[]);
       setListings((l.data ?? []) as unknown as Listing[]);
+      const al = await supabase
+        .from('mp_vendor_alerts')
+        .select('id, vendor_id, field, content, reason, seen, created_at')
+        .order('created_at', { ascending: false })
+        .limit(30);
+      setAlerts((al.data ?? []) as typeof alerts);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load the catalog');
@@ -589,6 +596,44 @@ function Catalog() {
       {/* ---------------- VENDORS ---------------- */}
       {tab === 'vendors' && (
         <div className="space-y-6">
+          {alerts.length > 0 && (
+            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-bold text-foreground">Vendor warnings</h2>
+                {alerts.some((a) => !a.seen) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      const supabase = createClient();
+                      const { error: err } = await supabase.from('mp_vendor_alerts').update({ seen: true }).eq('seen', false);
+                      if (err) return toast.error(err.message);
+                      toast.success('Marked as seen.');
+                      load();
+                    }}
+                  >
+                    Mark all as seen
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">These vendors tried to write contact details or a real name. It was blocked and not saved.</p>
+              <ul className="space-y-2">
+                {alerts.map((a) => (
+                  <li key={a.id} className={'rounded-xl border border-border/60 bg-card px-3 py-2 text-sm ' + (a.seen ? 'opacity-60' : '')}>
+                    <span className="font-bold">{vendors.find((v) => v.id === a.vendor_id)?.name ?? 'Vendor'}</span>
+                    {' tried to write '}
+                    <span className="font-semibold">{a.reason}</span>
+                    {' in '}
+                    <span className="font-semibold">{a.field.replace('_', ' ')}</span>
+                    {': '}
+                    <span className="break-all">&quot;{a.content}&quot;</span>
+                    <span className="block text-[11px] text-muted-foreground">{new Date(a.created_at).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <form
             onSubmit={addVendor}
             className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm space-y-4"
