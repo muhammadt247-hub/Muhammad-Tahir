@@ -323,13 +323,15 @@ function MarketplaceHome() {
     return map;
   }, [listings]);
 
+  // Customers only see products that have at least one vendor package
   const filteredProducts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(
+    const withOffers = products.filter((p) => (listingsByProduct[p.id] ?? []).length > 0);
+    if (!q) return withOffers;
+    return withOffers.filter(
       (p) => p.name.toLowerCase().includes(q) || (p.category ?? '').toLowerCase().includes(q)
     );
-  }, [products, query]);
+  }, [products, query, listingsByProduct]);
 
   const selected = products.find((p) => p.id === selectedId) ?? null;
   const selectedListings = useMemo(
