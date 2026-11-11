@@ -6,8 +6,9 @@ import { requireUser } from '@/lib/supabase/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { AI_CONFIG } from '@/config/ai';
 
-// Second safety check for vendor text. It uses its own Gemini key (GEMINI_GUARD_API_KEY),
-// kept on the server only. If Gemini is down or the key is missing, the text is allowed,
+// Second safety check for vendor text. It uses its own Gemini keys, kept on the server only:
+// GEMINI_GUARD_API_KEYS = key1,key2,key3 (a single GEMINI_GUARD_API_KEY also works).
+// If one key is stuck (limit reached, error, slow), the next key is tried. If Gemini is down or the key is missing, the text is allowed,
 // because the pattern check in the database still protects the shop.
 
 export const maxDuration = 30;
@@ -49,11 +50,17 @@ export async function POST(req: NextRequest) {
   }
 
   let flagged: { field: string; reason: string } | null = null;
-  const apiKey = process.env.GEMINI_GUARD_API_KEY || '';
+  const apiKeys = (process.env.GEMINI_GUARD_API_KEYS || process.env.GEMINI_GUARD_API_KEY || '')
+    .split(/[,\s]+/)
+    .map((k) => k.trim())
+    .filter(Boolean);
 
-  if (apiKey && texts.length > 0) {
+  if (apiKeys.length > 0 && texts.length > 0) {
+    const startedAt = Date.now();
+    for (let i = 0; i < apiKeys.length; i++) {
+      if (Date.now() - startedAt > 20000) break;
     try {
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: apiKeys[i] });
       const listing = texts.map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n');
       const response = await withTimeout(
         ai.models.generateContent({
@@ -86,15 +93,17 @@ export async function POST(req: NextRequest) {
             },
           },
         }),
-        12000
+        8000
       );
       const out = JSON.parse(response.text?.trim() || '{}') as { flagged?: boolean; field?: string; reason?: string };
       if (out.flagged === true) {
         const field = texts.some(([k]) => k === out.field) ? (out.field as string) : texts[0][0];
         flagged = { field, reason: (out.reason || 'looks like a contact attempt').slice(0, 120) };
       }
+      break; // this key worked, no need to try the others
     } catch (e) {
-      console.warn('vendor-guard: Gemini check skipped:', e instanceof Error ? e.message : e);
+      console.warn(`vendor-guard: key ${i + 1} of ${apiKeys.length} failed, trying the next one:`, e instanceof Error ? e.message : e);
+    }
     }
   }
 
