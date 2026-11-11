@@ -385,7 +385,7 @@ function AdminOrders() {
 
       {pendingVendors > 0 && (
         <Link
-          href="/marketplace/admin/catalog"
+          href="/marketplace/admin/catalog?tab=vendors"
           className="block w-full rounded-xl bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300"
         >
           {pendingVendors} vendor {pendingVendors === 1 ? 'application is' : 'applications are'} waiting for your approval. Tap to open the Vendors tab.
@@ -394,7 +394,7 @@ function AdminOrders() {
 
       {vendorWarnings > 0 && (
         <Link
-          href="/marketplace/admin/catalog"
+          href="/marketplace/admin/catalog?tab=vendors"
           className="block w-full rounded-xl bg-red-500/15 px-4 py-3 text-sm font-bold text-red-700 dark:text-red-300"
         >
           {vendorWarnings} vendor {vendorWarnings === 1 ? 'warning' : 'warnings'}: a vendor tried to write contact details or a real name. Tap to open the Vendors tab.

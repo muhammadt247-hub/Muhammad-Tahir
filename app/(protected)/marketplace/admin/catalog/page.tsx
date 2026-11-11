@@ -42,6 +42,8 @@ interface Listing {
   price: number | string;
   delivery_hours: number;
   status: string;
+  has_warranty?: boolean | null;
+  warranty_text?: string | null;
   mp_listing_costs: { vendor_price: number | string } | { vendor_price: number | string }[] | null;
 }
 
@@ -65,6 +67,88 @@ function firstOf<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+// One package of a vendor, with fields the admin can fix by hand
+function PackageEditor({ l, productLabel, onSaved }: { l: Listing; productLabel: string; onSaved: () => void }) {
+  const cost = firstOf(l.mp_listing_costs);
+  const [title, setTitle] = useState(l.title);
+  const [hasWarranty, setHasWarranty] = useState(!!l.has_warranty);
+  const [warrantyText, setWarrantyText] = useState(l.warranty_text ?? '');
+  const [hours, setHours] = useState(String(l.delivery_hours));
+  const [vendorPrice, setVendorPrice] = useState(cost ? String(Math.round(Number(cost.vendor_price))) : '');
+  const [status, setStatus] = useState(l.status);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    const t = title.trim();
+    const h = Number(hours);
+    if (t.length < 2) return toast.error('Package name is too short.');
+    if (!h || h < 1) return toast.error('Delivery hours must be 1 or more.');
+    setSaving(true);
+    try {
+      const supabase = createClient();
+      const { error: err } = await supabase
+        .from('mp_listings')
+        .update({
+          title: t,
+          has_warranty: hasWarranty,
+          warranty_text: hasWarranty ? warrantyText.trim() || null : null,
+          delivery_hours: h,
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', l.id);
+      if (err) throw new Error(err.message);
+      const vp = Number(vendorPrice);
+      if (vendorPrice !== '' && vp > 0 && (!cost || Math.round(Number(cost.vendor_price)) !== Math.round(vp))) {
+        const pr = await supabase.rpc('mp_set_listing_price', { p_listing: l.id, p_vendor_price: vp });
+        if (pr.error) throw new Error(pr.error.message);
+      }
+      toast.success('Package saved.');
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save the package');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-background p-3 space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground">{productLabel}</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <label className="text-[11px] font-semibold text-foreground">Package name</label>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={40} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[11px] font-semibold text-foreground">Vendor price (Rs)</label>
+          <Input value={vendorPrice} onChange={(e) => setVendorPrice(e.target.value)} inputMode="numeric" />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[11px] font-semibold text-foreground">Delivery hours</label>
+          <Input value={hours} onChange={(e) => setHours(e.target.value)} inputMode="numeric" />
+        </div>
+        <div className="space-y-1">
+          <label className="text-[11px] font-semibold text-foreground">Status</label>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className={SELECT_CLASS}>
+            <option value="active">active (customers see it)</option>
+            <option value="paused">paused (hidden)</option>
+            <option value="pending">pending</option>
+          </select>
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-xs text-foreground">
+        <input type="checkbox" checked={hasWarranty} onChange={(e) => setHasWarranty(e.target.checked)} />
+        Has warranty
+      </label>
+      {hasWarranty && <Input value={warrantyText} onChange={(e) => setWarrantyText(e.target.value)} maxLength={80} placeholder="Warranty text" />}
+      <Button size="sm" disabled={saving} onClick={save}>
+        {saving ? 'Saving...' : 'Save package'}
+      </Button>
+    </div>
+  );
+}
+
 export default function CatalogPage() {
   if (!MARKETPLACE_ENABLED) {
     return (
@@ -85,6 +169,7 @@ function Catalog() {
   const [products, setProducts] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
+  const [openVendors, setOpenVendors] = useState<Record<string, boolean>>({});
   const [alerts, setAlerts] = useState<{ id: string; vendor_id: string; field: string; content: string; reason: string; seen: boolean; created_at: string }[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -125,7 +210,7 @@ function Catalog() {
           .order('name'),
         supabase
           .from('mp_listings')
-          .select('id, vendor_id, product_id, title, price, delivery_hours, status, mp_listing_costs(vendor_price)')
+          .select('id, vendor_id, product_id, title, price, delivery_hours, status, has_warranty, warranty_text, mp_listing_costs(vendor_price)')
           .order('created_at', { ascending: false }),
       ]);
       if (p.error) throw new Error(p.error.message);
@@ -151,6 +236,12 @@ function Catalog() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // links like /marketplace/admin/catalog?tab=vendors open the Vendors tab directly
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'vendors' || t === 'products' || t === 'listings') setTab(t);
+  }, []);
 
   const productName = useMemo(() => {
     const m: Record<string, string> = {};
@@ -620,7 +711,20 @@ function Catalog() {
               <p className="text-xs text-muted-foreground">These vendors tried to write contact details or a real name. It was blocked and not saved.</p>
               <ul className="space-y-2">
                 {alerts.map((a) => (
-                  <li key={a.id} className={'rounded-xl border border-border/60 bg-card px-3 py-2 text-sm ' + (a.seen ? 'opacity-60' : '')}>
+                  <li
+                    key={a.id}
+                    role="button"
+                    tabIndex={0}
+                    title="Click to see this vendor and edit his packages"
+                    onClick={() => {
+                      setOpenVendors((o) => ({ ...o, [a.vendor_id]: true }));
+                      setTimeout(() => document.getElementById('vendor-' + a.vendor_id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.currentTarget as HTMLElement).click();
+                    }}
+                    className={'cursor-pointer hover:bg-accent/40 rounded-xl border border-border/60 bg-card px-3 py-2 text-sm ' + (a.seen ? 'opacity-60' : '')}
+                  >
                     <span className="font-bold">{vendors.find((v) => v.id === a.vendor_id)?.name ?? 'Vendor'}</span>
                     {' tried to write '}
                     <span className="font-semibold">{a.reason}</span>
@@ -628,7 +732,7 @@ function Catalog() {
                     <span className="font-semibold">{a.field.replace('_', ' ')}</span>
                     {': '}
                     <span className="break-all">&quot;{a.content}&quot;</span>
-                    <span className="block text-[11px] text-muted-foreground">{new Date(a.created_at).toLocaleString()}</span>
+                    <span className="block text-[11px] text-muted-foreground">{new Date(a.created_at).toLocaleString()} · tap to open this vendor</span>
                   </li>
                 ))}
               </ul>
@@ -667,13 +771,20 @@ function Catalog() {
           </form>
 
           <div className="space-y-3">
-            {vendors.map((v) => {
+            {[...vendors]
+              .sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'))
+              .map((v) => {
               const priv = firstOf(v.mp_vendor_private);
+              const isOpen = !!openVendors[v.id];
+              const vListings = listings.filter((x) => x.vendor_id === v.id);
+              const vAlerts = alerts.filter((x) => x.vendor_id === v.id);
               return (
                 <div
                   key={v.id}
-                  className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm flex flex-col sm:flex-row sm:items-center gap-3"
+                  id={'vendor-' + v.id}
+                  className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3"
                 >
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-bold text-foreground">{v.name}</span>
@@ -685,6 +796,9 @@ function Catalog() {
                     {priv?.notes && <p className="text-xs text-muted-foreground break-words">Notes: {priv.notes}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setOpenVendors((o) => ({ ...o, [v.id]: !o[v.id] }))}>
+                      {isOpen ? 'Hide details' : v.status === 'pending' ? 'Read full request' : 'View details'}
+                    </Button>
                     <Button size="sm" variant="outline" disabled={busy} onClick={() => toggleVerified(v)}>
                       {v.verified ? 'Remove verified' : 'Make verified'}
                     </Button>
@@ -698,6 +812,41 @@ function Catalog() {
                       </Button>
                     )}
                   </div>
+                </div>
+                {isOpen && (
+                  <div className="rounded-xl border border-border/60 bg-muted/30 p-3 space-y-3">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-bold text-foreground">Full request (only you see this)</h3>
+                      <p className="text-xs text-muted-foreground">Public name customers see: <span className="font-semibold text-foreground">{v.name}</span></p>
+                      <p className="text-xs text-muted-foreground">Status: <span className="font-semibold text-foreground">{v.status}</span>{v.verified ? ' · Verified' : ''}</p>
+                      {priv?.whatsapp && <p className="text-xs text-muted-foreground">WhatsApp: <span className="font-semibold text-foreground">{priv.whatsapp}</span></p>}
+                      {v.about && <p className="text-xs text-muted-foreground">About (public): {v.about}</p>}
+                      {priv?.notes ? (
+                        <p className="text-xs text-foreground whitespace-pre-line break-words rounded-lg bg-background border border-border/60 p-2">{priv.notes}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No private notes.</p>
+                      )}
+                    </div>
+                    {vAlerts.length > 0 && (
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-foreground">Warnings for this vendor ({vAlerts.length})</h3>
+                        {vAlerts.map((a) => (
+                          <p key={a.id} className="text-xs text-foreground break-words rounded-lg bg-red-500/10 p-2">
+                            <span className="font-semibold">{a.field.replace('_', ' ')}</span> ({a.reason}): &quot;{a.content}&quot;
+                            <span className="block text-[11px] text-muted-foreground">{new Date(a.created_at).toLocaleString()}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <h3 className="text-sm font-bold text-foreground">Packages of this vendor ({vListings.length})</h3>
+                      {vListings.length === 0 && <p className="text-xs text-muted-foreground">No packages yet.</p>}
+                      {vListings.map((l) => (
+                        <PackageEditor key={l.id + l.title + l.status} l={l} productLabel={productName[l.product_id] ?? 'Product'} onSaved={load} />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 </div>
               );
             })}
