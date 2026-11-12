@@ -6,18 +6,34 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createClient } from '@/lib/supabase/client';
-import { statusImageUrl } from '@/lib/marketplace/shared';
+import { KIND_INFO, StatusRound, type StatusKind } from '@/components/marketplace/StatusStrip';
 
 interface MyStatus {
   id: string;
+  title: string;
   body: string;
+  kind: StatusKind;
+  icon: string | null;
   image_path: string | null;
-  created_at: string;
   expires_at: string;
+}
+
+interface LivePackage {
+  id: string;
+  product_name: string;
+  title: string;
+  status: string;
 }
 
 const MAX_SIDE = 1080;
 const MAX_BYTES = 450000;
+const ICONS = ['🔥', '📦', '🎁', '⭐', '🆕', '💥', '🎉', '⚡', '🛒', '💎', '📢', '✅'];
+const KINDS: StatusKind[] = ['offer', 'stock', 'news'];
+const KIND_HELP: Record<StatusKind, string> = {
+  offer: 'A discount or deal. Example: "20% off this week".',
+  stock: 'You have new or refilled stock. Example: "ChatGPT Plus back in stock".',
+  news: 'Anything else customers should know. Example: "Faster delivery from today".',
+};
 
 // Shrinks any picture to a JPG under about 450 KB (longest side 1080 px) in the browser
 async function shrinkImage(file: File): Promise<string> {
@@ -43,22 +59,30 @@ async function shrinkImage(file: File): Promise<string> {
   return url;
 }
 
-// Vendor posts a short update (text and/or a picture). It shows as a round icon on the marketplace for 24 hours.
+// A vendor posts an offer, new stock or news. Customers see a round icon with the title on the marketplace for 24 hours.
 export function VendorStatusManager() {
   const [items, setItems] = useState<MyStatus[]>([]);
+  const [packages, setPackages] = useState<LivePackage[]>([]);
+  const [kind, setKind] = useState<StatusKind>('offer');
+  const [title, setTitle] = useState('');
   const [text, setText] = useState('');
+  const [icon, setIcon] = useState<string | null>(null);
   const [image, setImage] = useState<string | null>(null);
+  const [listingId, setListingId] = useState('');
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const { data, error } = await createClient()
+      const supabase = createClient();
+      const { data, error } = await supabase
         .from('mp_vendor_status')
-        .select('id, body, image_path, created_at, expires_at')
+        .select('id, title, body, kind, icon, image_path, expires_at')
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false });
       if (!error) setItems((data ?? []) as MyStatus[]);
+      const l = await supabase.rpc('mp_vendor_my_listings');
+      if (!l.error) setPackages(((l.data ?? []) as LivePackage[]).filter((p) => p.status === 'active'));
     } catch {
       // ignore
     }
@@ -76,42 +100,46 @@ export function VendorStatusManager() {
     }
     try {
       setImage(await shrinkImage(file));
+      setIcon(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not use this image');
     }
   };
 
   const post = async () => {
+    const ti = title.trim();
     const body = text.trim();
-    if (busy || (!image && body.length < 3)) return;
+    if (busy || ti.length < 3) return;
     setBusy(true);
     try {
       const supabase = createClient();
-      if (body) {
-        const { data: chk, error: chkErr } = await supabase.rpc('mp_vendor_check_text', { p_texts: { status: body } });
-        if (chkErr) throw new Error(chkErr.message);
-        const res = chk as { ok: boolean; reason?: string };
-        if (!res.ok) {
-          toast.error(
-            `Not allowed: your status has ${res.reason ?? 'contact details'}. Real names, phone numbers, WhatsApp and links are not allowed. This was reported to the admin.`,
-            { duration: 9000 }
-          );
-          return;
-        }
-        const ai = await fetch('/api/marketplace/vendor-guard', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ texts: { status: body } }),
-        });
-        const aiRes = (await ai.json().catch(() => null)) as { ok?: boolean; reason?: string; error?: { message?: string } } | null;
-        if (!ai.ok) throw new Error(aiRes?.error?.message ?? 'Safety check failed. Please try again.');
-        if (aiRes && aiRes.ok === false) {
-          toast.error(`Not allowed: the safety check says your text looks like a contact attempt (${aiRes.reason ?? 'contact details'}). This was reported to the admin.`, {
-            duration: 9000,
-          });
-          return;
-        }
+      const texts: Record<string, string> = { status_title: ti };
+      if (body) texts.status = body;
+
+      const { data: chk, error: chkErr } = await supabase.rpc('mp_vendor_check_text', { p_texts: texts });
+      if (chkErr) throw new Error(chkErr.message);
+      const res = chk as { ok: boolean; reason?: string };
+      if (!res.ok) {
+        toast.error(
+          `Not allowed: your status has ${res.reason ?? 'contact details'}. Real names, phone numbers, WhatsApp and links are not allowed. This was reported to the admin.`,
+          { duration: 9000 }
+        );
+        return;
       }
+      const ai = await fetch('/api/marketplace/vendor-guard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts }),
+      });
+      const aiRes = (await ai.json().catch(() => null)) as { ok?: boolean; reason?: string; error?: { message?: string } } | null;
+      if (!ai.ok) throw new Error(aiRes?.error?.message ?? 'Safety check failed. Please try again.');
+      if (aiRes && aiRes.ok === false) {
+        toast.error(`Not allowed: the safety check says your text looks like a contact attempt (${aiRes.reason ?? 'contact details'}). This was reported to the admin.`, {
+          duration: 9000,
+        });
+        return;
+      }
+
       let path: string | null = null;
       if (image) {
         const up = await fetch('/api/marketplace/status-image', {
@@ -129,15 +157,26 @@ export function VendorStatusManager() {
         }
         path = upRes.path;
       }
-      const { error } = await supabase.rpc('mp_vendor_post_status', { p_text: body, p_image: path });
+
+      const { error } = await supabase.rpc('mp_vendor_post_status', {
+        p_title: ti,
+        p_text: body,
+        p_kind: kind,
+        p_icon: path ? null : icon ?? KIND_INFO[kind].icon,
+        p_image: path,
+        p_listing: listingId || null,
+      });
       if (error) throw new Error(error.message);
-      toast.success('Status posted. Customers see it for 24 hours.');
+      toast.success('Posted. Customers see it for 24 hours.');
+      setTitle('');
       setText('');
+      setIcon(null);
       setImage(null);
+      setListingId('');
       if (fileRef.current) fileRef.current.value = '';
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not post the status');
+      toast.error(e instanceof Error ? e.message : 'Could not post');
     } finally {
       setBusy(false);
     }
@@ -151,52 +190,91 @@ export function VendorStatusManager() {
       if (error) throw new Error(error.message);
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not delete the status');
+      toast.error(e instanceof Error ? e.message : 'Could not delete');
     } finally {
       setBusy(false);
     }
   };
 
+  const previewIcon = icon ?? KIND_INFO[kind].icon;
+
   return (
-    <div className="space-y-4 rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
+    <div className="space-y-5 rounded-2xl border border-border/60 bg-card p-5 shadow-sm">
       <div className="space-y-1">
-        <h2 className="text-lg font-bold text-foreground">Status update</h2>
+        <h2 className="text-lg font-bold text-foreground">Status: offers, new stock and news</h2>
         <p className="text-xs text-muted-foreground">
-          Post news that customers see as your round icon on the marketplace. Use a picture, or text, or both.
+          Customers see your round icon with a short title at the top of the marketplace. They tap it to read it in full screen. It plays for 10 seconds, and
+          stays for 24 hours. Up to 3 at a time, 10 per day.
         </p>
       </div>
 
-      <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-        <li>
-          <b className="text-foreground">Picture:</b> best size 1080 x 1920 (tall) or 1080 x 1080 (square). Any JPG, PNG or WebP works. We shrink it
-          for you to under 450 KB.
-        </li>
-        <li>
-          <b className="text-foreground">Text:</b> 3 to 140 characters. Short is best, for example &quot;Fresh stock today&quot; or &quot;20% off this
-          week&quot;. With a picture, the text shows at the bottom as a caption.
-        </li>
-        <li>
-          <b className="text-foreground">Time:</b> each status plays for 10 seconds. Customers can press and hold to pause and read. It stays for 24 hours,
-          then disappears. Up to 3 at a time, 10 per day.
-        </li>
-        <li>
-          <b className="text-foreground">Not allowed:</b> phone numbers, WhatsApp, links, social names, QR codes or real names, in the text or inside the
-          picture. Pictures are checked automatically, and attempts are reported to the admin.
-        </li>
-      </ul>
-
+      {/* 1. type */}
       <div className="space-y-2">
-        <div className="flex gap-2">
-          <Input value={text} maxLength={140} onChange={(e) => setText(e.target.value)} placeholder="Write your update (3 to 140 characters)" />
+        <label className="text-xs font-semibold text-foreground">1. What is it about?</label>
+        <div className="flex flex-wrap gap-2">
+          {KINDS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setKind(k)}
+              className={
+                'rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors ' +
+                (kind === k ? 'border-primary bg-primary text-primary-foreground' : 'border-border/60 text-muted-foreground hover:bg-accent')
+              }
+            >
+              {KIND_INFO[k].icon} {KIND_INFO[k].big}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground">{KIND_HELP[kind]}</p>
+      </div>
+
+      {/* 2. title and message */}
+      <div className="space-y-2">
+        <label className="text-xs font-semibold text-foreground">2. Title (shown under your round icon)</label>
+        <Input value={title} maxLength={40} onChange={(e) => setTitle(e.target.value)} placeholder='Example: "20% off CapCut Pro"' />
+        <label className="text-xs font-semibold text-foreground">Message (optional, shown big when customers open it)</label>
+        <Input value={text} maxLength={200} onChange={(e) => setText(e.target.value)} placeholder='Example: "Valid until Sunday. Delivery within 2 hours."' />
+        <p className="text-[11px] text-muted-foreground">
+          Title: 3 to 40 characters. Message: up to 200. No phone numbers, WhatsApp, links, social names or real names, in text or in pictures. These are
+          checked automatically, and attempts are reported to the admin.
+        </p>
+      </div>
+
+      {/* 3. round icon or picture */}
+      <div className="space-y-2">
+        <label className="text-xs font-semibold text-foreground">3. Round icon: pick one, or upload a picture</label>
+        <div className="flex flex-wrap gap-2">
+          {ICONS.map((ic) => (
+            <button
+              key={ic}
+              type="button"
+              onClick={() => {
+                setIcon(ic);
+                setImage(null);
+                if (fileRef.current) fileRef.current.value = '';
+              }}
+              className={
+                'grid h-11 w-11 place-items-center rounded-full border text-xl transition-colors ' +
+                (!image && icon === ic ? 'border-primary bg-primary/10' : 'border-border/60 hover:bg-accent')
+              }
+            >
+              {ic}
+            </button>
+          ))}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
           <Button type="button" variant="outline" disabled={busy} onClick={() => fileRef.current?.click()}>
-            <ImagePlus className="mr-1.5 h-4 w-4" /> Picture
+            <ImagePlus className="mr-1.5 h-4 w-4" /> Upload picture
           </Button>
         </div>
+        <p className="text-[11px] text-muted-foreground">
+          A picture becomes your round icon and also shows big inside. Best size: 1080 x 1080 (square) or 1080 x 1920 (tall). JPG, PNG or WebP. We shrink it for
+          you.
+        </p>
         {image && (
           <div className="relative inline-block">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt="Preview" className="h-40 rounded-xl border border-border/60 object-cover" />
+            <img src={image} alt="Preview" className="h-32 rounded-xl border border-border/60 object-cover" />
             <button
               type="button"
               aria-label="Remove picture"
@@ -210,25 +288,65 @@ export function VendorStatusManager() {
             </button>
           </div>
         )}
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">{text.length}/140</span>
-          <Button disabled={busy || (!image && text.trim().length < 3)} onClick={post}>
-            {busy ? 'Checking...' : 'Post status'}
-          </Button>
+      </div>
+
+      {/* 4. link */}
+      <div className="space-y-2">
+        <label className="text-xs font-semibold text-foreground">4. Link to a package (optional, adds a &quot;See this package&quot; button)</label>
+        <select
+          value={listingId}
+          onChange={(e) => setListingId(e.target.value)}
+          className="h-10 w-full rounded-lg border border-border/60 bg-card px-3 text-sm"
+        >
+          <option value="">No link</option>
+          {packages.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.product_name} ({p.title})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* preview */}
+      <div className="flex items-center gap-4 rounded-xl bg-muted/50 p-3">
+        <span className="h-20 w-20 shrink-0 rounded-full bg-gradient-to-br from-primary via-orange-400 to-amber-300 p-[3px]">
+          <span className="block h-full w-full rounded-full bg-card p-[2px]">
+            {image ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image} alt="" className="h-full w-full rounded-full object-cover" />
+            ) : (
+              <span className={`grid h-full w-full place-items-center rounded-full bg-gradient-to-br ${KIND_INFO[kind].bg} text-4xl`}>{previewIcon}</span>
+            )}
+          </span>
+        </span>
+        <div className="min-w-0 space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">How customers see it</p>
+          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${KIND_INFO[kind].pill}`}>{KIND_INFO[kind].big}</span>
+          <p className="line-clamp-2 text-sm font-bold text-foreground">{title.trim() || 'Your title'}</p>
         </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button disabled={busy || title.trim().length < 3} onClick={post}>
+          {busy ? 'Checking...' : 'Post to customers'}
+        </Button>
       </div>
 
       {items.length > 0 && (
         <div className="space-y-2">
+          <p className="text-xs font-semibold text-foreground">Your active posts</p>
           {items.map((s) => (
             <div key={s.id} className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 p-3">
               <div className="flex min-w-0 items-center gap-3">
-                {s.image_path && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={statusImageUrl(s.image_path)} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" />
-                )}
+                <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-full">
+                  <StatusRound s={s} size="lg" />
+                </span>
                 <div className="min-w-0">
-                  <p className="break-words text-sm text-foreground">{s.body || '(picture only)'}</p>
+                  <p className="break-words text-sm font-bold text-foreground">
+                    <span className={`mr-2 rounded-full px-2 py-0.5 text-[10px] font-bold ${KIND_INFO[s.kind].pill}`}>{KIND_INFO[s.kind].big}</span>
+                    {s.title}
+                  </p>
+                  {s.body && <p className="break-words text-xs text-muted-foreground">{s.body}</p>}
                   <p className="text-[11px] text-muted-foreground">
                     Ends {new Date(s.expires_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                   </p>
