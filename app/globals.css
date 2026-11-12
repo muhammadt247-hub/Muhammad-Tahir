@@ -124,3 +124,16 @@ body {
   scale: 1 !important;
   transform: none !important;
 }
+
+
+/* Pop-up that bounces in a little (vendor status viewer) */
+@keyframes mp-pop {
+  0% { transform: scale(0.8); opacity: 0; }
+  55% { transform: scale(1.05); opacity: 1; }
+  78% { transform: scale(0.97); }
+  100% { transform: scale(1); }
+}
+.mp-pop { animation: mp-pop 0.5s cubic-bezier(0.34, 1.4, 0.64, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .mp-pop { animation: none; }
+}

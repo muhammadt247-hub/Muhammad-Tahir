@@ -27,6 +27,9 @@ interface OrderRow {
   customer_whatsapp: string;
   customer_email: string | null;
   notes: string | null;
+  package_description: string | null;
+  package_warranty: string | null;
+  package_duration_months: number | null;
   status: string;
   delivery_hours: number;
   confirm_hours: number;
@@ -229,7 +232,7 @@ function AdminOrders() {
       const { data, error: err } = await supabase
         .from('mp_orders')
         .select(
-          'id, order_no, product_name, package_title, vendor_name, price, customer_name, customer_whatsapp, customer_email, notes, status, delivery_hours, confirm_hours, problem_reason, created_at, delivery_due_at, confirm_deadline_at, mp_order_private(vendor_price, commission, vendor_paid_at)'
+          'id, order_no, product_name, package_title, vendor_name, price, customer_name, customer_whatsapp, customer_email, notes, package_description, package_warranty, package_duration_months, status, delivery_hours, confirm_hours, problem_reason, created_at, delivery_due_at, confirm_deadline_at, mp_order_private(vendor_price, commission, vendor_paid_at)'
         )
         .order('created_at', { ascending: false })
         .limit(200);
@@ -463,6 +466,16 @@ function AdminOrders() {
                     <p className="text-muted-foreground">{o.customer_whatsapp}</p>
                     {o.customer_email && <p className="text-muted-foreground break-all">{o.customer_email}</p>}
                     {o.notes && <p className="text-muted-foreground break-words">Notes: {o.notes}</p>}
+                    {(o.package_description || o.package_warranty) && (
+                      <details className="pt-1">
+                        <summary className="cursor-pointer font-semibold text-foreground">What the customer was promised</summary>
+                        <div className="mt-1 space-y-1 rounded-lg bg-muted/50 p-2">
+                          {o.package_warranty && <p className="text-muted-foreground">Warranty: {o.package_warranty}</p>}
+                          {o.package_duration_months && <p className="text-muted-foreground">Duration: {o.package_duration_months} month(s)</p>}
+                          {o.package_description && <p className="whitespace-pre-line break-words text-muted-foreground">{o.package_description}</p>}
+                        </div>
+                      </details>
+                    )}
                   </div>
                 </div>
 

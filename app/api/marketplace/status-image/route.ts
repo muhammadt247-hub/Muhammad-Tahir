@@ -68,14 +68,18 @@ export async function POST(req: NextRequest) {
     .filter(Boolean);
 
   let verdict: { flagged: boolean; reason: string } | null = null;
+  let lastError = apiKeys.length === 0 ? 'no Gemini key is set on the server' : '';
   const startedAt = Date.now();
-  for (let i = 0; i < apiKeys.length; i++) {
-    if (Date.now() - startedAt > 20000) break;
+  // every key is tried with a fast model first, then with the main model
+  const models = Array.from(new Set([process.env.GEMINI_GUARD_MODEL, 'gemini-3.1-flash-lite', AI_CONFIG.DEFAULT_MODEL].filter(Boolean) as string[]));
+  outer: for (let i = 0; i < apiKeys.length; i++) {
+    for (const model of models) {
+    if (Date.now() - startedAt > 24000) break outer;
     try {
       const ai = new GoogleGenAI({ apiKey: apiKeys[i] });
       const response = await withTimeout(
         ai.models.generateContent({
-          model: process.env.GEMINI_GUARD_MODEL || AI_CONFIG.DEFAULT_MODEL,
+          model,
           contents: {
             parts: [
               { inlineData: { mimeType: 'image/jpeg', data: m[1] } },
@@ -99,19 +103,23 @@ export async function POST(req: NextRequest) {
             },
           },
         }),
-        15000
+        10000
       );
       const out = JSON.parse(response.text?.trim() || '{}') as { flagged?: boolean; reason?: string };
       verdict = { flagged: out.flagged === true, reason: (out.reason || 'looks like a contact attempt').slice(0, 120) };
-      break;
+      break outer;
     } catch (e) {
-      console.warn(`status-image: key ${i + 1} of ${apiKeys.length} failed, trying the next one:`, e instanceof Error ? e.message : e);
+      lastError = e instanceof Error ? e.message : String(e);
+      console.warn(`status-image: key ${i + 1} of ${apiKeys.length} with ${model} failed:`, lastError);
+    }
     }
   }
 
   if (!verdict) {
+    // short reason for the admin to read in a screenshot; keys are never included
+    const why = lastError.replace(/AIza[\w-]+/g, '[key]').replace(/\s+/g, ' ').slice(0, 160);
     return NextResponse.json(
-      { error: { code: 'check_unavailable', message: 'The image safety check is busy right now. Please try again in a minute, or post text only.' } },
+      { error: { code: 'check_unavailable', message: `The image safety check could not run (${why || 'unknown'}). Please try again in a minute, or post text only.` } },
       { status: 503 }
     );
   }

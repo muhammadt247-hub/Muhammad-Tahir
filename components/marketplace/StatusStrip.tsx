@@ -162,7 +162,7 @@ export function StatusStrip() {
       {open && current && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-0 sm:p-4" onClick={close}>
           <div
-            className="relative flex h-full w-full max-w-md select-none flex-col overflow-hidden bg-neutral-900 text-white sm:h-[min(88vh,760px)] sm:rounded-2xl"
+            className="mp-pop relative flex h-full w-full max-w-md select-none flex-col overflow-hidden bg-neutral-900 text-white sm:h-[min(88vh,760px)] sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* progress bars, one per status */}
