@@ -184,6 +184,7 @@ function Catalog() {
   const [openVendors, setOpenVendors] = useState<Record<string, boolean>>({});
   const [alerts, setAlerts] = useState<{ id: string; vendor_id: string; field: string; content: string; reason: string; seen: boolean; created_at: string }[]>([]);
   const [busy, setBusy] = useState(false);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   // product form
   const [pName, setPName] = useState('');
@@ -362,7 +363,15 @@ function Catalog() {
     }
   };
 
-  const setVendorStatus = (v: Vendor, status: 'approved' | 'suspended') =>
+  // Removes the vendor (or the request) for good. Old orders stay. Refused while the vendor has open orders.
+  const removeVendor = (v: Vendor) =>
+    act(v.name + ' was removed', async () => {
+      const { error: err } = await createClient().rpc('mp_admin_delete_vendor', { p_vendor: v.id });
+      if (err) throw new Error(err.message);
+      setConfirmRemoveId(null);
+    });
+
+  const setVendorStatus = (v: Vendor, status: 'approved' | 'suspended' | 'rejected') =>
     act(v.name + ' is now ' + status, async () => {
       const { error: err } = await createClient().from('mp_vendors').update({ status }).eq('id', v.id);
       if (err) throw new Error(err.message);
@@ -821,6 +830,25 @@ function Catalog() {
                     ) : (
                       <Button size="sm" disabled={busy} onClick={() => setVendorStatus(v, 'approved')}>
                         Approve
+                      </Button>
+                    )}
+                    {v.status === 'pending' && (
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setVendorStatus(v, 'rejected')}>
+                        Reject
+                      </Button>
+                    )}
+                    {confirmRemoveId === v.id ? (
+                      <>
+                        <Button size="sm" variant="destructive" disabled={busy} onClick={() => removeVendor(v)}>
+                          Yes, remove {v.status === 'pending' ? 'request' : 'vendor'}
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmRemoveId(null)}>
+                          No
+                        </Button>
+                      </>
+                    ) : (
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirmRemoveId(v.id)}>
+                        {v.status === 'pending' ? 'Delete request' : 'Remove vendor'}
                       </Button>
                     )}
                   </div>

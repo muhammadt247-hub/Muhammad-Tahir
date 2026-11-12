@@ -555,6 +555,10 @@ function MyPackages() {
       {formOpen && (
         <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-4 shadow-sm">
           <h3 className="text-base font-bold text-foreground">{editingId ? 'Change package' : 'New package'}</h3>
+          <p className="rounded-xl bg-amber-500/10 p-3 text-xs text-foreground">
+            To protect customers, after you save a change the package details are locked for 1 hour. Check everything before you save. You can still pause
+            or delete a package at any time.
+          </p>
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-foreground">Product</label>
