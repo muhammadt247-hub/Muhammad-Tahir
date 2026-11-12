@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { RichDescription } from '@/components/marketplace/RichDescription';
+import { StatusStrip } from '@/components/marketplace/StatusStrip';
 import {
   MARKETPLACE_ENABLED,
   MpProduct,
@@ -146,7 +147,12 @@ function OrderDialog({
               <p className="text-sm text-muted-foreground">
                 {productName} ({listing.title}) from {listing.vendor?.name ?? 'Vendor'}
               </p>
-              <p className="text-lg font-extrabold text-foreground">{formatPkr(listing.price)}</p>
+              <p className="text-lg font-extrabold text-foreground">
+                {formatPkr(listing.price)}
+                {listing.original_price !== null && (
+                  <span className="ml-2 text-sm font-medium text-muted-foreground line-through">{formatPkr(listing.original_price)}</span>
+                )}
+              </p>
             </div>
 
             <div className="space-y-1">
@@ -281,7 +287,7 @@ function MarketplaceHome() {
             .order('name'),
           supabase
             .from('mp_listings')
-            .select('id, title, price, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, description, mp_vendors(id, name, slug, verified)')
+            .select('id, title, price, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, description, offer_price, offer_percent, offer_ends_at, mp_vendors(id, name, slug, verified)')
             .order('price'),
         ]);
         if (cancelled) return;
@@ -514,7 +520,20 @@ function MarketplaceHome() {
                   )}
                 </div>
                 <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
-                  <div className="text-xl font-extrabold text-foreground">{formatPkr(l.price)}</div>
+                  <div className="text-right">
+                    {l.offer_percent !== null && l.original_price !== null && (
+                      <div className="mb-0.5 flex items-center justify-end gap-2">
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">{l.offer_percent}% OFF</span>
+                        <span className="text-xs font-medium text-muted-foreground line-through">{formatPkr(l.original_price)}</span>
+                      </div>
+                    )}
+                    <div className="text-xl font-extrabold text-foreground">{formatPkr(l.price)}</div>
+                    {l.offer_ends_at && (
+                      <div className="text-[11px] text-muted-foreground">
+                        Offer ends {new Date(l.offer_ends_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                      </div>
+                    )}
+                  </div>
                   <Button size="sm" onClick={() => setOrdering(l)}>
                     Order
                   </Button>
@@ -574,6 +593,8 @@ function MarketplaceHome() {
         </p>
       </div>
 
+      <StatusStrip />
+
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -610,7 +631,12 @@ function MarketplaceHome() {
                     {list.length} {list.length === 1 ? 'vendor' : 'vendors'}
                   </span>
                   {lowest !== null ? (
-                    <span className="text-sm font-bold text-foreground">From {formatPkr(lowest)}</span>
+                    <span className="text-sm font-bold text-foreground">
+                      {list.some((x) => x.offer_percent !== null) && (
+                        <span className="mr-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">Offer</span>
+                      )}
+                      From {formatPkr(lowest)}
+                    </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">No offers yet</span>
                   )}

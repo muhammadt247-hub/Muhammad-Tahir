@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { RichDescription } from '@/components/marketplace/RichDescription';
+import { VendorStatusManager } from '@/components/marketplace/VendorStatusManager';
 import { MARKETPLACE_ENABLED, ORDERS_WHATSAPP } from '@/lib/marketplace/shared';
 
 interface MyVendor {
@@ -227,6 +228,7 @@ function VendorHome() {
         </div>
       )}
 
+      {vendor && vendor.status === 'approved' && <VendorStatusManager />}
       {vendor && vendor.status === 'approved' && <MyPackages />}
     </div>
   );
@@ -237,6 +239,13 @@ const OTHER = '__other__';
 interface ProductOption {
   id: string;
   name: string;
+}
+
+interface MyOffer {
+  listing_id: string;
+  offer_percent: number;
+  offer_price: number | string;
+  offer_ends_at: string;
 }
 
 interface MyListing {
@@ -315,6 +324,10 @@ function MyPackages() {
   const [description, setDescription] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [offers, setOffers] = useState<Record<string, MyOffer>>({});
+  const [offerOpenId, setOfferOpenId] = useState<string | null>(null);
+  const [offerPercent, setOfferPercent] = useState(20);
+  const [offerHours, setOfferHours] = useState(24);
 
   const load = useCallback(async () => {
     try {
@@ -327,6 +340,16 @@ function MyPackages() {
       if (l.error) throw new Error(l.error.message);
       setProducts((p.data ?? []) as ProductOption[]);
       setRows((l.data ?? []) as MyListing[]);
+      try {
+        const o = await supabase.rpc('mp_vendor_my_offers');
+        const map: Record<string, MyOffer> = {};
+        ((o.data ?? []) as MyOffer[]).forEach((x) => {
+          map[x.listing_id] = x;
+        });
+        setOffers(map);
+      } catch {
+        // offers are a bonus: packages still work
+      }
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load your packages');
@@ -366,6 +389,41 @@ function MyPackages() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
       // not important
+    }
+  };
+
+  const startOffer = async (r: MyListing) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { error: err } = await createClient().rpc('mp_vendor_set_offer', {
+        p_listing: r.id,
+        p_percent: offerPercent,
+        p_hours: offerHours,
+      });
+      if (err) throw new Error(err.message);
+      toast.success('Offer started. Customers now see the discount.');
+      setOfferOpenId(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not start the offer');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const endOffer = async (r: MyListing) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { error: err } = await createClient().rpc('mp_vendor_clear_offer', { p_listing: r.id });
+      if (err) throw new Error(err.message);
+      toast.success('Offer ended.');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not end the offer');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -655,11 +713,66 @@ function MyPackages() {
               <p className="text-xs text-muted-foreground">
                 Your price {money(r.vendor_price)} | Delivery within {r.delivery_hours < 24 ? r.delivery_hours + ' h' : Math.round(r.delivery_hours / 24) + ' day(s)'}
               </p>
+              {offers[r.id] && (
+                <p className="text-xs font-semibold text-emerald-700">
+                  {offers[r.id].offer_percent}% OFF running until{' '}
+                  {new Date(offers[r.id].offer_ends_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}. You receive{' '}
+                  {money(Math.max(1, Math.floor(Number(r.vendor_price) * (100 - offers[r.id].offer_percent) / 100)))} per order.
+                </p>
+              )}
+              {offerOpenId === r.id && (
+                <div className="mt-2 space-y-2 rounded-xl bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Choose a discount. You receive your price minus the discount for each order while the offer runs. When it ends, the normal price comes back by itself.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={offerPercent}
+                      onChange={(e) => setOfferPercent(Number(e.target.value))}
+                      className="h-9 rounded-lg border border-border/60 bg-card px-2 text-sm"
+                    >
+                      {[5, 10, 15, 20, 25, 30, 40, 50].map((p) => (
+                        <option key={p} value={p}>
+                          {p}% off
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={offerHours}
+                      onChange={(e) => setOfferHours(Number(e.target.value))}
+                      className="h-9 rounded-lg border border-border/60 bg-card px-2 text-sm"
+                    >
+                      <option value={6}>for 6 hours</option>
+                      <option value={24}>for 1 day</option>
+                      <option value={72}>for 3 days</option>
+                      <option value={168}>for 7 days</option>
+                      <option value={720}>for 30 days</option>
+                    </select>
+                    <Button size="sm" disabled={busy} onClick={() => startOffer(r)}>
+                      Start offer
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => setOfferOpenId(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" disabled={busy} onClick={() => startEdit(r)}>
                 Edit
               </Button>
+              {offers[r.id] ? (
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => endOffer(r)}>
+                  End offer
+                </Button>
+              ) : (
+                r.status === 'active' && (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => setOfferOpenId(offerOpenId === r.id ? null : r.id)}>
+                    Offer
+                  </Button>
+                )
+              )}
               <Button
                 size="sm"
                 variant="outline"
