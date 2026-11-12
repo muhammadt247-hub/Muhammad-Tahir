@@ -143,6 +143,8 @@ function MyOrders() {
         setError('Please log in to see your orders.');
         return;
       }
+      // Orders the customer left unconfirmed past the deadline complete automatically.
+      await supabase.rpc('mp_auto_complete_due');
       const { data, error: err } = await supabase
         .from('mp_orders')
         .select(

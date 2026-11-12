@@ -225,6 +225,7 @@ function AdminOrders() {
       setPendingVendors(pv.count ?? 0);
       const wa = await supabase.from('mp_vendor_alerts').select('id', { count: 'exact', head: true }).eq('seen', false);
       setVendorWarnings(wa.count ?? 0);
+      await supabase.rpc('mp_auto_complete_due');
       const { data, error: err } = await supabase
         .from('mp_orders')
         .select(
