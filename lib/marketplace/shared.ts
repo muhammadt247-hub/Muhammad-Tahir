@@ -101,6 +101,12 @@ export function toListing(row: RawListingRow): MpListing {
   };
 }
 
+// Public address of a status image saved by the server
+export function statusImageUrl(path: string): string {
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
+  return `${base}/storage/v1/object/public/mp-status/${path}`;
+}
+
 export function formatPkr(value: number): string {
   return 'Rs ' + Math.round(value).toLocaleString('en-US');
 }

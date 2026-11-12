@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react';
 
 export default function ForgotPasswordPage() {
+  const router = useRouter();
   const configured = isSupabaseConfigured();
 
   const [email, setEmail] = useState('');
@@ -27,6 +29,8 @@ export default function ForgotPasswordPage() {
   const [isSent, setIsSent] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -82,6 +86,32 @@ export default function ForgotPasswordPage() {
     }
   };
 
+  // Backup way: type the 6-digit code from the email (works even if an email scanner used up the link)
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    const token = code.replace(/\s+/g, '');
+    if (!/^\d{6,8}$/.test(token)) {
+      setErrorMessage('Enter the numbers code from the email.');
+      return;
+    }
+    setIsVerifying(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token, type: 'recovery' });
+      if (error) {
+        setErrorMessage('That code is wrong or has expired. Request a new one and try again.');
+        return;
+      }
+      router.push('/reset-password');
+      router.refresh();
+    } catch {
+      setErrorMessage('Could not check the code. Please try again.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   if (isSent) {
     return (
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 py-12">
@@ -101,6 +131,26 @@ export default function ForgotPasswordPage() {
               Click the link inside to set a new password. The link will expire in 1 hour.
             </p>
           </div>
+
+          <form onSubmit={handleVerifyCode} className="space-y-2 text-left border-t border-border/40 pt-4">
+            <Label htmlFor="reset-code">Email has a code? Type it here</Label>
+            <Input
+              id="reset-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="Code from the email"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              disabled={isVerifying}
+            />
+            {errorMessage && <p className="text-xs text-destructive">{errorMessage}</p>}
+            <Button type="submit" disabled={isVerifying || code.trim().length < 6} className="w-full font-semibold">
+              {isVerifying ? 'Checking...' : 'Continue with code'}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              Not in your inbox? Check Spam and Promotions. Wait 1 minute, then press Resend below.
+            </p>
+          </form>
 
           <div className="pt-2 border-t border-border/40 space-y-3">
             <Button
