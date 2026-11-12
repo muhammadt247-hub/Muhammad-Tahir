@@ -31,6 +31,10 @@ export interface MpListing {
   warranty_text: string | null;
   duration_months: number | null;
   description: string | null;
+  // set only while an offer is running: price is the offer price, original_price the normal one
+  original_price: number | null;
+  offer_percent: number | null;
+  offer_ends_at: string | null;
   vendor: MpVendorInfo | null;
 }
 
@@ -46,6 +50,9 @@ export interface RawListingRow {
   warranty_text?: string | null;
   duration_months?: number | null;
   description?: string | null;
+  offer_price?: number | string | null;
+  offer_percent?: number | null;
+  offer_ends_at?: string | null;
   mp_vendors: MpVendorInfo | MpVendorInfo[] | null;
 }
 
@@ -74,10 +81,15 @@ export interface VendorReview {
 
 export function toListing(row: RawListingRow): MpListing {
   const v = Array.isArray(row.mp_vendors) ? row.mp_vendors[0] ?? null : row.mp_vendors;
+  const offerOn =
+    row.offer_price != null && !!row.offer_ends_at && new Date(row.offer_ends_at).getTime() > Date.now() && Number(row.offer_price) < Number(row.price);
   return {
     id: row.id,
     title: row.title,
-    price: Number(row.price),
+    price: offerOn ? Number(row.offer_price) : Number(row.price),
+    original_price: offerOn ? Number(row.price) : null,
+    offer_percent: offerOn ? row.offer_percent ?? null : null,
+    offer_ends_at: offerOn ? row.offer_ends_at ?? null : null,
     delivery_hours: row.delivery_hours,
     vendor_id: row.vendor_id,
     product_id: row.product_id,
