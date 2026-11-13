@@ -229,6 +229,11 @@ export default function GeneratorPage() {
     }
   }, []);
 
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
   const similarityRunIdRef = useRef(0);
 
   const cancelSimilarityCheck = useCallback(() => {
