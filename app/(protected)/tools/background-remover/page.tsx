@@ -10,8 +10,11 @@ import {
   AlertCircle,
   Clock,
   X,
+  Sparkles,
 } from "lucide-react";
+import { CREDIT_COSTS } from "@/config/credits";
 import BgEditor from "@/components/tools/BgEditor";
+import { useCredits } from "@/components/CreditsProvider";
 import BatchSettings from "@/components/tools/BatchSettings";
 import {
   BgChoice,
@@ -35,7 +38,7 @@ const SAMPLES = [
 ];
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 
-type Mode = "auto" | "graphics" | "photo";
+type Mode = "smart" | "auto" | "graphics" | "photo";
 type Used = "graphics" | "photo";
 type Status = "waiting" | "processing" | "done" | "failed";
 
@@ -46,6 +49,7 @@ type Item = {
   originalUrl: string;
   status: Status;
   usedMode?: Used;
+  aiNote?: string; // what Smart mode decided, in words
   resultUrl?: string;
   resultBlob?: Blob;
   doneKey?: string;
@@ -76,8 +80,112 @@ function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-// Auto mode: plain white edge AND few flat colors means graphics (icons, logos).
-async function looksLikeGraphics(file: File): Promise<boolean> {
+type Rgb = [number, number, number];
+
+// The plain color around the picture's border, or null if the border is not one plain color.
+// (median of the border pixels, and at least 90% of the border must be close to it)
+function plainBorderColor(d: Uint8ClampedArray, w: number, h: number): Rgb | null {
+  const px: number[] = [];
+  const add = (x: number, y: number) => {
+    const p = (y * w + x) * 4;
+    if (d[p + 3] >= 10) px.push(p);
+  };
+  for (let x = 0; x < w; x++) {
+    add(x, 0);
+    add(x, h - 1);
+  }
+  for (let y = 0; y < h; y++) {
+    add(0, y);
+    add(w - 1, y);
+  }
+  if (px.length < 8) return null;
+  const med = (c: number) => {
+    const v = px.map((p) => d[p + c]).sort((a, b) => a - b);
+    return v[v.length >> 1];
+  };
+  const bgc: Rgb = [med(0), med(1), med(2)];
+  let close = 0;
+  for (const p of px) {
+    if (Math.max(Math.abs(d[p] - bgc[0]), Math.abs(d[p + 1] - bgc[1]), Math.abs(d[p + 2] - bgc[2])) <= 20) close++;
+  }
+  return close / px.length >= 0.9 ? bgc : null;
+}
+
+// Draws the image small (for the AI preview and the border check).
+async function smallCanvas(file: File, maxSide: number): Promise<{ canvas: HTMLCanvasElement; data: Uint8ClampedArray }> {
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+  const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    bmp.close();
+    throw new Error("Canvas is not supported in this browser.");
+  }
+  ctx.fillStyle = "#ffffff"; // see-through parts of a PNG count as white
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(bmp, 0, 0, w, h);
+  bmp.close();
+  return { canvas, data: ctx.getImageData(0, 0, w, h).data };
+}
+
+// The plain border color of an image (any color, not only white), or null.
+async function detectBorderColor(file: File): Promise<Rgb | null> {
+  const { canvas, data } = await smallCanvas(file, 300);
+  return plainBorderColor(data, canvas.width, canvas.height);
+}
+
+function hexToRgb(hex: string | null | undefined): Rgb | null {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || "");
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
+}
+
+type SmartAnalysis = {
+  imageType: string;
+  background: string;
+  backgroundColor: string | null;
+  innerWhite: "remove" | "keep" | "none";
+  fineDetails: boolean;
+  method: "graphics" | "ai";
+  subject: string;
+  reason: string;
+};
+type SmartPlan =
+  | { ok: true; method: Used; bgc: Rgb | null; inner: boolean | null; note: string }
+  | { ok: false; message: string; stop: boolean };
+
+const TYPE_WORDS: Record<string, string> = {
+  flat_graphic: "Flat graphic",
+  illustration: "Illustration",
+  photo: "Photo",
+  text_or_logo: "Logo / text",
+  mixed: "Image",
+};
+
+// Turns the AI's answer (plus our own exact border check) into a method and settings.
+function planFromAnalysis(a: SmartAnalysis, localBg: Rgb | null): SmartPlan {
+  const plainBg = a.background === "white" || a.background === "solid_color";
+  const aiBg = hexToRgb(a.backgroundColor);
+  const bgc = localBg ?? aiBg ?? (a.background === "white" ? ([255, 255, 255] as Rgb) : null);
+  const graphics = a.method === "graphics" && plainBg && !a.fineDetails && bgc !== null;
+  const inner = a.innerWhite === "remove" ? true : a.innerWhite === "keep" ? false : null;
+  const parts = [TYPE_WORDS[a.imageType] ?? "Image"];
+  if (graphics) {
+    parts.push(a.background === "white" ? "white background" : "plain color background");
+    if (inner === true) parts.push("white inside removed");
+    if (inner === false) parts.push("white parts kept");
+  } else {
+    parts.push(a.fineDetails ? "fine details" : a.background === "gradient" ? "gradient background" : "detailed background");
+  }
+  return { ok: true, method: graphics ? "graphics" : "photo", bgc: graphics ? bgc : null, inner: graphics ? inner : null, note: parts.join(" · ") };
+}
+
+// Auto mode: a plain one-color border AND few flat colors means graphics (icons, logos).
+// Returns the background color for the graphics method, or null for the AI photo method.
+async function looksLikeGraphics(file: File): Promise<Rgb | null> {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
   const scale = Math.min(1, 300 / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * scale));
@@ -88,28 +196,14 @@ async function looksLikeGraphics(file: File): Promise<boolean> {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) {
     bmp.close();
-    return false;
+    return null;
   }
   ctx.drawImage(bmp, 0, 0, w, h);
   bmp.close();
   const d = ctx.getImageData(0, 0, w, h).data;
 
-  let edge = 0;
-  let white = 0;
-  const check = (x: number, y: number) => {
-    const p = (y * w + x) * 4;
-    edge++;
-    if (d[p + 3] < 10 || Math.min(d[p], d[p + 1], d[p + 2]) >= 235) white++;
-  };
-  for (let x = 0; x < w; x++) {
-    check(x, 0);
-    check(x, h - 1);
-  }
-  for (let y = 0; y < h; y++) {
-    check(0, y);
-    check(w - 1, y);
-  }
-  if (white / edge < 0.9) return false;
+  const bgc = plainBorderColor(d, w, h);
+  if (!bgc) return null;
 
   const bins = new Uint32Array(4096);
   for (let i = 0; i < w * h; i++) {
@@ -119,21 +213,31 @@ async function looksLikeGraphics(file: File): Promise<boolean> {
   const sorted = Array.from(bins).sort((a, b) => b - a);
   let top = 0;
   for (let i = 0; i < 24; i++) top += sorted[i];
-  return top / (w * h) >= 0.6;
+  return top / (w * h) >= 0.6 ? bgc : null;
 }
 
 // Remove the outer white background and give every edge pixel the exact fill color of the
 // shape it belongs to. Only the see-through amount (alpha) changes at the edge, never the color.
 // So there is no white halo, and no strange in-between color.
-function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number, inner: boolean): number {
+// The background does not have to be white: `bgc` is the plain background color (white by default).
+function removeWhiteCore(
+  d: Uint8ClampedArray,
+  w: number,
+  h: number,
+  tol: number,
+  inner: boolean,
+  bgc: [number, number, number] = [255, 255, 255]
+): number {
   const n = w * h;
   const BAND = 3; // how many pixels from the background count as "edge"
+  const [B0, B1, B2] = bgc;
+  // how far a pixel's color is from the background color (0 = exactly the background)
+  const far = (p: number) => Math.max(Math.abs(d[p] - B0), Math.abs(d[p + 1] - B1), Math.abs(d[p + 2] - B2));
 
   const near = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     const p = i * 4;
-    const m = Math.min(d[p], d[p + 1], d[p + 2]);
-    if (d[p + 3] < 10 || 255 - m <= tol) near[i] = 1;
+    if (d[p + 3] < 10 || far(p) <= tol) near[i] = 1;
   }
 
   // Outer background: the white that touches the image edge.
@@ -173,7 +277,7 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     for (let s = 0; s < n; s++) {
       if (!near[s] || bg[s] || seen[s]) continue;
       let count = 0;
-      let sumMin = 0;
+      let sumFar = 0;
       sp = 0;
       seen[s] = 1;
       stack[sp++] = s;
@@ -181,14 +285,14 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
         const i = stack[--sp];
         members[count++] = i;
         const p = i * 4;
-        sumMin += d[p + 3] < 10 ? 255 : Math.min(d[p], d[p + 1], d[p + 2]);
+        sumFar += d[p + 3] < 10 ? 0 : far(p);
         const x = i % w;
         if (x > 0 && near[i - 1] && !bg[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[sp++] = i - 1; }
         if (x < w - 1 && near[i + 1] && !bg[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[sp++] = i + 1; }
         if (i >= w && near[i - w] && !bg[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[sp++] = i - w; }
         if (i < n - w && near[i + w] && !bg[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[sp++] = i + w; }
       }
-      if (count >= minArea && sumMin / count >= 245) {
+      if (count >= minArea && sumFar / count <= 10) {
         for (let k = 0; k < count; k++) bg[members[k]] = 1;
       }
     }
@@ -227,7 +331,7 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
         eachNeighbor(i, (j) => {
           if (bg[j] || soft[j]) return;
           const q = j * 4;
-          if (Math.min(d[q], d[q + 1], d[q + 2]) < 213) return;
+          if (far(q) > 42) return;
           soft[j] = 1;
           dist[j] = 1;
           qpush(j);
@@ -340,14 +444,14 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     let bestErr = Infinity, bestT = 0, bestAt = -1, lightFillNearest = false;
     const tryFill = (j: number) => {
       const s = j * 4;
-      const u0 = 255 - d[s], u1 = 255 - d[s + 1], u2 = 255 - d[s + 2];
+      const u0 = B0 - d[s], u1 = B1 - d[s + 1], u2 = B2 - d[s + 2];
       const uu = u0 * u0 + u1 * u1 + u2 * u2;
-      if (uu < 900) return false; // this fill is almost white
-      const k = ((255 - c0) * u0 + (255 - c1) * u1 + (255 - c2) * u2) / uu;
+      if (uu < 900) return false; // this fill is almost the background color
+      const k = ((B0 - c0) * u0 + (B1 - c1) * u1 + (B2 - c2) * u2) / uu;
       const t = k < 0 ? 0 : k > 1 ? 1 : k;
-      const e0 = c0 - (255 - t * u0);
-      const e1 = c1 - (255 - t * u1);
-      const e2 = c2 - (255 - t * u2);
+      const e0 = c0 - (B0 - t * u0);
+      const e1 = c1 - (B1 - t * u1);
+      const e2 = c2 - (B2 - t * u2);
       const err = e0 * e0 + e1 * e1 + e2 * e2;
       if (err < bestErr) {
         bestErr = err;
@@ -392,23 +496,23 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
         a = bestT; // a clean mix of that color and white
       } else {
         // a mix of white and more than one color: use how dark the pixel is compared with that color
-        const pm = Math.hypot(255 - c0, 255 - c1, 255 - c2);
-        const fm = Math.hypot(255 - f0, 255 - f1, 255 - f2);
+        const pm = Math.hypot(B0 - c0, B1 - c1, B2 - c2);
+        const fm = Math.hypot(B0 - f0, B1 - f1, B2 - f2);
         a = fm > 0 ? Math.min(1, pm / fm) : 0;
       }
     }
     if (a < 0) {
-      // no clear fill color nearby (very thin line): use the whiteness of the pixel itself
-      const dd = 255 - Math.min(c0, c1, c2);
+      // no clear fill color nearby (very thin line): use how far the pixel is from the background
+      const dd = far(p);
       const t = Math.min(1, dd / 90);
-      // almost white (JPG/WEBP noise around the edge): background, fully see-through
+      // almost the background color (JPG/WEBP noise around the edge): fully see-through
       if (t < 0.3) {
         d[p + 3] = 0;
         continue;
       }
       if (t >= 1) continue;
       for (let c = 0; c < 3; c++) {
-        const v = (d[p + c] - 255 * (1 - t)) / t;
+        const v = (d[p + c] - bgc[c] * (1 - t)) / t;
         d[p + c] = v < 0 ? 0 : v > 255 ? 255 : v;
       }
       d[p + 3] = Math.round(t * d[p + 3]);
@@ -429,7 +533,12 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
 
 // Graphics mode: removes the white that touches the image edge. Light colors inside shapes stay.
 // Edge pixels keep the exact fill color of their shape (no white halo).
-async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blob> {
+async function removeWhite(
+  file: File,
+  tol: number,
+  inner: boolean,
+  bgc: [number, number, number] = [255, 255, 255]
+): Promise<Blob> {
   const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
   const w = bmp.width;
   const h = bmp.height;
@@ -443,10 +552,10 @@ async function removeWhite(file: File, tol: number, inner: boolean): Promise<Blo
 
   const img = ctx.getImageData(0, 0, w, h);
   const n = w * h;
-  const cleared = removeWhiteCore(img.data, w, h, tol, inner);
+  const cleared = removeWhiteCore(img.data, w, h, tol, inner, bgc);
 
   if (cleared === 0) {
-    throw new Error("No white background found. Try Photo (AI) mode.");
+    throw new Error("No plain background found. Try Photo (AI) mode.");
   }
   if (cleared === n) {
     throw new Error("Everything was removed. Lower the tolerance or try Photo (AI) mode.");
@@ -507,6 +616,42 @@ export default function BackgroundRemoverPage() {
   const zipLock = useRef(false);
   const pictureUrls = useRef<Set<string>>(new Set());
   const runRef = useRef(0);
+  const smartOffRef = useRef(false); // Smart mode paused for this run (no credits / too many requests)
+  const credits = useCredits();
+
+  // Smart mode: send a small preview to the AI check, then choose the method from its answer.
+  async function smartPlan(file: File): Promise<SmartPlan> {
+    if (smartOffRef.current) return { ok: false, message: "Smart mode paused for this batch", stop: true };
+    let dataUrl: string;
+    let localBg: Rgb | null = null;
+    try {
+      const { canvas, data } = await smallCanvas(file, 512);
+      localBg = plainBorderColor(data, canvas.width, canvas.height);
+      dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    } catch {
+      return { ok: false, message: "could not read the image", stop: false };
+    }
+    try {
+      const res = await fetch("/api/bg-remover/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (typeof body?.balance === "number") credits.updateBalanceLocally(body.balance);
+      if (!res.ok || !body?.analysis) {
+        const code = body?.error?.code;
+        return {
+          ok: false,
+          message: body?.error?.message || "the AI check did not answer",
+          stop: code === "insufficient_credits" || code === "rate_limited" || res.status === 401,
+        };
+      }
+      return planFromAnalysis(body.analysis as SmartAnalysis, localBg);
+    } catch {
+      return { ok: false, message: "no connection to the AI check", stop: false };
+    }
+  }
 
   useEffect(() => {
     itemsRef.current = items;
@@ -637,6 +782,7 @@ export default function BackgroundRemoverPage() {
     if (queue.length === 0) return;
 
     cancelRef.current = false;
+    smartOffRef.current = false;
     const myRun = ++runRef.current; // an older run (before Clear) stops when a new one starts
     setRunning(true);
     setNotice("");
@@ -647,11 +793,39 @@ export default function BackgroundRemoverPage() {
         updateItem(item.id, { status: "processing", error: undefined });
 
         let used: Used = currentMode === "photo" ? "photo" : "graphics";
-        if (currentMode === "auto") {
+        let bgc: Rgb = [255, 255, 255];
+        let innerNow = inner;
+        let aiNote: string | undefined;
+        // Auto (free): decide on this computer
+        const autoDecide = async () => {
           try {
-            used = (await looksLikeGraphics(item.file)) ? "graphics" : "photo";
+            const found = await looksLikeGraphics(item.file);
+            used = found ? "graphics" : "photo";
+            if (found) bgc = found;
           } catch {
             used = "photo";
+          }
+        };
+        if (currentMode === "auto") await autoDecide();
+        if (currentMode === "graphics") {
+          try {
+            bgc = (await detectBorderColor(item.file)) ?? bgc;
+          } catch {
+            /* keep white */
+          }
+        }
+        if (currentMode === "smart") {
+          // Smart: AI looks at a small preview and chooses the method and settings
+          const plan = await smartPlan(item.file);
+          if (plan.ok) {
+            used = plan.method;
+            if (plan.bgc) bgc = plan.bgc;
+            if (plan.inner !== null) innerNow = plan.inner;
+            aiNote = plan.note;
+          } else {
+            await autoDecide();
+            aiNote = `Auto used: ${plan.message}`;
+            if (plan.stop) smartOffRef.current = true;
           }
         }
 
@@ -659,7 +833,7 @@ export default function BackgroundRemoverPage() {
         try {
           let blob: Blob;
           if (used === "graphics") {
-            blob = await removeWhite(item.file, tol, inner);
+            blob = await removeWhite(item.file, tol, innerNow, bgc);
           } else {
             const lib = await import("@imgly/background-removal");
             const raw: Blob = await lib.removeBackground(item.file, {
@@ -673,6 +847,7 @@ export default function BackgroundRemoverPage() {
           updateItem(item.id, {
             status: "done",
             usedMode: used,
+            aiNote,
             resultBlob: blob,
             resultUrl: URL.createObjectURL(blob),
             doneKey: key,
@@ -777,7 +952,7 @@ export default function BackgroundRemoverPage() {
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Background Remover</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Remove image backgrounds free, right in your browser.
+          Clean cut-outs for photos, icons and logos. Free in your browser, or let AI choose the best method.
         </p>
       </div>
 
@@ -786,25 +961,38 @@ export default function BackgroundRemoverPage() {
           <button type="button" className={pill(mode === "auto")} onClick={() => setMode("auto")}>
             Auto
           </button>
+          <button
+            type="button"
+            className={`${pill(mode === "smart")} inline-flex items-center gap-1.5`}
+            onClick={() => setMode("smart")}
+          >
+            <Sparkles className="h-4 w-4" />
+            Smart (AI)
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${mode === "smart" ? "bg-white/20" : "bg-primary/10 text-primary"}`}>
+              {CREDIT_COSTS.bgSmart} credit
+            </span>
+          </button>
           <button type="button" className={pill(mode === "graphics")} onClick={() => setMode("graphics")}>
-            Graphics on white
+            Graphics (plain background)
           </button>
           <button type="button" className={pill(mode === "photo")} onClick={() => setMode("photo")}>
-            Photo (AI)
+            Photo
           </button>
         </div>
         <p className="text-xs text-muted-foreground">
           {mode === "auto" &&
-            "Auto checks every image. Icons, logos and illustrations on white use the exact method. Photos use the AI model."}
+            "Free. Checks every image on your computer: icons, logos and illustrations on a plain background use the exact method; photos use the photo model."}
+          {mode === "smart" &&
+            `AI first studies each image (what it is, the background, and whether white inside the shapes is a hole or part of the design), then picks the best method and settings. ${CREDIT_COSTS.bgSmart} credit per image, returned if the AI check fails. A small preview is sent to the AI; the full image stays on your computer.`}
           {mode === "graphics" &&
-            "Best for icons, logos and illustrations on a white background. Instant, and the colors stay exactly the same."}
+            "Best for icons, logos and illustrations on one plain background color (white or any color). Instant, and the colors stay exactly the same."}
           {mode === "photo" &&
-            "Best for photos of people, products and animals. The first time it downloads an AI model, which can take a minute."}
+            "Best for photos of people, products and animals. The first time it downloads a photo model, which can take a minute."}
         </p>
         {mode !== "photo" && (
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-xs font-medium text-foreground" htmlFor="tol">
-              White tolerance: {tol}
+              Background tolerance: {tol}
             </label>
             <input
               id="tol"
@@ -822,7 +1010,8 @@ export default function BackgroundRemoverPage() {
                 onChange={(e) => setInner(e.target.checked)}
                 style={{ accentColor: "hsl(21 90% 44%)" }}
               />
-              Also remove white inside shapes (untick to keep white parts)
+              Also remove background color inside shapes (untick to keep white parts)
+              {mode === "smart" && <span className="text-muted-foreground">· Smart mode decides this per image</span>}
             </label>
           </div>
         )}
@@ -860,7 +1049,9 @@ export default function BackgroundRemoverPage() {
           JPG, PNG, WEBP. Up to {MAX_FILES} images per session.
         </p>
         <p className="text-[11px] text-muted-foreground mt-1">
-          Your images stay on your computer. Nothing is uploaded.
+          {mode === "smart"
+            ? "Only a small preview goes to the AI check. Your full images stay on your computer."
+            : "Your images stay on your computer. Nothing is uploaded."}
         </p>
       </label>
 
@@ -1058,7 +1249,7 @@ export default function BackgroundRemoverPage() {
                   {item.status === "done" && (
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Done
-                      {item.usedMode ? ` · ${item.usedMode === "graphics" ? "Graphics" : "AI"}` : ""}
+                      {item.usedMode ? ` · ${item.usedMode === "graphics" ? "Graphics" : "Photo"}` : ""}
                       {item.refined ? " · Refined" : ""}
                     </>
                   )}
@@ -1069,6 +1260,12 @@ export default function BackgroundRemoverPage() {
                   )}
                 </span>
               </div>
+              {item.aiNote && item.status === "done" && (
+                <p className="flex items-start gap-1 text-[11px] text-muted-foreground">
+                  <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-primary" />
+                  <span>{item.aiNote}</span>
+                </p>
+              )}
               {item.error && <p className="text-[11px] text-red-600">{item.error}</p>}
               {item.status === "done" && item.resultUrl && (
                 <button
