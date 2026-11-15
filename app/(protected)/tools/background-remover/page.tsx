@@ -136,34 +136,61 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     if (d[p + 3] < 10 || 255 - m <= tol) near[i] = 1;
   }
 
-  let bg: Uint8Array;
+  // Outer background: the white that touches the image edge.
+  const bg = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  let sp = 0;
+  const push = (i: number) => {
+    if (near[i] && !bg[i]) {
+      bg[i] = 1;
+      stack[sp++] = i;
+    }
+  };
+  for (let x = 0; x < w; x++) {
+    push(x);
+    push((h - 1) * w + x);
+  }
+  for (let y = 0; y < h; y++) {
+    push(y * w);
+    push(y * w + w - 1);
+  }
+  while (sp > 0) {
+    const i = stack[--sp];
+    const x = i % w;
+    if (x > 0) push(i - 1);
+    if (x < w - 1) push(i + 1);
+    if (i >= w) push(i - w);
+    if (i < n - w) push(i + w);
+  }
+
+  // White inside shapes (holes): remove only real white areas, like a white icon on a blue square.
+  // Tiny specks of near-white (compression noise inside cream or light colors) are kept, so no
+  // small holes or dark marks appear inside the design.
   if (inner) {
-    bg = near;
-  } else {
-    bg = new Uint8Array(n);
-    const stack = new Int32Array(n);
-    let sp = 0;
-    const push = (i: number) => {
-      if (near[i] && !bg[i]) {
-        bg[i] = 1;
-        stack[sp++] = i;
+    const minArea = Math.max(64, Math.round(n * 0.0002));
+    const seen = new Uint8Array(n);
+    const members = new Int32Array(n);
+    for (let s = 0; s < n; s++) {
+      if (!near[s] || bg[s] || seen[s]) continue;
+      let count = 0;
+      let sumMin = 0;
+      sp = 0;
+      seen[s] = 1;
+      stack[sp++] = s;
+      while (sp > 0) {
+        const i = stack[--sp];
+        members[count++] = i;
+        const p = i * 4;
+        sumMin += d[p + 3] < 10 ? 255 : Math.min(d[p], d[p + 1], d[p + 2]);
+        const x = i % w;
+        if (x > 0 && near[i - 1] && !bg[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[sp++] = i - 1; }
+        if (x < w - 1 && near[i + 1] && !bg[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[sp++] = i + 1; }
+        if (i >= w && near[i - w] && !bg[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[sp++] = i - w; }
+        if (i < n - w && near[i + w] && !bg[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[sp++] = i + w; }
       }
-    };
-    for (let x = 0; x < w; x++) {
-      push(x);
-      push((h - 1) * w + x);
-    }
-    for (let y = 0; y < h; y++) {
-      push(y * w);
-      push(y * w + w - 1);
-    }
-    while (sp > 0) {
-      const i = stack[--sp];
-      const x = i % w;
-      if (x > 0) push(i - 1);
-      if (x < w - 1) push(i + 1);
-      if (i >= w) push(i - w);
-      if (i < n - w) push(i + w);
+      if (count >= minArea && sumMin / count >= 245) {
+        for (let k = 0; k < count; k++) bg[members[k]] = 1;
+      }
     }
   }
 
@@ -229,10 +256,11 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
             break;
           }
           const q = j * 4;
+          // 18 (not 10): JPG/WEBP noise makes solid colors slightly uneven
           if (
-            Math.abs(d[q] - d[p]) > 10 ||
-            Math.abs(d[q + 1] - d[p + 1]) > 10 ||
-            Math.abs(d[q + 2] - d[p + 2]) > 10
+            Math.abs(d[q] - d[p]) > 18 ||
+            Math.abs(d[q + 1] - d[p + 1]) > 18 ||
+            Math.abs(d[q + 2] - d[p + 2]) > 18
           ) {
             ok = false;
             break;
@@ -282,8 +310,29 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     const c0 = d[p], c1 = d[p + 1], c2 = d[p + 2];
     let a = -1;
     let f0 = c0, f1 = c1, f2 = c2;
-    if (src[i] >= 0) {
-      const s = src[i] * 4;
+    let fillAt = src[i];
+    if (fillAt < 0) {
+      // no smooth area found: use the nearest solid pixel inside the shape (past the edge band)
+      const ix = i % w, iy = (i / w) | 0;
+      let best = 1e9;
+      for (let dy = -6; dy <= 6; dy++) {
+        const yy = iy + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -6; dx <= 6; dx++) {
+          const xx = ix + dx;
+          if (xx < 0 || xx >= w) continue;
+          const j = yy * w + xx;
+          if (bg[j] || dist[j] !== 0) continue;
+          const dd2 = dx * dx + dy * dy;
+          if (dd2 < best) {
+            best = dd2;
+            fillAt = j;
+          }
+        }
+      }
+    }
+    if (fillAt >= 0) {
+      const s = fillAt * 4;
       f0 = d[s];
       f1 = d[s + 1];
       f2 = d[s + 2];
