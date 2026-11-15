@@ -11,6 +11,7 @@ import RefineCanvas from "@/components/tools/RefineCanvas";
 const SWATCHES = ["#000000", "#F3F4F6", "#FDE7D9", "#D9560B", "#16A34A", "#DC2626", "#FACC15"];
 
 type Props = {
+  exportText: string; // e.g. "PNG, full size" or "JPG, 2000 × 2000 px"
   name: string;
   originalUrl: string;
   resultUrl?: string;
@@ -213,7 +214,7 @@ export default function BgEditor(props: Props) {
               Download HD
             </button>
             <p className="text-[11px] text-muted-foreground">
-              {dims ? `Full size PNG, ${dims.w} × ${dims.h} px. ` : ""}
+              {`${props.exportText.replace("full size", dims ? `${dims.w} × ${dims.h} px` : "full size")}. `}
               {sameBg(bg, TRANSPARENT) ? "Transparent background." : "With the background you chose."}
             </p>
           </div>

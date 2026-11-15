@@ -12,7 +12,18 @@ import {
   X,
 } from "lucide-react";
 import BgEditor from "@/components/tools/BgEditor";
-import { BgChoice, TRANSPARENT, bgPreviewStyle, checkerStyle, composeResult, outputName } from "@/lib/bg-remover/compose";
+import BatchSettings from "@/components/tools/BatchSettings";
+import {
+  BgChoice,
+  DEFAULT_EXPORT,
+  ExportSettings,
+  TRANSPARENT,
+  bgPreviewStyle,
+  checkerStyle,
+  composeResult,
+  exportNote,
+  outputName,
+} from "@/lib/bg-remover/compose";
 
 const MAX_FILES = 500;
 
@@ -384,6 +395,8 @@ export default function BackgroundRemoverPage() {
   const [autoStart, setAutoStart] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [sampleLoading, setSampleLoading] = useState("");
+  const [exportSettings, setExportSettings] = useState<ExportSettings>(DEFAULT_EXPORT);
+  const [presetId, setPresetId] = useState("original");
 
   const itemsRef = useRef<Item[]>([]);
   const cancelRef = useRef(false);
@@ -488,9 +501,9 @@ export default function BackgroundRemoverPage() {
     setDownloadingId(item.id);
     try {
       const bg = item.bg ?? TRANSPARENT;
-      const blob = await composeResult(item.resultBlob, bg);
+      const blob = await composeResult(item.resultBlob, bg, exportSettings);
       const url = URL.createObjectURL(blob);
-      saveBlob(url, outputName(baseName(item.name), bg));
+      saveBlob(url, outputName(baseName(item.name), bg, exportSettings));
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch {
       setNotice("Could not make the download. Please try again.");
@@ -561,6 +574,8 @@ export default function BackgroundRemoverPage() {
             resultUrl: URL.createObjectURL(blob),
             doneKey: key,
             refined: false,
+            // Amazon needs white: images finished after picking that preset get white too
+            ...(presetId === "amazon" && !item.bg ? { bg: { kind: "white" } as BgChoice } : {}),
           });
         } catch (err) {
           setModelLoading(false);
@@ -597,12 +612,12 @@ export default function BackgroundRemoverPage() {
       const used = new Set<string>();
       for (const it of done) {
         const bg = it.bg ?? TRANSPARENT;
-        const first = outputName(baseName(it.name), bg);
+        const first = outputName(baseName(it.name), bg, exportSettings);
         let fname = first;
         let k = 2;
-        while (used.has(fname.toLowerCase())) fname = first.replace(/\.png$/, `-${k++}.png`);
+        while (used.has(fname.toLowerCase())) fname = first.replace(/\.(png|jpg)$/, `-${k++}.$1`);
         used.add(fname.toLowerCase());
-        zip.file(fname, await composeResult(it.resultBlob as Blob, bg));
+        zip.file(fname, await composeResult(it.resultBlob as Blob, bg, exportSettings));
       }
       if (Object.keys(zip.files).length !== done.length) {
         throw new Error("ZIP file count does not match.");
@@ -809,7 +824,7 @@ export default function BackgroundRemoverPage() {
                 className="inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-medium text-primary disabled:opacity-50"
               >
                 {zipping ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                {zipping ? `Preparing ZIP ${zipProgress}%` : `Download All PNGs (${doneCount})`}
+                {zipping ? `Preparing ZIP ${zipProgress}%` : `Download all as ZIP (${doneCount})`}
               </button>
               <button
                 type="button"
@@ -841,8 +856,23 @@ export default function BackgroundRemoverPage() {
         </div>
       )}
 
+      {total > 0 && (
+        <BatchSettings
+          settings={exportSettings}
+          presetId={presetId}
+          onChange={(s, id) => {
+            setExportSettings(s);
+            setPresetId(id);
+          }}
+          onWhiteForAll={() => applyBgToAll({ kind: "white" })}
+          previewCutout={selected?.status === "done" ? selected.resultBlob : undefined}
+          previewBg={selected?.bg ?? TRANSPARENT}
+        />
+      )}
+
       {selected && (
         <BgEditor
+          exportText={exportNote(exportSettings)}
           name={selected.name}
           originalUrl={selected.originalUrl}
           resultUrl={selected.status === "done" ? selected.resultUrl : undefined}
@@ -945,7 +975,7 @@ export default function BackgroundRemoverPage() {
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
                 >
                   {downloadingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  Download PNG
+                  Download {exportSettings.format.toUpperCase()}
                 </button>
               )}
             </div>
