@@ -11,8 +11,17 @@ import {
   Clock,
   X,
 } from "lucide-react";
+import BgEditor from "@/components/tools/BgEditor";
+import { BgChoice, TRANSPARENT, bgPreviewStyle, checkerStyle, composeResult, outputName } from "@/lib/bg-remover/compose";
 
 const MAX_FILES = 500;
+
+// Free sample images (Unsplash License, and our own logo) so people can try the tool without a photo.
+const SAMPLES = [
+  { file: "cat.jpg", label: "Animal" },
+  { file: "coffee.jpg", label: "Product" },
+  { file: "logo.jpg", label: "Logo" },
+];
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 
 type Mode = "auto" | "graphics" | "photo";
@@ -30,10 +39,7 @@ type Item = {
   resultBlob?: Blob;
   doneKey?: string;
   error?: string;
-};
-
-const checkerStyle: React.CSSProperties = {
-  background: "repeating-conic-gradient(#d4d4d4 0% 25%, #ffffff 0% 50%) 50% / 16px 16px",
+  bg?: BgChoice;
 };
 
 function saveBlob(url: string, filename: string) {
@@ -372,25 +378,41 @@ export default function BackgroundRemoverPage() {
   const [zipping, setZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
   const [zipError, setZipError] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [autoStart, setAutoStart] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [sampleLoading, setSampleLoading] = useState("");
 
   const itemsRef = useRef<Item[]>([]);
   const cancelRef = useRef(false);
   const modelReadyRef = useRef(false);
   const zipLock = useRef(false);
+  const pictureUrls = useRef<Set<string>>(new Set());
+  const runRef = useRef(0);
 
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
   useEffect(() => {
+    const pics = pictureUrls.current;
     return () => {
       cancelRef.current = true;
       itemsRef.current.forEach((i) => {
         URL.revokeObjectURL(i.originalUrl);
         if (i.resultUrl) URL.revokeObjectURL(i.resultUrl);
       });
+      pics.forEach((u) => URL.revokeObjectURL(u));
     };
   }, []);
+
+  // New images start by themselves, like a one-click tool.
+  useEffect(() => {
+    if (!autoStart || running) return;
+    setAutoStart(false);
+    if (items.some((i) => i.status === "waiting")) startRemoving();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, running, items]);
 
   const settingsKey = `${mode}|${tol}|${inner}`;
 
@@ -413,7 +435,58 @@ export default function BackgroundRemoverPage() {
       originalUrl: URL.createObjectURL(file),
       status: "waiting",
     }));
-    if (fresh.length) setItems((prev) => [...prev, ...fresh]);
+    if (fresh.length) {
+      setItems((prev) => [...prev, ...fresh]);
+      setSelectedId(fresh[0].id);
+      setAutoStart(true);
+    }
+  }
+
+  async function addSample(file: string) {
+    if (sampleLoading) return;
+    setSampleLoading(file);
+    try {
+      const res = await fetch(`/samples/bg-remover/${file}`);
+      if (!res.ok) throw new Error("not found");
+      const blob = await res.blob();
+      addFiles([new File([blob], `sample-${file}`, { type: "image/jpeg" })]);
+    } catch {
+      setNotice("Could not load the sample image. Please try again.");
+    } finally {
+      setSampleLoading("");
+    }
+  }
+
+  function setBg(id: string, bg: BgChoice) {
+    updateItem(id, { bg });
+  }
+
+  // Background pictures stay in memory until Clear (they are small and may be reused).
+  function setPicture(id: string, file: File) {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    pictureUrls.current.add(url);
+    setBg(id, { kind: "image", url });
+  }
+
+  function applyBgToAll(bg: BgChoice) {
+    setItems((prev) => prev.map((i) => (i.status === "done" ? { ...i, bg } : i)));
+  }
+
+  async function downloadOne(item: Item) {
+    if (!item.resultBlob || downloadingId) return;
+    setDownloadingId(item.id);
+    try {
+      const bg = item.bg ?? TRANSPARENT;
+      const blob = await composeResult(item.resultBlob, bg);
+      const url = URL.createObjectURL(blob);
+      saveBlob(url, outputName(baseName(item.name), bg));
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      setNotice("Could not make the download. Please try again.");
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   function updateItem(id: string, patch: Partial<Item>) {
@@ -438,12 +511,13 @@ export default function BackgroundRemoverPage() {
     if (queue.length === 0) return;
 
     cancelRef.current = false;
+    const myRun = ++runRef.current; // an older run (before Clear) stops when a new one starts
     setRunning(true);
     setNotice("");
 
     try {
       for (const item of queue) {
-        if (cancelRef.current) break;
+        if (cancelRef.current || myRun !== runRef.current) break;
         updateItem(item.id, { status: "processing", error: undefined });
 
         let used: Used = currentMode === "photo" ? "photo" : "graphics";
@@ -491,8 +565,10 @@ export default function BackgroundRemoverPage() {
         await new Promise((r) => setTimeout(r, 30));
       }
     } finally {
-      setRunning(false);
-      setModelLoading(false);
+      if (myRun === runRef.current) {
+        setRunning(false);
+        setModelLoading(false);
+      }
     }
   }
 
@@ -509,12 +585,13 @@ export default function BackgroundRemoverPage() {
       const zip = new JSZip();
       const used = new Set<string>();
       for (const it of done) {
-        const base = baseName(it.name);
-        let fname = `${base}-no-bg.png`;
+        const bg = it.bg ?? TRANSPARENT;
+        const first = outputName(baseName(it.name), bg);
+        let fname = first;
         let k = 2;
-        while (used.has(fname.toLowerCase())) fname = `${base}-no-bg-${k++}.png`;
+        while (used.has(fname.toLowerCase())) fname = first.replace(/\.png$/, `-${k++}.png`);
         used.add(fname.toLowerCase());
-        zip.file(fname, it.resultBlob as Blob);
+        zip.file(fname, await composeResult(it.resultBlob as Blob, bg));
       }
       if (Object.keys(zip.files).length !== done.length) {
         throw new Error("ZIP file count does not match.");
@@ -536,11 +613,16 @@ export default function BackgroundRemoverPage() {
 
   function clearAll() {
     cancelRef.current = true;
+    runRef.current++;
     itemsRef.current.forEach((i) => {
       URL.revokeObjectURL(i.originalUrl);
       if (i.resultUrl) URL.revokeObjectURL(i.resultUrl);
     });
+    pictureUrls.current.forEach((u) => URL.revokeObjectURL(u));
+    pictureUrls.current.clear();
     setItems([]);
+    setSelectedId(null);
+    setAutoStart(false);
     setNotice("");
     setZipError("");
     setRunning(false);
@@ -553,6 +635,8 @@ export default function BackgroundRemoverPage() {
   const finished = doneCount + failedCount;
   const percent = total ? Math.round((finished / total) * 100) : 0;
   const outdated = items.filter((i) => i.status === "done" && i.doneKey !== settingsKey).length;
+  const selected =
+    items.find((i) => i.id === selectedId) ?? items.find((i) => i.status === "done") ?? items[0] ?? null;
 
   const pill = (active: boolean) =>
     `rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
@@ -651,6 +735,29 @@ export default function BackgroundRemoverPage() {
         </p>
       </label>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-xs text-muted-foreground">No photo? Try one:</p>
+        {SAMPLES.map((s) => (
+          <button
+            key={s.file}
+            type="button"
+            onClick={() => addSample(s.file)}
+            disabled={!!sampleLoading}
+            className="group relative h-14 w-14 overflow-hidden rounded-xl border border-border hover:border-primary disabled:opacity-60"
+            title={`Try the ${s.label.toLowerCase()} sample`}
+            aria-label={`Try the ${s.label.toLowerCase()} sample`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/samples/bg-remover/${s.file}`} alt="" className="h-full w-full object-cover" />
+            {sampleLoading === s.file && (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/40">
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {notice && (
         <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground">
           {notice}
@@ -723,10 +830,32 @@ export default function BackgroundRemoverPage() {
         </div>
       )}
 
+      {selected && (
+        <BgEditor
+          name={selected.name}
+          originalUrl={selected.originalUrl}
+          resultUrl={selected.status === "done" ? selected.resultUrl : undefined}
+          processing={selected.status === "processing"}
+          error={selected.status === "failed" ? selected.error || "Could not remove the background." : undefined}
+          bg={selected.bg ?? TRANSPARENT}
+          canApplyToAll={doneCount > 1}
+          downloading={downloadingId === selected.id}
+          onBgChange={(bg) => setBg(selected.id, bg)}
+          onPicture={(f) => setPicture(selected.id, f)}
+          onApplyToAll={() => applyBgToAll(selected.bg ?? TRANSPARENT)}
+          onDownload={() => downloadOne(selected)}
+        />
+      )}
+
       {total > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
-            <div key={item.id} className="relative rounded-2xl border border-border bg-card p-3 space-y-3">
+            <div
+              key={item.id}
+              className={`relative rounded-2xl border bg-card p-3 space-y-3 ${
+                selected?.id === item.id ? "border-primary ring-2 ring-primary/30" : "border-border"
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => removeItem(item.id)}
@@ -736,14 +865,22 @@ export default function BackgroundRemoverPage() {
               >
                 <X className="h-4 w-4" />
               </button>
-              <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedId(item.id);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                className="grid w-full grid-cols-2 gap-2 text-left"
+                aria-label={`Open ${item.name} in the editor`}
+              >
                 <div className="overflow-hidden rounded-xl bg-muted aspect-square flex items-center justify-center">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.originalUrl} alt={item.name} className="max-h-full max-w-full object-contain" />
                 </div>
                 <div
-                  className="overflow-hidden rounded-xl aspect-square flex items-center justify-center"
-                  style={checkerStyle}
+                  className="overflow-hidden rounded-xl aspect-square flex items-center justify-center bg-muted"
+                  style={item.resultUrl ? undefined : checkerStyle}
                 >
                   {item.resultUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -751,12 +888,13 @@ export default function BackgroundRemoverPage() {
                       src={item.resultUrl}
                       alt={`${item.name} without background`}
                       className="max-h-full max-w-full object-contain"
+                      style={bgPreviewStyle(item.bg ?? TRANSPARENT)}
                     />
                   ) : item.status === "processing" ? (
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   ) : null}
                 </div>
-              </div>
+              </button>
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate text-xs text-foreground" title={item.name}>
                   {item.name}
@@ -789,10 +927,11 @@ export default function BackgroundRemoverPage() {
               {item.status === "done" && item.resultUrl && (
                 <button
                   type="button"
-                  onClick={() => saveBlob(item.resultUrl as string, `${baseName(item.name)}-no-bg.png`)}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+                  onClick={() => downloadOne(item)}
+                  disabled={downloadingId !== null}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
                 >
-                  <Download className="h-4 w-4" />
+                  {downloadingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Download PNG
                 </button>
               )}
