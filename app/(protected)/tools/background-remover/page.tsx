@@ -370,7 +370,8 @@ export default function BackgroundRemoverPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [mode, setMode] = useState<Mode>("auto");
   const [tol, setTol] = useState(14);
-  const [inner, setInner] = useState(false);
+  // On by default (like Pixelcut): white inside shapes is removed too. Untick to keep it.
+  const [inner, setInner] = useState(true);
   const [running, setRunning] = useState(false);
   const [modelLoading, setModelLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -693,7 +694,7 @@ export default function BackgroundRemoverPage() {
                 onChange={(e) => setInner(e.target.checked)}
                 style={{ accentColor: "hsl(21 90% 44%)" }}
               />
-              Also remove white inside shapes (holes)
+              Also remove white inside shapes (untick to keep white parts)
             </label>
           </div>
         )}

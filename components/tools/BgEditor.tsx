@@ -48,9 +48,12 @@ export default function BgEditor(props: Props) {
     return () => ro.disconnect();
   }, []);
 
+  // Preview height: as tall as the image needs, but at most about half the screen (and 600px).
+  const maxH = typeof window === "undefined" ? 600 : Math.max(280, Math.min(600, window.innerHeight * 0.52));
+  const boxH = dims && box.w > 0 ? Math.min(maxH, (box.w * dims.h) / dims.w) : maxH;
   let fit = { w: 0, h: 0 };
-  if (dims && box.w > 0 && box.h > 0) {
-    const s = Math.min(box.w / dims.w, box.h / dims.h);
+  if (dims && box.w > 0) {
+    const s = Math.min(box.w / dims.w, boxH / dims.h);
     fit = { w: Math.floor(dims.w * s), h: Math.floor(dims.h * s) };
   }
 
@@ -66,7 +69,7 @@ export default function BgEditor(props: Props) {
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
         {/* preview */}
         <div className="space-y-2 min-w-0">
-          <div ref={boxRef} className="flex h-[52vh] min-h-[280px] max-h-[600px] items-center justify-center rounded-xl bg-muted/40">
+          <div ref={boxRef} className="flex items-center justify-center rounded-xl bg-muted/40" style={{ height: boxH }}>
             {/* hidden image only to learn the size */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
