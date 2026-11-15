@@ -359,22 +359,28 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     if (src[i] >= 0 && !tryFill(src[i])) lightFillNearest = true;
     const ix = i % w, iy = (i / w) | 0;
     let nearestD = Infinity, nearestLight = false;
-    for (let dy = -4; dy <= 4; dy++) {
-      const yy = iy + dy;
-      if (yy < 0 || yy >= h) continue;
-      for (let dx = -4; dx <= 4; dx++) {
-        const xx = ix + dx;
-        if (xx < 0 || xx >= w) continue;
-        const j = yy * w + xx;
-        if (bg[j] || dist[j] !== 0) continue; // only solid pixels inside the shape
-        const ok = tryFill(j);
-        const dd2 = dx * dx + dy * dy;
-        if (dd2 < nearestD) {
-          nearestD = dd2;
-          nearestLight = !ok;
+    const scan = (r: number, skipInner: number) => {
+      for (let dy = -r; dy <= r; dy++) {
+        const yy = iy + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.abs(dx) <= skipInner && Math.abs(dy) <= skipInner) continue;
+          const xx = ix + dx;
+          if (xx < 0 || xx >= w) continue;
+          const j = yy * w + xx;
+          if (bg[j] || dist[j] !== 0) continue; // only solid pixels inside the shape
+          const ok = tryFill(j);
+          const dd2 = dx * dx + dy * dy;
+          if (dd2 < nearestD) {
+            nearestD = dd2;
+            nearestLight = !ok;
+          }
         }
       }
-    }
+    };
+    scan(4, -1);
+    // sharp tips (like a roof corner) have no solid color close by: look a little further
+    if (bestAt < 0 && nearestD === Infinity) scan(8, 4);
     // the shape here is itself white/cream: we cannot tell it from the background, keep as is
     if (bestAt < 0 && (lightFillNearest || nearestLight)) continue;
     if (bestAt >= 0) {
