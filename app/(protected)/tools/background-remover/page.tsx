@@ -214,6 +214,29 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     if (i >= w) fn(i - w);
     if (i < n - w) fn(i + w);
   };
+  // Narrow white wedges (where two shapes almost touch) are light grey, not pure white, so the
+  // background flood stops before them. Light pixels within 6 steps of the background count as
+  // edge pixels too, so the edge cleaner below makes them see-through instead of white dots.
+  {
+    const soft = new Uint8Array(n);
+    let wave: number[] = [];
+    for (let i = 0; i < n; i++) if (bg[i]) wave.push(i);
+    for (let step = 0; step < 6 && wave.length; step++) {
+      const next: number[] = [];
+      for (const i of wave) {
+        eachNeighbor(i, (j) => {
+          if (bg[j] || soft[j]) return;
+          const q = j * 4;
+          if (Math.min(d[q], d[q + 1], d[q + 2]) < 213) return;
+          soft[j] = 1;
+          dist[j] = 1;
+          qpush(j);
+          next.push(j);
+        });
+      }
+      wave = next;
+    }
+  }
   for (let i = 0; i < n; i++) {
     if (!bg[i]) continue;
     eachNeighbor(i, (j) => {
@@ -310,50 +333,80 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
     const c0 = d[p], c1 = d[p + 1], c2 = d[p + 2];
     let a = -1;
     let f0 = c0, f1 = c1, f2 = c2;
-    let fillAt = src[i];
-    if (fillAt < 0) {
-      // no smooth area found: use the nearest solid pixel inside the shape (past the edge band)
-      const ix = i % w, iy = (i / w) | 0;
-      let best = 1e9;
-      for (let dy = -6; dy <= 6; dy++) {
-        const yy = iy + dy;
-        if (yy < 0 || yy >= h) continue;
-        for (let dx = -6; dx <= 6; dx++) {
-          const xx = ix + dx;
-          if (xx < 0 || xx >= w) continue;
-          const j = yy * w + xx;
-          if (bg[j] || dist[j] !== 0) continue;
-          const dd2 = dx * dx + dy * dy;
-          if (dd2 < best) {
-            best = dd2;
-            fillAt = j;
-          }
-        }
-      }
-    }
-    if (fillAt >= 0) {
-      const s = fillAt * 4;
-      f0 = d[s];
-      f1 = d[s + 1];
-      f2 = d[s + 2];
-      const u0 = 255 - f0, u1 = 255 - f1, u2 = 255 - f2;
+    // Try every solid color nearby (the smooth-area color, and solid pixels just inside the shape)
+    // and keep the one that best explains this pixel as "that color mixed with white".
+    // At corners where two shapes meet, a pixel mixes white with two colors; we still pick a real
+    // nearby color, so no light or white dot is left behind.
+    let bestErr = Infinity, bestT = 0, bestAt = -1, lightFillNearest = false;
+    const tryFill = (j: number) => {
+      const s = j * 4;
+      const u0 = 255 - d[s], u1 = 255 - d[s + 1], u2 = 255 - d[s + 2];
       const uu = u0 * u0 + u1 * u1 + u2 * u2;
-      if (uu < 900) continue; // fill is almost white: cannot tell it from the background, keep as is
+      if (uu < 900) return false; // this fill is almost white
       const k = ((255 - c0) * u0 + (255 - c1) * u1 + (255 - c2) * u2) / uu;
       const t = k < 0 ? 0 : k > 1 ? 1 : k;
       const e0 = c0 - (255 - t * u0);
       const e1 = c1 - (255 - t * u1);
       const e2 = c2 - (255 - t * u2);
-      if (e0 * e0 + e1 * e1 + e2 * e2 <= 45 * 45) a = t; // a clean mix of fill color and white
+      const err = e0 * e0 + e1 * e1 + e2 * e2;
+      if (err < bestErr) {
+        bestErr = err;
+        bestT = t;
+        bestAt = j;
+      }
+      return true;
+    };
+    if (src[i] >= 0 && !tryFill(src[i])) lightFillNearest = true;
+    const ix = i % w, iy = (i / w) | 0;
+    let nearestD = Infinity, nearestLight = false;
+    const scan = (r: number, skipInner: number) => {
+      for (let dy = -r; dy <= r; dy++) {
+        const yy = iy + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.abs(dx) <= skipInner && Math.abs(dy) <= skipInner) continue;
+          const xx = ix + dx;
+          if (xx < 0 || xx >= w) continue;
+          const j = yy * w + xx;
+          if (bg[j] || dist[j] !== 0) continue; // only solid pixels inside the shape
+          const ok = tryFill(j);
+          const dd2 = dx * dx + dy * dy;
+          if (dd2 < nearestD) {
+            nearestD = dd2;
+            nearestLight = !ok;
+          }
+        }
+      }
+    };
+    scan(4, -1);
+    // sharp tips (like a roof corner) have no solid color close by: look a little further
+    if (bestAt < 0 && nearestD === Infinity) scan(8, 4);
+    // the shape here is itself white/cream: we cannot tell it from the background, keep as is
+    if (bestAt < 0 && (lightFillNearest || nearestLight)) continue;
+    if (bestAt >= 0) {
+      const s = bestAt * 4;
+      f0 = d[s];
+      f1 = d[s + 1];
+      f2 = d[s + 2];
+      if (bestErr <= 45 * 45) {
+        a = bestT; // a clean mix of that color and white
+      } else {
+        // a mix of white and more than one color: use how dark the pixel is compared with that color
+        const pm = Math.hypot(255 - c0, 255 - c1, 255 - c2);
+        const fm = Math.hypot(255 - f0, 255 - f1, 255 - f2);
+        a = fm > 0 ? Math.min(1, pm / fm) : 0;
+      }
     }
     if (a < 0) {
       // no clear fill color nearby (very thin line): use the whiteness of the pixel itself
       const dd = 255 - Math.min(c0, c1, c2);
       const t = Math.min(1, dd / 90);
-      if (t >= 1 || t <= 0) {
-        if (t <= 0) d[p + 3] = 0;
+      // almost white (JPG/WEBP noise around the edge): background, fully see-through
+      if (t < 0.3) {
+        d[p + 3] = 0;
         continue;
       }
+      if (t >= 1) continue;
       for (let c = 0; c < 3; c++) {
         const v = (d[p + c] - 255 * (1 - t)) / t;
         d[p + c] = v < 0 ? 0 : v > 255 ? 255 : v;
@@ -361,7 +414,8 @@ function removeWhiteCore(d: Uint8ClampedArray, w: number, h: number, tol: number
       d[p + 3] = Math.round(t * d[p + 3]);
       continue;
     }
-    if (a < 0.04) {
+    // a very faint mix is only noise in the white around the shape: make it see-through
+    if (a < 0.12) {
       d[p + 3] = 0;
       continue;
     }
