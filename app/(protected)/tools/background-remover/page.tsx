@@ -40,6 +40,7 @@ type Item = {
   doneKey?: string;
   error?: string;
   bg?: BgChoice;
+  refined?: boolean;
 };
 
 function saveBlob(url: string, filename: string) {
@@ -470,6 +471,14 @@ export default function BackgroundRemoverPage() {
     setBg(id, { kind: "image", url });
   }
 
+  // The refine brush gives a new cut-out; it replaces the old one for preview and download.
+  function saveRefined(id: string, blob: Blob) {
+    const old = itemsRef.current.find((i) => i.id === id);
+    if (!old || old.status !== "done") return;
+    if (old.resultUrl) URL.revokeObjectURL(old.resultUrl);
+    updateItem(id, { resultBlob: blob, resultUrl: URL.createObjectURL(blob), refined: true });
+  }
+
   function applyBgToAll(bg: BgChoice) {
     setItems((prev) => prev.map((i) => (i.status === "done" ? { ...i, bg } : i)));
   }
@@ -551,6 +560,7 @@ export default function BackgroundRemoverPage() {
             resultBlob: blob,
             resultUrl: URL.createObjectURL(blob),
             doneKey: key,
+            refined: false,
           });
         } catch (err) {
           setModelLoading(false);
@@ -845,6 +855,7 @@ export default function BackgroundRemoverPage() {
           onPicture={(f) => setPicture(selected.id, f)}
           onApplyToAll={() => applyBgToAll(selected.bg ?? TRANSPARENT)}
           onDownload={() => downloadOne(selected)}
+          onRefined={(blob) => saveRefined(selected.id, blob)}
         />
       )}
 
@@ -915,6 +926,7 @@ export default function BackgroundRemoverPage() {
                     <>
                       <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Done
                       {item.usedMode ? ` · ${item.usedMode === "graphics" ? "Graphics" : "AI"}` : ""}
+                      {item.refined ? " · Refined" : ""}
                     </>
                   )}
                   {item.status === "failed" && (
