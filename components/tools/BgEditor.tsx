@@ -4,8 +4,9 @@
 // before/after compare slider, background choice and HD download.
 
 import { useEffect, useRef, useState } from "react";
-import { Download, ImagePlus, Loader2, Layers } from "lucide-react";
+import { Brush, Download, ImagePlus, Loader2, Layers } from "lucide-react";
 import { BgChoice, TRANSPARENT, bgPreviewStyle, checkerStyle, sameBg } from "@/lib/bg-remover/compose";
+import RefineCanvas from "@/components/tools/RefineCanvas";
 
 const SWATCHES = ["#000000", "#F3F4F6", "#FDE7D9", "#D9560B", "#16A34A", "#DC2626", "#FACC15"];
 
@@ -22,6 +23,7 @@ type Props = {
   onPicture: (file: File) => void;
   onApplyToAll: () => void;
   onDownload: () => void;
+  onRefined: (blob: Blob) => void;
 };
 
 export default function BgEditor(props: Props) {
@@ -32,10 +34,13 @@ export default function BgEditor(props: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const pictureInput = useRef<HTMLInputElement>(null);
 
-  // new image: start the slider in the middle
+  const [refining, setRefining] = useState(false);
+
+  // new image: start the slider in the middle, close the refine brush
   useEffect(() => {
     setPos(50);
     setDims(null);
+    setRefining(false);
   }, [originalUrl]);
 
   // keep track of the space we have, so the image fits without stretching
@@ -46,7 +51,7 @@ export default function BgEditor(props: Props) {
     ro.observe(el);
     setBox({ w: el.clientWidth, h: el.clientHeight });
     return () => ro.disconnect();
-  }, []);
+  }, [refining]); // the preview box is re-created after the refine brush closes
 
   // Preview height: as tall as the image needs, but at most about half the screen (and 600px).
   const maxH = typeof window === "undefined" ? 600 : Math.max(280, Math.min(600, window.innerHeight * 0.52));
@@ -63,6 +68,24 @@ export default function BgEditor(props: Props) {
       active ? "border-primary ring-2 ring-primary/40" : "border-border"
     }`;
   const isColor = (c: string) => bg.kind === "color" && bg.color.toLowerCase() === c.toLowerCase();
+
+  if (refining && resultUrl && !processing) {
+    return (
+      <div className="rounded-2xl border border-primary/50 bg-card p-4 sm:p-5 space-y-2">
+        <p className="text-sm font-semibold text-foreground">Refine: {name}</p>
+        <RefineCanvas
+          originalUrl={originalUrl}
+          resultUrl={resultUrl}
+          bg={bg}
+          onCancel={() => setRefining(false)}
+          onApply={(blob) => {
+            props.onRefined(blob);
+            setRefining(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4 sm:p-5">
@@ -179,6 +202,11 @@ export default function BgEditor(props: Props) {
           </div>
 
           <div className="space-y-2">
+            <button type="button" disabled={!done} onClick={() => setRefining(true)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary disabled:opacity-50">
+              <Brush className="h-4 w-4" />
+              Refine (erase / restore)
+            </button>
             <button type="button" disabled={!done || props.downloading} onClick={props.onDownload}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">
               {props.downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
