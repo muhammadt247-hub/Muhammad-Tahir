@@ -182,7 +182,13 @@ export function Header() {
           aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
           {/* shows the CURRENT mode: moon in dark mode, sun in light mode */}
-          {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          {!mounted ? (
+            <span className="h-4 w-4" aria-hidden /> /* nothing until the real mode is known (no sun flash) */
+          ) : isDark ? (
+            <Moon className="h-4 w-4" />
+          ) : (
+            <Sun className="h-4 w-4" />
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent>{isDark ? 'Dark mode (click for light)' : 'Light mode (click for dark)'}</TooltipContent>

@@ -3,6 +3,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Larger, easier-to-read text sizes for the whole site (also applies to sm:, md:, ... variants) */
+@theme {
+  --text-xs: 0.84375rem;              /* 13.5px (was 12px) */
+  --text-xs--line-height: 1.3rem;
+  --text-sm: 0.9375rem;               /* 15px (was 14px) */
+  --text-sm--line-height: 1.45rem;
+}
+
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -97,6 +105,12 @@
   -webkit-mask-image: linear-gradient(to bottom, black, transparent 90%);
   mask-image: linear-gradient(to bottom, black, transparent 90%);
 }
+
+/* Tiny fixed sizes used across the app are raised for readability.
+   (Plain CSS outside Tailwind's layers, so it wins over the utility classes.) */
+.text-\[9px\] { font-size: 11px; line-height: 1.35; }
+.text-\[10px\] { font-size: 12px; line-height: 1.4; }
+.text-\[11px\] { font-size: 13px; line-height: 1.45; }
 
 /* Elegant serif page headings everywhere */
 h1, h2 {

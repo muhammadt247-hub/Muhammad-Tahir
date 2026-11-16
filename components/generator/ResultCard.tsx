@@ -732,7 +732,7 @@ export function ResultCard({
 
                   <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-2 rounded-xl bg-accent/20 border border-border/40 min-h-[38px] items-center">
                     {(item.keywords || []).length === 0 ? (
-                      <span className="text-xs text-muted-foreground/60 italic py-0.5 px-1 select-none">
+                      <span className="text-xs text-muted-foreground/85 italic py-0.5 px-1 select-none">
                         No keywords generated yet...
                       </span>
                     ) : (
@@ -741,7 +741,7 @@ export function ResultCard({
                           key={idx}
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-card border border-border/60 text-xs font-medium text-foreground shadow-2xs group hover:border-primary/40 transition-colors"
                         >
-                          <span className="text-[10px] text-muted-foreground/60 mr-0.5 font-mono">
+                          <span className="text-[10px] text-muted-foreground/85 mr-0.5 font-mono">
                             {idx + 1}
                           </span>
                           <span>{kw}</span>
