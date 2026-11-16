@@ -37,12 +37,6 @@ export async function updateSession(request: NextRequest) {
       );
     }
 
-    if (pathname === '/') {
-      const url = request.nextUrl.clone();
-      url.pathname = '/login';
-      return NextResponse.redirect(url);
-    }
-
     return supabaseResponse;
   }
 
@@ -81,10 +75,11 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
-  // 2. Root path: "/" -> "/generator" when logged in and "/login" when logged out
+  // 2. Root path: logged-in users go to "/generator"; visitors see the public landing page
   if (pathname === '/') {
+    if (!user) return supabaseResponse;
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = user ? '/generator' : '/login';
+    redirectUrl.pathname = '/generator';
     return NextResponse.redirect(redirectUrl);
   }
 

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Poppins } from 'next/font/google';
+import { Playfair_Display, Poppins } from 'next/font/google';
 import './globals.css';
 import './hover-pop.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -11,6 +11,15 @@ const poppins = Poppins({
   subsets: ['latin'],
   weight: ['300', '400', '500', '600', '700'],
   variable: '--font-poppins',
+  display: 'swap',
+});
+
+// Elegant serif for headings (h1, h2 and the font-serif class)
+const playfair = Playfair_Display({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  style: ['normal', 'italic'],
+  variable: '--font-playfair',
   display: 'swap',
 });
 
@@ -40,12 +49,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className={poppins.variable}>
+    <html lang="en" suppressHydrationWarning className={`${poppins.variable} ${playfair.variable}`}>
       <body className="antialiased font-sans text-foreground bg-background" suppressHydrationWarning>
         <CasualProtection />
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
+          defaultTheme="dark"
           storageKey="theme"
           disableTransitionOnChange
         >

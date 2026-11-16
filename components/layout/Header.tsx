@@ -190,12 +190,12 @@ export function Header() {
     <>
       <header
         ref={mobileMenuRef}
-        className="sticky top-0 z-40 w-full h-16 bg-card/80 backdrop-blur-md border-b border-border/50 shadow-xs px-4 sm:px-6 select-none overflow-visible"
+        className="sticky top-0 z-40 w-full h-16 bg-background/70 backdrop-blur-xl border-b border-white/5 dark:border-white/5 px-4 sm:px-6 select-none overflow-visible"
       >
         <div className="flex h-full items-center justify-between gap-4">
           {/* LEFT: Brand and logo */}
           <Link
-            href={isLoggedIn ? (isVendorOnly ? '/marketplace' : '/generator') : '/login'}
+            href={isLoggedIn ? (isVendorOnly ? '/marketplace' : '/generator') : '/'}
             className={cn('flex items-center gap-3 group rounded-xl shrink-0', RING)}
             aria-label="OrbinexaCSV Home"
           >
@@ -206,7 +206,7 @@ export function Header() {
             </div>
             <div className="flex flex-col justify-center min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-lg font-bold tracking-tight text-foreground leading-none">
+                <span className="font-serif text-xl font-bold tracking-tight text-foreground leading-none">
                   {SITE_CONFIG.BRAND_NAME}
                 </span>
                 <div className="relative overflow-hidden rounded-full border border-orange-500/30 px-1.5 py-0.5 shrink-0">
