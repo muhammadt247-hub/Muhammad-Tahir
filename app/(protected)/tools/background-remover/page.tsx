@@ -271,6 +271,18 @@ function removeWhiteCore(
   // Tiny specks of near-white (compression noise inside cream or light colors) are kept, so no
   // small holes or dark marks appear inside the design.
   if (inner) {
+    // How closely the real background matches its own color (JPG noise, slight shading).
+    // A hole is removed only if it matches the background just as closely. A cream or light design
+    // color that is only a few shades away from a warm background is part of the design and stays.
+    let bgFarSum = 0, bgCount = 0;
+    for (let i = 0; i < n; i += 7) {
+      if (!bg[i]) continue;
+      const p = i * 4;
+      if (d[p + 3] < 10) continue;
+      bgFarSum += far(p);
+      bgCount++;
+    }
+    const holeLimit = Math.min(10, (bgCount ? bgFarSum / bgCount : 0) + 3);
     const minArea = Math.max(64, Math.round(n * 0.0002));
     const seen = new Uint8Array(n);
     const members = new Int32Array(n);
@@ -292,7 +304,7 @@ function removeWhiteCore(
         if (i >= w && near[i - w] && !bg[i - w] && !seen[i - w]) { seen[i - w] = 1; stack[sp++] = i - w; }
         if (i < n - w && near[i + w] && !bg[i + w] && !seen[i + w]) { seen[i + w] = 1; stack[sp++] = i + w; }
       }
-      if (count >= minArea && sumFar / count <= 10) {
+      if (count >= minArea && sumFar / count <= holeLimit) {
         for (let k = 0; k < count; k++) bg[members[k]] = 1;
       }
     }
@@ -499,6 +511,8 @@ function removeWhiteCore(
         const pm = Math.hypot(B0 - c0, B1 - c1, B2 - c2);
         const fm = Math.hypot(B0 - f0, B1 - f1, B2 - f2);
         a = fm > 0 ? Math.min(1, pm / fm) : 0;
+        // mostly background with a little color (a gap between two shapes): no grey smudge
+        if (a < 0.35) a = 0;
       }
     }
     if (a < 0) {
