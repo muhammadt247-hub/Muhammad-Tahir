@@ -119,20 +119,20 @@ export function Header() {
 
   const creditColors = isCreditZero
     ? {
-        text: 'text-red-500 dark:text-red-400',
+        text: 'text-red-500 dark:text-red-300',
         bg: 'bg-red-500/10 hover:bg-red-500/15',
         border: 'border-red-500/30 hover:border-red-500/50',
         bar: 'bg-red-500',
       }
     : isCreditLow
     ? {
-        text: 'text-amber-600 dark:text-amber-400',
+        text: 'text-amber-600 dark:text-amber-300',
         bg: 'bg-amber-500/10 hover:bg-amber-500/15',
         border: 'border-amber-500/30 hover:border-amber-500/50',
         bar: 'bg-amber-500',
       }
     : {
-        text: 'text-orange-600 dark:text-orange-500',
+        text: 'text-orange-600 dark:text-orange-300',
         bg: 'bg-orange-500/10 hover:bg-orange-500/15',
         border: 'border-orange-500/30 hover:border-orange-500/50',
         bar: 'bg-gradient-to-r from-orange-600 to-amber-500',
@@ -181,10 +181,11 @@ export function Header() {
           )}
           aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
-          {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {/* shows the CURRENT mode: moon in dark mode, sun in light mode */}
+          {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
         </button>
       </TooltipTrigger>
-      <TooltipContent>{isDark ? 'Light Mode' : 'Dark Mode'}</TooltipContent>
+      <TooltipContent>{isDark ? 'Dark mode (click for light)' : 'Light mode (click for dark)'}</TooltipContent>
     </Tooltip>
   );
 
