@@ -50,20 +50,20 @@ export function CreditsDialog({ open, onOpenChange }: CreditsDialogProps) {
 
   const colorScheme = isZero
     ? {
-        text: 'text-red-500 dark:text-red-400',
+        text: 'text-red-500 dark:text-red-300',
         bg: 'bg-red-500/10',
         border: 'border-red-500/30',
         bar: 'bg-red-500',
       }
     : isLow
     ? {
-        text: 'text-amber-500 dark:text-amber-400',
+        text: 'text-amber-500 dark:text-amber-300',
         bg: 'bg-amber-500/10',
         border: 'border-amber-500/30',
         bar: 'bg-amber-500',
       }
     : {
-        text: 'text-orange-600 dark:text-orange-500',
+        text: 'text-orange-600 dark:text-orange-300',
         bg: 'bg-orange-500/10',
         border: 'border-orange-500/30',
         bar: 'bg-gradient-to-r from-orange-600 to-amber-500',
