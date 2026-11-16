@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { ProcessedAssetFile } from './compress';
-import { GeneratorSavedSettings, saveBatchItem } from './db';
+import { AiProvider, GeneratorSavedSettings, saveBatchItem } from './db';
 import { keyRotator } from './key-rotation';
 import { scanItemCompliance } from '@/lib/compliance/scan';
 import { calculateItemSeoScore } from './seo-score';
@@ -489,7 +489,7 @@ export class GeneratorQueue {
 
       this.currentKeyInfo =
         keyInfo?.maskedKey ||
-        (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : `${provider === 'grok' ? 'Groq' : 'Gemini'} Key`);
+        (keyInfo?.isDefaultEnv ? 'Default Key (Server Env)' : `${currentProvider === 'grok' ? 'Groq' : 'Gemini'} Key`);
       item.currentStage = `Sending request using ${this.currentKeyInfo}...`;
       this.callbacks.onItemUpdate({ ...item });
       this.broadcastProgress(`Generating with ${this.currentKeyInfo}...`);
@@ -627,8 +627,9 @@ export class GeneratorQueue {
 
         // Handle 401 / 403 Authentication Error
         if (res.status === 401 || res.status === 403) {
-          await keyRotator.markKeyInvalid(keyInfo?.keyId);
-          const nextKeyCheck = await keyRotator.getNextKey(provider);
+          // (was `provider`, which does not exist: an invalid key crashed the batch instead of switching keys)
+          await keyRotator.markKeyInvalid(keyInfo?.keyId, currentProvider);
+          const nextKeyCheck = await keyRotator.getNextKey(currentProvider);
 
           if (nextKeyCheck.apiKey) {
             item.currentStage = 'Invalid API key detected. Switched to next valid key...';
@@ -638,7 +639,7 @@ export class GeneratorQueue {
             item.status = 'failed';
             item.httpStatus = res.status;
             item.errorMessage = `HTTP ${res.status}: Invalid API Key. Authentication failed.`;
-            item.errorDetails = `Please enter a valid ${provider === 'grok' ? 'Groq' : 'Gemini'} API key in API Keys.`;
+            item.errorDetails = `Please enter a valid ${currentProvider === 'grok' ? 'Groq' : 'Gemini'} API key in API Keys.`;
             this.callbacks.onItemUpdate({ ...item });
             return false;
           }

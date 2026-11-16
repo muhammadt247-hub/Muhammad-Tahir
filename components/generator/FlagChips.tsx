@@ -15,7 +15,7 @@ export function FlagChips({ flags, flagReasons = [] }: FlagChipsProps) {
 
   const tooltipText = "AI detection is not perfect. You decide before uploading.";
 
-  const activeChips: { label: string; icon: React.ReactNode; reasonKey: string; reasonDetail?: string }[] = [];
+  const activeChips: { label: string; icon: React.ReactNode; reasonKey: string; reasonDetail?: string; bgClass: string }[] = [];
 
   if (flags.identifiablePerson) {
     activeChips.push({
@@ -51,9 +51,9 @@ export function FlagChips({ flags, flagReasons = [] }: FlagChipsProps) {
   if (flags.possibleEditorial) {
     activeChips.push({
       label: 'May count as editorial content',
-      icon: <Newspaper className="h-3.5 w-3.5 text-blue-700 dark:text-blue-300 shrink-0" />,
+      icon: <Newspaper className="h-3.5 w-3.5 text-stone-700 dark:text-stone-300 shrink-0" />,
       reasonKey: 'editorial',
-      bgClass: 'bg-blue-100 text-blue-950 border-blue-300 dark:bg-blue-950 dark:text-blue-100 dark:border-blue-800 font-semibold',
+      bgClass: 'bg-stone-100 text-stone-900 border-stone-300 dark:bg-stone-900 dark:text-stone-100 dark:border-stone-700 font-semibold',
     });
   }
 

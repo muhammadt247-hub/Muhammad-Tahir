@@ -81,7 +81,7 @@ export async function processConvertedJpegBytes(
   compressedSize: number;
 }> {
   return new Promise((resolve, reject) => {
-    const blob = new Blob([jpegBytes], { type: 'image/jpeg' });
+    const blob = new Blob([new Uint8Array(jpegBytes)], { type: 'image/jpeg' }); // copy: Blob needs a plain ArrayBuffer
     const objectUrl = URL.createObjectURL(blob);
     const img = new Image();
 
