@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { MARKETPLACE_ENABLED, formatPkr } from '@/lib/marketplace/shared';
+import { MoneySummary, PayoutTotals, StatusModeration, VendorScores, type MoneyRow } from '@/components/marketplace/AdminInsights';
 
 interface PrivateRow {
   vendor_price: number | string;
@@ -213,6 +214,7 @@ function AdminOrders() {
   const [tick, setTick] = useState(0);
   const [pendingVendors, setPendingVendors] = useState(0);
   const [vendorWarnings, setVendorWarnings] = useState(0);
+  const [view, setView] = useState<'orders' | 'vendors' | 'statuses'>('orders');
 
   const load = useCallback(async () => {
     try {
@@ -315,6 +317,21 @@ function AdminOrders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders, tick]);
   const newCount = useMemo(() => orders.filter((o) => o.status === 'requested').length, [orders]);
+  const moneyRows: MoneyRow[] = useMemo(
+    () =>
+      orders.map((o) => {
+        const p = getPrivate(o);
+        return {
+          status: o.status,
+          vendor_name: o.vendor_name,
+          price: o.price,
+          vendor_price: p ? Number(p.vendor_price) : null,
+          commission: p ? Number(p.commission) : null,
+          vendor_paid_at: p?.vendor_paid_at ?? null,
+        };
+      }),
+    [orders]
+  );
 
   const visible = useMemo(() => {
     return orders.filter((o) => matches(o, filter));
@@ -343,7 +360,7 @@ function AdminOrders() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Marketplace orders</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Marketplace admin</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/marketplace/admin/catalog"
@@ -357,6 +374,32 @@ function AdminOrders() {
         </div>
       </div>
 
+      <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
+        {([
+          ['orders', 'Orders'],
+          ['vendors', 'Vendor scores'],
+          ['statuses', 'Vendor statuses'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setView(key)}
+            className={
+              'rounded-lg px-4 py-2 text-sm font-semibold transition-colors ' +
+              (view === key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'vendors' && <VendorScores />}
+      {view === 'statuses' && <StatusModeration />}
+
+      {view === 'orders' && <MoneySummary rows={moneyRows} />}
+
+      {view === 'orders' && (
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <button
@@ -384,13 +427,14 @@ function AdminOrders() {
           </button>
         ))}
       </div>
+      )}
 
       {error && <p className="text-xs font-semibold text-red-600 break-words">{error}</p>}
 
       {pendingVendors > 0 && (
         <Link
           href="/marketplace/admin/catalog?tab=vendors"
-          className="block w-full rounded-xl bg-blue-500/15 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-300"
+          className="block w-full rounded-xl bg-primary/15 px-4 py-3 text-sm font-bold text-primary"
         >
           {pendingVendors} vendor {pendingVendors === 1 ? 'application is' : 'applications are'} waiting for your approval. Tap to open the Vendors tab.
         </Link>
@@ -405,17 +449,22 @@ function AdminOrders() {
         </Link>
       )}
 
+      {view === 'orders' && filter === 'payout' && <PayoutTotals rows={moneyRows} />}
+
       {newCount > 0 && (
         <button
           type="button"
-          onClick={() => setFilter('open')}
+          onClick={() => {
+            setView('orders');
+            setFilter('open');
+          }}
           className="w-full rounded-xl bg-amber-500/15 px-4 py-3 text-left text-sm font-bold text-amber-700 dark:text-amber-300"
         >
           You have {newCount} new {newCount === 1 ? 'order' : 'orders'} waiting. Tap to see them.
         </button>
       )}
 
-      {visible.length === 0 ? (
+      {view !== 'orders' ? null : visible.length === 0 ? (
         <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
           No orders here.
         </div>

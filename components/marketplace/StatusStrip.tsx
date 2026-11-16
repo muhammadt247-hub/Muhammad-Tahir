@@ -28,7 +28,7 @@ const SEEN_KEY = 'mp_seen_status';
 export const KIND_INFO: Record<StatusKind, { label: string; big: string; pill: string; bg: string; icon: string }> = {
   offer: { label: 'Special offer', big: 'Offer', pill: 'bg-rose-100 text-rose-700', bg: 'from-rose-500 to-orange-500', icon: '🔥' },
   stock: { label: 'New stock', big: 'New stock', pill: 'bg-emerald-100 text-emerald-700', bg: 'from-emerald-500 to-teal-600', icon: '📦' },
-  news: { label: 'News from the vendor', big: 'News', pill: 'bg-sky-100 text-sky-700', bg: 'from-sky-500 to-indigo-600', icon: '📢' },
+  news: { label: 'News from the vendor', big: 'News', pill: 'bg-amber-100 text-amber-800', bg: 'from-amber-500 to-orange-700', icon: '📢' },
 };
 
 function timeAgo(iso: string): string {
