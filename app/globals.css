@@ -29,6 +29,8 @@
   --color-surface: hsl(var(--surface));
   --color-surface-foreground: hsl(var(--surface-foreground));
 
+  --font-serif: var(--font-playfair), 'Playfair Display', Georgia, serif;
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -52,16 +54,142 @@
   --pop-scale: 1.1;
 }
 
+/* "Ember" dark theme: warm near-black, deep red glow, orange accent */
 .dark {
-  --background: 225 12% 7%;    --foreground: 210 20% 95%;
-  --card: 225 12% 11%;         --card-foreground: 210 20% 95%;
-  --popover: 225 12% 11%;      --popover-foreground: 210 20% 95%;
-  --primary: 21 92% 52%;       --primary-foreground: 0 0% 100%;
-  --secondary: 225 10% 16%;    --muted: 225 10% 16%;   --accent: 225 10% 16%;
-  --muted-foreground: 220 10% 55%;
-  --destructive: 0 62% 30%;    --border: 225 10% 16%;  --input: 225 10% 16%;  --ring: 21 92% 52%;
-  --surface: 225 10% 13%;      --success: 152 50% 36%; --warning: 38 80% 45%;
-  --glass: 225 12% 11% / .7;   --glass-border: 225 10% 20% / .5;
+  --background: 10 30% 4%;     --foreground: 18 35% 94%;
+  --card: 8 24% 8%;            --card-foreground: 18 35% 94%;
+  --popover: 8 24% 9%;         --popover-foreground: 18 35% 94%;
+  --primary: 18 92% 50%;       --primary-foreground: 0 0% 100%;
+  --secondary: 8 18% 13%;      --secondary-foreground: 18 35% 94%;
+  --muted: 8 18% 13%;          --muted-foreground: 14 14% 64%;
+  --accent: 10 22% 15%;        --accent-foreground: 18 35% 94%;
+  --destructive: 0 70% 45%;    --destructive-foreground: 0 0% 100%;
+  --border: 8 22% 15%;         --input: 8 22% 17%;     --ring: 18 92% 50%;
+  --surface: 8 22% 10%;        --surface-foreground: 18 35% 94%;
+  --success: 152 50% 38%;      --success-foreground: 0 0% 100%;
+  --warning: 38 85% 50%;
+  --glass: 8 24% 8% / .62;     --glass-border: 16 45% 35% / .22;
+}
+
+/* Atmosphere behind every page (dark theme): deep red glow, fine dot grid and film grain */
+.dark body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 55% at 25% -8%, hsl(4 85% 32% / 0.55), transparent 65%),
+    radial-gradient(ellipse 55% 45% at 90% 8%, hsl(20 95% 42% / 0.22), transparent 60%),
+    radial-gradient(ellipse 80% 50% at 50% 115%, hsl(358 80% 24% / 0.35), transparent 65%);
+}
+.dark body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E"),
+    radial-gradient(circle, hsl(15 30% 60% / 0.16) 1px, transparent 1px);
+  background-size: 160px 160px, 36px 36px;
+  opacity: 0.35;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 90%);
+  mask-image: linear-gradient(to bottom, black, transparent 90%);
+}
+
+/* Elegant serif page headings everywhere */
+h1, h2 {
+  font-family: var(--font-serif);
+  letter-spacing: -0.01em;
+}
+
+/* Scroll reveal (used with <RevealOnScroll />) */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1), transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+@keyframes ember-float-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(3%, 4%, 0) scale(1.06); }
+}
+@keyframes ember-float-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-4%, -3%, 0) scale(1.08); }
+}
+.ember-float-a { animation: ember-float-a 14s ease-in-out infinite; }
+.ember-float-b { animation: ember-float-b 17s ease-in-out infinite; }
+.text-glow { text-shadow: 0 0 14px rgba(255, 220, 210, 0.55); }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .ember-float-a, .ember-float-b { animation: none; }
+}
+::selection { background: hsl(18 92% 50%); color: #fff; }
+
+/* ---------- Ember block loader ----------
+   Four glowing blocks join into one square, burst apart, and turn a quarter each cycle. */
+.ember-loader {
+  --s: 22px;      /* block size */
+  --gap: 4px;
+  position: relative;
+  width: calc(var(--s) * 2 + var(--gap));
+  height: calc(var(--s) * 2 + var(--gap));
+  animation: ember-turn 2.4s cubic-bezier(0.7, 0, 0.3, 1) infinite;
+}
+.ember-loader .ember-block {
+  position: absolute;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 5px;
+  background: linear-gradient(135deg, #ffb37a 0%, #ff6a1f 38%, #d9340f 72%, #8f1408 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 230, 210, 0.55),
+    inset 0 -3px 0 rgba(80, 6, 2, 0.45),
+    0 0 18px rgba(255, 90, 30, 0.45);
+  animation: ember-burst 2.4s cubic-bezier(0.7, 0, 0.3, 1) infinite;
+}
+.ember-loader .b1 { top: 0; left: 0; --dx: -1; --dy: -1; }
+.ember-loader .b2 { top: 0; right: 0; --dx: 1; --dy: -1; animation-delay: 0.08s; }
+.ember-loader .b3 { bottom: 0; right: 0; --dx: 1; --dy: 1; animation-delay: 0.16s; }
+.ember-loader .b4 { bottom: 0; left: 0; --dx: -1; --dy: 1; animation-delay: 0.24s; opacity: 0.85; }
+@keyframes ember-burst {
+  0%, 18%, 50%, 68%, 100% { transform: translate(0, 0) scale(1); }
+  30%, 38% { transform: translate(calc(var(--dx) * 9px), calc(var(--dy) * 9px)) scale(0.82); }
+  80%, 88% { transform: translate(calc(var(--dx) * 9px), calc(var(--dy) * 9px)) scale(0.82); }
+}
+@keyframes ember-turn {
+  0%, 40% { transform: rotate(0deg); }
+  50%, 90% { transform: rotate(90deg); }
+  100% { transform: rotate(180deg); }
+}
+.ember-loader-glow {
+  position: absolute;
+  inset: -40%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 80, 20, 0.35), transparent 70%);
+  filter: blur(10px);
+  animation: ember-pulse 2.4s ease-in-out infinite;
+}
+@keyframes ember-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ember-loader, .ember-loader .ember-block { animation-duration: 6s; }
+  .ember-loader-glow { animation: none; }
+}
+
+/* The landing page is always dark; in light mode it brings its own dark backdrop and glow */
+html:not(.dark) .force-dark {
+  background:
+    radial-gradient(ellipse 70% 40% at 25% 0%, hsl(4 85% 32% / 0.55), transparent 65%),
+    radial-gradient(ellipse 80% 30% at 50% 100%, hsl(358 80% 24% / 0.35), transparent 65%),
+    hsl(10 30% 4%);
 }
 
 * {

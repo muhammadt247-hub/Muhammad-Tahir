@@ -52,7 +52,9 @@ const MOBILE_ROW =
 export function Header() {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted] = useState(() => typeof window !== 'undefined');
+  // false on the server AND on the first browser render, so both draw the same icon; true right after
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -190,12 +192,12 @@ export function Header() {
     <>
       <header
         ref={mobileMenuRef}
-        className="sticky top-0 z-40 w-full h-16 bg-card/80 backdrop-blur-md border-b border-border/50 shadow-xs px-4 sm:px-6 select-none overflow-visible"
+        className="sticky top-0 z-40 w-full h-16 bg-background/70 backdrop-blur-xl border-b border-white/5 dark:border-white/5 px-4 sm:px-6 select-none overflow-visible uppercase [&_a]:tracking-wider [&_button]:uppercase [&_button]:tracking-wider [&_a]:whitespace-nowrap [&_button]:whitespace-nowrap"
       >
         <div className="flex h-full items-center justify-between gap-4">
           {/* LEFT: Brand and logo */}
           <Link
-            href={isLoggedIn ? (isVendorOnly ? '/marketplace' : '/generator') : '/login'}
+            href={isLoggedIn ? (isVendorOnly ? '/marketplace' : '/generator') : '/'}
             className={cn('flex items-center gap-3 group rounded-xl shrink-0', RING)}
             aria-label="OrbinexaCSV Home"
           >
@@ -206,7 +208,7 @@ export function Header() {
             </div>
             <div className="flex flex-col justify-center min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-lg font-bold tracking-tight text-foreground leading-none">
+                <span className="font-serif text-xl font-bold tracking-tight normal-case text-foreground leading-none">
                   {SITE_CONFIG.BRAND_NAME}
                 </span>
                 <div className="relative overflow-hidden rounded-full border border-orange-500/30 px-1.5 py-0.5 shrink-0">
@@ -268,16 +270,6 @@ export function Header() {
 
 {!isVendorOnly && (
 <>
-              <span
-                className="px-3 md:px-4 py-2 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed inline-flex items-center gap-1.5 select-none"
-                aria-disabled="true"
-              >
-                Adobe Analytics
-                <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">
-                  Coming soon
-                </span>
-              </span>
-
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -295,7 +287,7 @@ export function Header() {
                 <DropdownMenuContent
                   align="start"
                   sideOffset={8}
-                  className="w-60 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
+                  className="w-72 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50 uppercase tracking-wider"
                 >
                   <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
                     <Link
@@ -305,6 +297,18 @@ export function Header() {
                       <Wand2 className="h-4 w-4 text-primary" />
                       <span>Background Remover</span>
                     </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled
+                    className="p-2.5 rounded-xl flex items-center justify-between gap-2 text-xs font-semibold text-muted-foreground"
+                  >
+                    <span className="flex items-center gap-2.5 whitespace-nowrap">
+                      <BarChart3 className="h-4 w-4" />
+                      <span>Adobe Analytics</span>
+                    </span>
+                    <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">
+                      Coming soon
+                    </span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="my-1 border-border/40" />
                   <DropdownMenuItem asChild className="p-2.5 rounded-xl cursor-pointer focus:bg-accent transition-colors">
@@ -507,9 +511,9 @@ export function Header() {
                   <DropdownMenuContent
                     align="end"
                     sideOffset={8}
-                    className="w-60 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50"
+                    className="w-60 p-2 rounded-2xl shadow-xl border border-border/60 bg-card z-50 uppercase tracking-wider"
                   >
-                    <div className="px-3 py-2 border-b border-border/40">
+                    <div className="px-3 py-2 border-b border-border/40 normal-case tracking-normal">
                       <p className="text-xs font-bold text-foreground truncate">{displayName}</p>
                       <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
                     </div>
@@ -607,19 +611,6 @@ export function Header() {
 
 {!isVendorOnly && (
 <>
-              <div
-                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed select-none"
-                aria-disabled="true"
-              >
-                <div className="flex items-center gap-2.5">
-                  <BarChart3 className="h-4 w-4" />
-                  <span>Adobe Analytics</span>
-                </div>
-                <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">
-                  Coming soon
-                </span>
-              </div>
-
               <Link
                 href="/tools/background-remover"
                 onClick={() => setMobileMenuOpen(false)}
@@ -631,6 +622,19 @@ export function Header() {
                 <Wand2 className="h-4 w-4" />
                 <span>Background Remover</span>
               </Link>
+
+              <div
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold text-muted-foreground/60 cursor-not-allowed select-none"
+                aria-disabled="true"
+              >
+                <div className="flex items-center gap-2.5">
+                  <BarChart3 className="h-4 w-4" />
+                  <span>Adobe Analytics</span>
+                </div>
+                <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-md font-medium">
+                  Coming soon
+                </span>
+              </div>
 </>
 )}
 

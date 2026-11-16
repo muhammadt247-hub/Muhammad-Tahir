@@ -11,6 +11,7 @@ import { ReferralCard } from '@/components/referral/ReferralCard';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { EmberLoader } from '@/components/ui/ember-loader';
 import { toast } from 'sonner';
 import {
   User,
@@ -52,7 +53,7 @@ export default function AccountPage() {
   if (authLoading) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        <EmberLoader label="" />
       </div>
     );
   }
