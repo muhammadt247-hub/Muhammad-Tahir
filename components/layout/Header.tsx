@@ -52,7 +52,9 @@ const MOBILE_ROW =
 export function Header() {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted] = useState(() => typeof window !== 'undefined');
+  // false on the server AND on the first browser render, so both draw the same icon; true right after
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);

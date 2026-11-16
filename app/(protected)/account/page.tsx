@@ -53,7 +53,7 @@ export default function AccountPage() {
   if (authLoading) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
-        <EmberLoader label="Loading your account" size={18} />
+        <EmberLoader label="" />
       </div>
     );
   }
