@@ -55,7 +55,8 @@ export default function RootLayout({
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
-          storageKey="theme"
+          // new key (was "theme"): old saved light/dark choices are ignored, so everyone starts in the new Ember theme
+          storageKey="orbinexa-theme"
           disableTransitionOnChange
         >
           <AppShell>{children}</AppShell>
