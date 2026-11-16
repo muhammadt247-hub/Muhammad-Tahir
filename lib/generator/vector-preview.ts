@@ -184,7 +184,7 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
     const fileBuffer = await file.arrayBuffer();
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(fileBuffer),
-      isEvalSupported: false,
+      // (isEvalSupported was removed in this pdf.js version; it no longer uses eval)
       stopAtErrors: false,
     });
 
@@ -225,6 +225,7 @@ export async function extractAiPreview(file: File): Promise<VectorPreviewResult>
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     await page.render({
+      canvas,
       canvasContext: ctx,
       viewport,
       background: '#FFFFFF',

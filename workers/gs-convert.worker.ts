@@ -52,10 +52,11 @@ function getGsModule(): Promise<any> {
       })
       .catch((err) => {
         console.error('Failed to initialize Ghostscript WASM:', err);
+        gsModulePromise = null; // allow a fresh try for the next file instead of failing forever
         throw err;
       });
   }
-  return gsModulePromise;
+  return gsModulePromise as Promise<any>;
 }
 
 self.onmessage = async (e: MessageEvent<ConvertRequestMessage>) => {

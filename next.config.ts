@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    ignoreBuildErrors: true,
+    // Type errors now STOP a deploy, so a broken build never goes live. (All old errors were fixed.)
+    ignoreBuildErrors: false,
   },
   // Allow access to remote image placeholder.
   images: {

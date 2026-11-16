@@ -260,13 +260,10 @@ export async function POST(req: NextRequest) {
 
   try {
     // 1. Login check
-    user = await requireUser();
-    if (!user) {
-      return NextResponse.json(
-        { error: { code: 'unauthorized', message: 'Please log in.' } },
-        { status: 401 }
-      );
-    }
+    // requireUser() returns an error response (not null) when nobody is logged in
+    const auth = await requireUser();
+    if (auth instanceof NextResponse) return auth;
+    user = auth;
 
     // 2. Zod validation
     const rawBody = await req.json();
@@ -517,7 +514,8 @@ CRITICAL RULES:
         }
       }
 
-      const userMessageContent = isVisionCapable ? userContent : userContent[0].text;
+      const firstPart = userContent[0];
+      const userMessageContent = isVisionCapable ? userContent : firstPart.type === 'text' ? firstPart.text : '';
 
       try {
         const grokResponse = await withTimeout(
