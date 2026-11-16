@@ -131,6 +131,59 @@ h1, h2 {
 }
 ::selection { background: hsl(18 92% 50%); color: #fff; }
 
+/* ---------- Ember block loader ----------
+   Four glowing blocks join into one square, burst apart, and turn a quarter each cycle. */
+.ember-loader {
+  --s: 22px;      /* block size */
+  --gap: 4px;
+  position: relative;
+  width: calc(var(--s) * 2 + var(--gap));
+  height: calc(var(--s) * 2 + var(--gap));
+  animation: ember-turn 2.4s cubic-bezier(0.7, 0, 0.3, 1) infinite;
+}
+.ember-loader .ember-block {
+  position: absolute;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 5px;
+  background: linear-gradient(135deg, #ffb37a 0%, #ff6a1f 38%, #d9340f 72%, #8f1408 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 230, 210, 0.55),
+    inset 0 -3px 0 rgba(80, 6, 2, 0.45),
+    0 0 18px rgba(255, 90, 30, 0.45);
+  animation: ember-burst 2.4s cubic-bezier(0.7, 0, 0.3, 1) infinite;
+}
+.ember-loader .b1 { top: 0; left: 0; --dx: -1; --dy: -1; }
+.ember-loader .b2 { top: 0; right: 0; --dx: 1; --dy: -1; animation-delay: 0.08s; }
+.ember-loader .b3 { bottom: 0; right: 0; --dx: 1; --dy: 1; animation-delay: 0.16s; }
+.ember-loader .b4 { bottom: 0; left: 0; --dx: -1; --dy: 1; animation-delay: 0.24s; opacity: 0.85; }
+@keyframes ember-burst {
+  0%, 18%, 50%, 68%, 100% { transform: translate(0, 0) scale(1); }
+  30%, 38% { transform: translate(calc(var(--dx) * 9px), calc(var(--dy) * 9px)) scale(0.82); }
+  80%, 88% { transform: translate(calc(var(--dx) * 9px), calc(var(--dy) * 9px)) scale(0.82); }
+}
+@keyframes ember-turn {
+  0%, 40% { transform: rotate(0deg); }
+  50%, 90% { transform: rotate(90deg); }
+  100% { transform: rotate(180deg); }
+}
+.ember-loader-glow {
+  position: absolute;
+  inset: -40%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(255, 80, 20, 0.35), transparent 70%);
+  filter: blur(10px);
+  animation: ember-pulse 2.4s ease-in-out infinite;
+}
+@keyframes ember-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ember-loader, .ember-loader .ember-block { animation-duration: 6s; }
+  .ember-loader-glow { animation: none; }
+}
+
 /* The landing page is always dark; in light mode it brings its own dark backdrop and glow */
 html:not(.dark) .force-dark {
   background:
