@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { RichDescription } from '@/components/marketplace/RichDescription';
+import { detailsSummary } from '@/components/marketplace/PackageDetailsForm';
 import { StatusStrip } from '@/components/marketplace/StatusStrip';
 import {
   MARKETPLACE_ENABLED,
@@ -482,17 +483,20 @@ function MarketplaceHome() {
                       );
                     })()}
                   </div>
+                  {detailsSummary(l.description) && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">{detailsSummary(l.description)}</p>
+                  )}
                   {l.description && (
                     <button
                       type="button"
                       onClick={() => setOpenDetails(openDetails === l.id ? null : l.id)}
-                      className="text-xs font-semibold text-primary hover:underline"
+                      className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary hover:bg-primary/20"
                     >
-                      {openDetails === l.id ? 'Hide package details' : 'Show package details'}
+                      {openDetails === l.id ? 'Hide package details' : 'See full package details'}
                     </button>
                   )}
                   {l.description && openDetails === l.id && (
-                    <div className="rounded-xl bg-muted/40 p-3">
+                    <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
                       <RichDescription text={l.description} />
                     </div>
                   )}
