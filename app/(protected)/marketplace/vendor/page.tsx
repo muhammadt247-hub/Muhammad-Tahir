@@ -1,5 +1,6 @@
 'use client';
 
+import { Breadcrumbs } from '@/components/marketplace/Breadcrumbs';
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ShieldCheck, Store } from 'lucide-react';
@@ -133,6 +134,7 @@ function VendorHome() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
+      <Breadcrumbs items={[{ label: 'Marketplace', href: '/marketplace' }, { label: 'My vendor page' }]} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Vendor page</h1>
         <Link href="/marketplace" className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">

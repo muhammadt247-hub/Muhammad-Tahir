@@ -12,6 +12,7 @@ import { detailsSummary } from '@/components/marketplace/PackageDetailsForm';
 import { StatusStrip } from '@/components/marketplace/StatusStrip';
 import { OrderDialog } from '@/components/marketplace/OrderDialog';
 import { SearchBox } from '@/components/marketplace/SearchBox';
+import { Breadcrumbs } from '@/components/marketplace/Breadcrumbs';
 import {
   matchesQuery,
   byPriceAsc,
@@ -175,6 +176,10 @@ function MarketplaceHome() {
           } else if (ven && (v.data ?? []).some((x) => (x as VendorRow).id === ven)) {
             setTab('vendors');
             setOpenVendorId(ven);
+          } else if (sp.get('tab') === 'vendors') {
+            setTab('vendors');
+          } else if (sp.get('q')) {
+            setQuery(sp.get('q')!.slice(0, 80));
           }
         } catch {
           // not important
@@ -284,6 +289,16 @@ function MarketplaceHome() {
     setOpenDetails(l.id);
   };
 
+  const switchTab = (t: 'packages' | 'vendors') => {
+    setTab(t);
+    setOpenVendorId(null);
+    try {
+      window.history.replaceState(null, '', t === 'vendors' ? '/marketplace?tab=vendors' : '/marketplace');
+    } catch {
+      // not important
+    }
+  };
+
   const backToShop = () => {
     setSelectedId(null);
     setFocusListing(null);
@@ -329,6 +344,7 @@ function MarketplaceHome() {
   if (selected) {
     return (
       <div className="max-w-4xl mx-auto space-y-6 pb-12">
+        <Breadcrumbs items={[{ label: 'Marketplace', onClick: backToShop }, { label: selected.name }]} />
         <button
           type="button"
           onClick={backToShop}
@@ -509,9 +525,28 @@ function MarketplaceHome() {
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-12">
       <div className="space-y-3">
+        <Breadcrumbs
+          items={
+            tab === 'vendors'
+              ? openVendor
+                ? [
+                    { label: 'Marketplace', onClick: () => switchTab('packages') },
+                    { label: 'Vendors', onClick: () => setOpenVendorId(null) },
+                    { label: openVendor.name },
+                  ]
+                : [{ label: 'Marketplace', onClick: () => switchTab('packages') }, { label: 'Vendors' }]
+              : [{ label: 'Marketplace', onClick: () => setQuery('') }, { label: 'Tools & packages' }]
+          }
+        />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">Marketplace</h1>
           <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/generator"
+            className="inline-flex h-9 items-center rounded-lg border border-border/60 px-4 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
+          >
+            CSV Generator
+          </Link>
           <Link
             href="/marketplace/orders"
             className="inline-flex h-9 items-center rounded-lg border border-border/60 px-4 text-sm font-semibold text-foreground hover:bg-accent transition-colors"
@@ -557,7 +592,7 @@ function MarketplaceHome() {
             type="button"
             role="tab"
             aria-selected={tab === t}
-            onClick={() => setTab(t)}
+            onClick={() => switchTab(t)}
             className={
               'rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ' +
               (tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')

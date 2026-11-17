@@ -1,5 +1,6 @@
 'use client';
 
+import { Breadcrumbs } from '@/components/marketplace/Breadcrumbs';
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Clock, Star } from 'lucide-react';
@@ -231,6 +232,7 @@ function MyOrders() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-12">
+      <Breadcrumbs items={[{ label: 'Marketplace', href: '/marketplace' }, { label: 'My orders' }]} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-extrabold tracking-tight text-foreground">My orders</h1>
         <Link

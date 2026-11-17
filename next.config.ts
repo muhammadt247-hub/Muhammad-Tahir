@@ -41,6 +41,23 @@ const nextConfig: NextConfig = {
   transpilePackages: ['motion'],
   async headers() {
     return [
+      // Security headers for every response (pages, API and files)
+      {
+        source: '/:path*',
+        headers: [
+          // only HTTPS for a year once a browser has seen the site
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000' },
+          // no other website may show this site inside a frame (stops clickjacking)
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'" },
+          // the browser must not guess file types (stops disguised uploads running as scripts)
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // other sites only see the domain we came from, not the full address
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // the site never uses camera, microphone, location, payments or USB
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
+        ],
+      },
       {
         source: '/((?!_next/static|_next/image|favicon.ico).*)',
         headers: [
