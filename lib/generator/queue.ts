@@ -7,6 +7,13 @@ import { calculateItemSeoScore } from './seo-score';
 import { computeDHash } from '@/lib/compliance/phash';
 import { ImageFingerprint, PairwiseSimilarityScore } from '@/types/similarity';
 
+// Generation limits (one place to tune them)
+const REQUEST_TIMEOUT_MS = 75_000; // browser stops waiting for one image after 75 s (server gives up at ~30 s)
+const MAX_RATE_LIMIT_WAITS = 3; // built-in key: wait and retry a "too many requests" reply at most 3 times
+
+// Escape a word so it can be used safely inside a search pattern ("c++" or "a.i." would break it otherwise)
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export interface AiVisualFlags {
   identifiablePerson: boolean;
   privateProperty: boolean;
@@ -273,7 +280,24 @@ export class GeneratorQueue {
     this.callbacks.onProgressUpdate?.(state);
   }
 
-  async start(limit?: number): Promise<void> {
+  // Images waiting in the running batch (a single "Retry" can be added while it runs)
+  private pendingItems: GeneratorItemState[] = [];
+  private nextIndex = 0; // position of the next image to start in pendingItems
+
+  // Add one image to the running batch, without restarting it. Returns false when it cannot be added.
+  addItem(item: GeneratorItemState): boolean {
+    if (!this.isRunning) return false;
+    const idx = this.items.findIndex((it) => it.id === item.id);
+    if (idx === -1) return false;
+    // already waiting in this batch (not reached yet) or being processed right now: nothing to add
+    const at = this.pendingItems.findIndex((p) => p.id === item.id);
+    if (at >= this.nextIndex || (at !== -1 && this.pendingItems[at].status === 'working')) return true;
+    this.items[idx] = item;
+    this.pendingItems.push(item);
+    return true;
+  }
+
+  async start(limit?: number, onlyIds?: string[]): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
     this.isPaused = false;
@@ -290,9 +314,12 @@ export class GeneratorQueue {
         !i.needsPreview &&
         !i.isConvertingVector &&
         !i.svgRasterFailed &&
-        !isItemExcluded(i, activeMinSizeCheck)
+        !isItemExcluded(i, activeMinSizeCheck) &&
+        // "Retry" on one image sends only that image, not every failed one
+        (!onlyIds || onlyIds.includes(i.id))
     );
     const pendingItems = limit !== undefined && limit > 0 ? allPending.slice(0, limit) : allPending;
+    this.pendingItems = pendingItems;
 
     if (pendingItems.length === 0) {
       this.isRunning = false;
@@ -304,7 +331,7 @@ export class GeneratorQueue {
 
     this.broadcastProgress(`Starting parallel processing (${this.maxParallel} worker${this.maxParallel > 1 ? 's' : ''}) of ${pendingItems.length} image(s)...`);
 
-    let nextIndex = 0;
+    this.nextIndex = 0;
     const activeWorkers = new Set<Promise<void>>();
 
     const spawnWorker = () => {
@@ -317,7 +344,7 @@ export class GeneratorQueue {
             break;
           }
 
-          const currentIndex = nextIndex++;
+          const currentIndex = this.nextIndex++;
           if (currentIndex >= pendingItems.length) break;
 
           const item = pendingItems[currentIndex];
@@ -332,7 +359,15 @@ export class GeneratorQueue {
           this.currentStage = `Processing Image ${this.currentItemIndex} of ${this.items.length}`;
           this.broadcastProgress(`Generating metadata for Image ${this.currentItemIndex} of ${this.items.length}: ${item.fileData.originalName}...`);
 
-          const success = await this.processSingleItem(item);
+          // One image must never stop the whole batch, whatever goes wrong with it
+          let success = false;
+          try {
+            success = await this.processSingleItem(item);
+          } catch (err) {
+            console.error('Unexpected error for one image (batch continues):', err);
+            if (item.status === 'working') item.status = item.title?.trim() || item.prompt?.trim() ? 'done' : 'failed';
+            success = item.status === 'done';
+          }
 
           if (success) {
             await saveBatchItem(item);
@@ -360,15 +395,15 @@ export class GeneratorQueue {
       spawnWorker();
     }
 
-    while (nextIndex < pendingItems.length && this.isRunning && !this.abortController?.signal.aborted) {
-      if (this.maxParallel > activeWorkers.size && nextIndex < pendingItems.length) {
-        spawnWorker();
+    // Keep workers going until every image (including ones added with "Retry" during the batch) is handled
+    while (this.isRunning && !this.abortController?.signal.aborted) {
+      if (this.nextIndex < pendingItems.length) {
+        if (this.maxParallel > activeWorkers.size) spawnWorker();
+        await this.sleep(200);
+        continue;
       }
-      await this.sleep(200);
-    }
-
-    while (activeWorkers.size > 0 && this.isRunning && !this.abortController?.signal.aborted) {
-      await Promise.allSettled(Array.from(activeWorkers));
+      if (activeWorkers.size === 0) break;
+      await Promise.race(Array.from(activeWorkers).map((w) => w.catch(() => undefined)));
     }
 
     this.isRunning = false;
@@ -384,13 +419,18 @@ export class GeneratorQueue {
 
   private async sleep(ms: number): Promise<void> {
     if (this.abortController?.signal.aborted) return;
+    const signal = this.abortController?.signal;
     return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
       const abortHandler = () => {
         clearTimeout(timer);
         resolve();
       };
-      this.abortController?.signal.addEventListener('abort', abortHandler, { once: true });
+      const timer = setTimeout(() => {
+        // remove the stop listener again, so long batches do not pile up listeners
+        signal?.removeEventListener('abort', abortHandler);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', abortHandler, { once: true });
     });
   }
 
@@ -431,6 +471,7 @@ export class GeneratorQueue {
 
     let attempts = 0;
     const maxServerAttempts = 3;
+    let rateLimitWaits = 0;
 
     // Last 40 generated titles to avoid repetitive phrasing
     const recentTitles = this.items
@@ -494,11 +535,23 @@ export class GeneratorQueue {
       this.callbacks.onItemUpdate({ ...item });
       this.broadcastProgress(`Generating with ${this.currentKeyInfo}...`);
 
+      // Stop waiting after 75 s (the server gives up on slow AI calls after about 30 s),
+      // or at once when the user presses Stop
+      // set once the AI has answered for this image: from then on, nothing may send it (and charge) again
+      let resultReceived = false;
+      const requestCtl = new AbortController();
+      const stopSignal = this.abortController?.signal;
+      const onStop = () => requestCtl.abort();
+      stopSignal?.addEventListener('abort', onStop, { once: true });
+      const requestTimer = setTimeout(() => requestCtl.abort(), REQUEST_TIMEOUT_MS);
+
       try {
-        const res = await fetch('/api/generate', {
+        let res: Response;
+        try {
+          res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: this.abortController?.signal,
+          signal: requestCtl.signal,
           body: JSON.stringify({
             mode: this.settings.mode,
             images: [item.fileData.aiDataUrl],
@@ -543,6 +596,15 @@ export class GeneratorQueue {
             customBlockedWords: this.settings.customBlockedWords || [],
           }),
         });
+        } catch (fetchErr) {
+          if (!stopSignal?.aborted && requestCtl.signal.aborted) {
+            throw new Error('The AI took too long to answer. Retrying...');
+          }
+          throw fetchErr;
+        } finally {
+          clearTimeout(requestTimer);
+          stopSignal?.removeEventListener('abort', onStop);
+        }
 
         // Handle 401 Unauthorized
         if (res.status === 401) {
@@ -594,6 +656,17 @@ export class GeneratorQueue {
             await keyRotator.markKeyDailyExhausted(keyInfo?.keyId, currentProvider);
           } else {
             await keyRotator.markKeyRateLimited(keyInfo?.keyId, retryAfterSec, currentProvider);
+          }
+
+          // Built-in site key (no personal keys): a short "too many requests" is temporary,
+          // so wait the time the server asks for and try the same image again (a few times at most)
+          if (keyInfo?.isDefaultEnv && resData?.error?.code !== 'DAILY_QUOTA_EXHAUSTED' && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
+            rateLimitWaits++;
+            const waitSec = Math.min(60, Math.max(5, Math.ceil(retryAfterSec)));
+            item.currentStage = `Busy right now. Trying again in ${waitSec}s (${rateLimitWaits}/${MAX_RATE_LIMIT_WAITS})...`;
+            this.callbacks.onItemUpdate({ ...item });
+            await this.waitWithCountdown(waitSec, 'The AI is busy. Waiting before trying again');
+            continue;
           }
 
           // Try next key for current provider
@@ -680,6 +753,7 @@ export class GeneratorQueue {
         if (this.settings.mode === 'metadata') {
           const resItem = resData.metadataSets?.[0];
           if (resItem) {
+            resultReceived = true;
             item.title = resItem.title || '';
             item.description = resItem.description || '';
             item.keywords = resItem.keywords || [];
@@ -726,7 +800,7 @@ export class GeneratorQueue {
               let newKeywords = [...(item.keywords || [])];
 
               for (const b of nonAmbiguousBlocked) {
-                const termRegex = new RegExp(`\\b${b.term}\\b`, 'gi');
+                const termRegex = new RegExp(`\\b${escapeRe(b.term)}\\b`, 'gi');
                 newTitle = newTitle.replace(termRegex, '').replace(/\s+/g, ' ').trim();
                 newKeywords = newKeywords.filter((kw) => !kw.toLowerCase().includes(b.term.toLowerCase()));
               }
@@ -838,6 +912,7 @@ export class GeneratorQueue {
           // Prompt mode
           const promptItem = resData.prompts?.[0];
           if (promptItem) {
+            resultReceived = true;
             item.prompt = promptItem.prompt || '';
             item.status = 'done';
             item.currentStage = undefined;
@@ -850,6 +925,25 @@ export class GeneratorQueue {
           throw new Error('No prompt returned in Gemini response');
         }
       } catch (err: unknown) {
+        // Stop pressed while this request was running (Stop clears this.abortController, so use the saved signal)
+        if (stopSignal?.aborted && !resultReceived) {
+          item.status = 'queued';
+          item.currentStage = undefined;
+          this.callbacks.onItemUpdate({ ...item });
+          return false;
+        }
+        // The AI already answered (and the image was charged). A problem while tidying the result
+        // must not send the image again: keep what we have.
+        if (resultReceived) {
+          console.error('Post-processing error (result kept, not re-sent):', err);
+          const hasResult = Boolean(item.title?.trim() || item.prompt?.trim());
+          item.status = hasResult ? 'done' : 'failed';
+          item.currentStage = undefined;
+          if (!hasResult) item.errorMessage = 'The result could not be read. Press Retry for this image.';
+          this.callbacks.onItemUpdate({ ...item });
+          return hasResult;
+        }
+
         if (this.abortController?.signal.aborted) {
           item.status = 'queued';
           item.currentStage = undefined;
@@ -862,15 +956,24 @@ export class GeneratorQueue {
           item.status = 'failed';
           item.currentStage = undefined;
           item.errorMessage = err instanceof Error ? err.message : 'Network error';
+          item.errorDetails = 'Press Retry on this image to try it again. Your other results are kept.';
           this.callbacks.onItemUpdate({ ...item });
           return false;
         }
 
         const backoffMs = 1500 * Math.pow(2, attempts) + Math.random() * 1000;
-        await new Promise((r) => setTimeout(r, backoffMs));
+        item.currentStage = `${err instanceof Error ? err.message : 'Connection problem'} Trying again in ${Math.round(backoffMs / 1000)}s (attempt ${attempts}/${maxServerAttempts})...`;
+        this.callbacks.onItemUpdate({ ...item });
+        await this.sleep(backoffMs); // stops waiting at once when the user presses Stop
       }
     }
 
+    // Stopped before this image finished: put it back in the queue instead of leaving it on "working"
+    if (item.status === 'working') {
+      item.status = 'queued';
+      item.currentStage = undefined;
+      this.callbacks.onItemUpdate({ ...item });
+    }
     return false;
   }
 }

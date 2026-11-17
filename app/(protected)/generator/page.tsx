@@ -1626,7 +1626,7 @@ export default function GeneratorPage() {
   }, [settings]);
 
   // Sequential Queue Generation Engine
-  const startQueue = useCallback((customItems?: GeneratorItemState[], limit?: number) => {
+  const startQueue = useCallback((customItems?: GeneratorItemState[], limit?: number, onlyIds?: string[]) => {
     const targetItems = customItems || items;
     if (targetItems.length === 0) return;
 
@@ -1699,7 +1699,7 @@ export default function GeneratorPage() {
     });
 
     queueRef.current = queue;
-    queue.start(limit);
+    queue.start(limit, onlyIds);
   }, [items, settings, handleExportCsv, handleEmbedMetadata, updateBalanceLocally, runAutoFinishLocalFixes]);
 
   const handlePause = useCallback(() => {
@@ -1952,14 +1952,20 @@ export default function GeneratorPage() {
     }
   }, []);
 
+  // "Retry" on one image: only that image is sent again. If a batch is running, it joins that batch.
   const handleRegenerateItem = useCallback(
     (id: string) => {
       const updated = items.map((item) =>
-        item.id === id ? { ...item, status: 'queued' as const, errorMessage: undefined } : item
+        item.id === id ? { ...item, status: 'queued' as const, errorMessage: undefined, errorDetails: undefined } : item
       );
       setItems(updated);
       saveAllBatchItems(updated);
-      startQueue(updated);
+      const target = updated.find((it) => it.id === id);
+      if (target && queueRef.current?.getIsRunning() && queueRef.current.addItem(target)) {
+        toast.success('Added to the running batch.');
+        return;
+      }
+      startQueue(updated, undefined, [id]);
     },
     [items, startQueue]
   );
