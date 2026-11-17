@@ -182,7 +182,13 @@ export function Header() {
           aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
           {/* shows the CURRENT mode: moon in dark mode, sun in light mode */}
-          {isDark ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          {!mounted ? (
+            <span className="h-4 w-4" aria-hidden /> /* nothing until the real mode is known (no sun flash) */
+          ) : isDark ? (
+            <Moon className="h-4 w-4" />
+          ) : (
+            <Sun className="h-4 w-4" />
+          )}
         </button>
       </TooltipTrigger>
       <TooltipContent>{isDark ? 'Dark mode (click for light)' : 'Light mode (click for dark)'}</TooltipContent>
@@ -227,7 +233,7 @@ export function Header() {
 
           {/* DESKTOP NAVIGATION (logged in only) */}
           {isLoggedIn && (
-            <nav className="hidden md:flex items-center gap-1 lg:gap-2 ml-6">
+            <nav className="hidden xl:flex items-center gap-1 2xl:gap-2 ml-4">
 {!isVendorOnly && (
 <>
               <Link
@@ -327,12 +333,14 @@ export function Header() {
               <button
                 type="button"
                 onClick={() => window.dispatchEvent(new Event('open-coffee-dialog'))}
+                aria-label="Buy me coffee"
+                title="Buy me coffee"
                 className={cn(
-                  'px-3 md:px-4 py-2 rounded-xl text-sm font-bold bg-amber-400 text-black hover:bg-amber-300 transition-colors shadow-sm pop-10',
+                  'px-3 2xl:px-4 py-2 rounded-xl text-sm font-bold bg-amber-400 text-black hover:bg-amber-300 transition-colors shadow-sm pop-10',
                   RING
                 )}
               >
-                ☕ Buy me coffee
+                ☕<span className="hidden 2xl:inline"> Buy me coffee</span>
               </button>
 </>
 )}
@@ -341,7 +349,7 @@ export function Header() {
 
           {/* CENTER: Referral link */}
           {isLoggedIn && !isVendorOnly && (
-            <div className="hidden lg:flex flex-1 justify-center px-2">
+            <div className="hidden 2xl:flex flex-1 justify-center px-2">
               <Link
                 href="/account"
                 className={cn(
@@ -350,8 +358,7 @@ export function Header() {
                 )}
               >
                 <Gift className="h-3.5 w-3.5 shrink-0" />
-                <span className="xl:hidden">Invite &amp; earn 3000</span>
-                <span className="hidden xl:inline">Invite friends, get 3000 credits</span>
+                <span>Invite friends, get 3000 credits</span>
               </Link>
             </div>
           )}
@@ -381,7 +388,7 @@ export function Header() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className={cn(
-                    'hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold text-white bg-[#25D366] hover:bg-[#1ebe5b] shadow-md shadow-green-500/40 hover:scale-105 transition-all',
+                    'hidden xl:inline-flex items-center gap-2 px-2.5 2xl:px-4 py-2 rounded-full text-sm font-bold text-white bg-[#25D366] hover:bg-[#1ebe5b] shadow-md shadow-green-500/40 hover:scale-105 transition-all',
                     RING
                   )}
                   aria-label="Join our WhatsApp group"
@@ -389,7 +396,7 @@ export function Header() {
                   <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
                   </svg>
-                  <span>Join WhatsApp</span>
+                  <span className="hidden 2xl:inline">Join WhatsApp</span>
                 </a>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -562,7 +569,7 @@ export function Header() {
                   type="button"
                   onClick={() => setMobileMenuOpen((prev) => !prev)}
                   className={cn(
-                    'flex md:hidden h-9 w-9 rounded-full items-center justify-center text-foreground hover:bg-accent transition-colors',
+                    'flex xl:hidden h-9 w-9 rounded-full items-center justify-center text-foreground hover:bg-accent transition-colors',
                     RING
                   )}
                   aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
@@ -592,7 +599,7 @@ export function Header() {
 
         {/* MOBILE PANEL (logged in only) */}
         {isLoggedIn && mobileMenuOpen && (
-          <div className="md:hidden absolute top-full left-0 right-0 border-b border-border/50 bg-card/95 backdrop-blur-md shadow-2xl p-4 space-y-3 z-50 animate-in fade-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
+          <div className="xl:hidden absolute top-full left-0 right-0 border-b border-border/50 bg-card/95 backdrop-blur-md shadow-2xl p-4 space-y-3 z-50 animate-in fade-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="space-y-1">
 {!isVendorOnly && (
 <>
@@ -690,6 +697,16 @@ export function Header() {
               </button>
 </>
 )}
+              <a
+                href="https://chat.whatsapp.com/DR28tu1Pklp6FfQkKAcDZH"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold text-white bg-[#25D366] hover:bg-[#1ebe5b] transition-colors"
+              >
+                <MessageCircle className="h-4 w-4" />
+                Join WhatsApp
+              </a>
             </div>
 
             <div className="pt-2 border-t border-border/40 space-y-1">

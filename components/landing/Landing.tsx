@@ -120,8 +120,8 @@ export default function Landing() {
                 Log in
               </Link>
             </div>
-            <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/40">
-              Free credits on sign up <span className="mx-2 text-white/20">|</span> No card needed
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/65">
+              Free credits on sign up <span className="mx-2 text-white/30">|</span> No card needed
             </p>
           </div>
         </div>
@@ -142,14 +142,14 @@ export default function Landing() {
           {PLATFORMS.map((p, i) => (
             <div
               key={p}
-              className="reveal text-sm font-semibold uppercase tracking-[0.2em] text-white/35 transition-colors hover:text-white/70"
+              className="reveal text-sm font-semibold uppercase tracking-[0.2em] text-white/60 transition-colors hover:text-white/85"
               style={{ transitionDelay: `${i * 90}ms` }}
             >
               {p}
             </div>
           ))}
         </div>
-        <p className="reveal mt-4 text-center text-[11px] uppercase tracking-[0.2em] text-white/25">Export formats supported</p>
+        <p className="reveal mt-4 text-center text-xs uppercase tracking-[0.2em] text-white/50">Export formats supported</p>
       </section>
 
       {/* ---------- FLOATING CARDS ---------- */}
@@ -303,7 +303,7 @@ export default function Landing() {
               <Link href="/licenses" className="transition-colors hover:text-foreground">Licenses</Link>
               <Link href="/login" className="transition-colors hover:text-foreground">Log in</Link>
             </nav>
-            <p className="text-xs text-white/30">© {new Date().getFullYear()} OrbinexaCSV. All rights reserved.</p>
+            <p className="text-sm text-white/55">© {new Date().getFullYear()} OrbinexaCSV. All rights reserved.</p>
           </div>
         </div>
       </footer>

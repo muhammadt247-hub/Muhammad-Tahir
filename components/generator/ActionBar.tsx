@@ -274,9 +274,9 @@ export function ActionBar({
       )}
 
       {/* Main Action Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl glass-card border border-border/50 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-2xl glass-card border border-border/50 shadow-sm">
         {/* Left: Progress bar & Status text & Badges */}
-        <div className="flex-1 min-w-[200px] space-y-2.5">
+        <div className="flex-1 min-w-[240px] space-y-2.5">
           {/* Progress bar */}
           <div className="space-y-1">
             <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground">
@@ -378,7 +378,7 @@ export function ActionBar({
         </div>
 
         {/* Right: Actions */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Fix All Issues Button */}
           {onFixAllIssues && (blockedCount > 0 || similarCount > 0) && !actionsDisabled && (
             <button
