@@ -62,12 +62,12 @@ export function Header() {
 
   const { user, profile, signOut } = useAuth();
   const isLoggedIn = !!user;
-  const [isVendorOnly, setIsVendorOnly] = useState(false);
+  const [isVendor, setIsVendor] = useState(false);
 
-  // A vendor (who is not the admin) only sees the marketplace parts of the site
+  // Vendors (not the admin) also get a "My vendor page" link. Everyone keeps the Generator and all tools.
   useEffect(() => {
     if (!user || process.env.NEXT_PUBLIC_MARKETPLACE_ENABLED !== 'true') {
-      setIsVendorOnly(false);
+      setIsVendor(false);
       return;
     }
     let cancelled = false;
@@ -76,13 +76,13 @@ export function Header() {
         const supabase = createClient();
         const adminCheck = await supabase.rpc('mp_is_admin');
         if (adminCheck.data === true) {
-          if (!cancelled) setIsVendorOnly(false);
+          if (!cancelled) setIsVendor(false);
           return;
         }
         const { data } = await supabase.from('mp_vendors').select('id').eq('owner_id', user.id).maybeSingle();
-        if (!cancelled) setIsVendorOnly(!!data);
+        if (!cancelled) setIsVendor(!!data);
       } catch {
-        if (!cancelled) setIsVendorOnly(false);
+        if (!cancelled) setIsVendor(false);
       }
     })();
     return () => {
@@ -204,7 +204,7 @@ export function Header() {
         <div className="flex h-full items-center justify-between gap-4">
           {/* LEFT: Brand and logo */}
           <Link
-            href={isLoggedIn ? (isVendorOnly ? '/marketplace' : '/generator') : '/'}
+            href={isLoggedIn ? '/generator' : '/'}
             className={cn('flex items-center gap-3 group rounded-xl shrink-0', RING)}
             aria-label="OrbinexaCSV Home"
           >
@@ -234,7 +234,7 @@ export function Header() {
           {/* DESKTOP NAVIGATION (logged in only) */}
           {isLoggedIn && (
             <nav className="hidden xl:flex items-center gap-1 2xl:gap-2 ml-4">
-{!isVendorOnly && (
+{(
 <>
               <Link
                 href="/generator"
@@ -262,7 +262,7 @@ export function Header() {
                 </Link>
               )}
 
-              {isVendorOnly && (
+              {isVendor && (
                 <Link
                   href="/marketplace/vendor"
                   className={cn(
@@ -275,7 +275,7 @@ export function Header() {
                 </Link>
               )}
 
-{!isVendorOnly && (
+{(
 <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -348,7 +348,7 @@ export function Header() {
           )}
 
           {/* CENTER: Referral link */}
-          {isLoggedIn && !isVendorOnly && (
+          {isLoggedIn && (
             <div className="hidden 2xl:flex flex-1 justify-center px-2">
               <Link
                 href="/account"
@@ -601,7 +601,7 @@ export function Header() {
         {isLoggedIn && mobileMenuOpen && (
           <div className="xl:hidden absolute top-full left-0 right-0 border-b border-border/50 bg-card/95 backdrop-blur-md shadow-2xl p-4 space-y-3 z-50 animate-in fade-in slide-in-from-top-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="space-y-1">
-{!isVendorOnly && (
+{(
 <>
               <Link
                 href="/generator"
@@ -617,7 +617,7 @@ export function Header() {
 </>
 )}
 
-{!isVendorOnly && (
+{(
 <>
               <Link
                 href="/tools/background-remover"
@@ -660,7 +660,7 @@ export function Header() {
                 </Link>
               )}
 
-              {isVendorOnly && (
+              {isVendor && (
                 <Link
                   href="/marketplace/vendor"
                   onClick={() => setMobileMenuOpen(false)}
@@ -674,7 +674,7 @@ export function Header() {
                 </Link>
               )}
 
-{!isVendorOnly && (
+{(
 <>
               <Link
                 href="/tools"
