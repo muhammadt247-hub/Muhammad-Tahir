@@ -64,6 +64,7 @@ import { SimilarityCluster } from '@/types/similarity';
 import { useCredits } from '@/components/CreditsProvider';
 import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
+import { HomeSliders } from '@/components/marketplace/HomeSliders';
 
 function createAssetId(): string {
   return `asset_${crypto.randomUUID()}`;
@@ -2179,6 +2180,7 @@ export default function GeneratorPage() {
 
   return (
     <div className="space-y-6">
+      <HomeSliders />
       <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 items-start">
         {/* Left Column: Controls & Settings */}
         <div className="space-y-4">
