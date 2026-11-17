@@ -2,15 +2,25 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Clock, Search, ShieldCheck, Star, Store, Tag } from 'lucide-react';
+import { ArrowLeft, Clock, ShieldCheck, Star, Store, Tag } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { RichDescription } from '@/components/marketplace/RichDescription';
 import { detailsSummary } from '@/components/marketplace/PackageDetailsForm';
 import { StatusStrip } from '@/components/marketplace/StatusStrip';
+import { OrderDialog } from '@/components/marketplace/OrderDialog';
+import { SearchBox } from '@/components/marketplace/SearchBox';
+import {
+  matchesQuery,
+  byPriceAsc,
+  sortVendors,
+  useDebounced,
+  VENDOR_SORT_OPTIONS,
+  VendorSortKey,
+  VendorSummary,
+} from '@/lib/marketplace/search';
 import {
   MARKETPLACE_ENABLED,
   MpProduct,
@@ -24,179 +34,12 @@ import {
   formatHours,
   sortListings,
   getBadges,
-  buildOrderMessage,
-  buildWhatsAppLink,
 } from '@/lib/marketplace/shared';
 
-// ---------- Order form (opens on top of the page) ----------
-interface PlacedOrder {
-  orderNo: string;
-  link: string;
-}
 
-function OrderDialog({
-  listing,
-  productName,
-  onClose,
-}: {
-  listing: MpListing;
-  productName: string;
-  onClose: () => void;
-}) {
-  const [name, setName] = useState('');
-  const [whatsapp, setWhatsapp] = useState('');
-  const [email, setEmail] = useState('');
-  const [notes, setNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+const PAGE_SIZE = 24;
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    setFormError(null);
-    if (name.trim().length < 2) {
-      setFormError('Please enter your name.');
-      return;
-    }
-    if (!/^\+?[0-9 -]{7,20}$/.test(whatsapp.trim())) {
-      setFormError('Please enter a valid WhatsApp number, for example +923001234567.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const supabase = createClient();
-      const { data, error } = await supabase.rpc('mp_create_order', {
-        p_listing: listing.id,
-        p_name: name.trim(),
-        p_whatsapp: whatsapp.trim(),
-        p_email: email.trim() || null,
-        p_notes: notes.trim() || null,
-      });
-      if (error) throw new Error(error.message);
-      const row = Array.isArray(data) ? data[0] : data;
-      const orderNo: string | undefined = row?.out_order_no;
-      if (!orderNo) throw new Error('The order was not created. Please try again.');
-      const message = buildOrderMessage({
-        orderNo,
-        customerName: name.trim(),
-        customerWhatsapp: whatsapp.trim(),
-        customerEmail: email.trim(),
-        productName,
-        packageTitle: listing.title,
-        vendorName: listing.vendor?.name ?? 'Vendor',
-        price: listing.price,
-        notes: notes.trim(),
-      });
-      setPlaced({ orderNo, link: buildWhatsAppLink(message) });
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={() => {
-        if (!busy) onClose();
-      }}
-    >
-      <div
-        className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border/60 bg-card p-5 sm:p-6 shadow-xl space-y-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {placed ? (
-          <div className="space-y-4 text-center">
-            <h2 className="text-xl font-extrabold text-foreground">Order saved</h2>
-            <p className="text-sm text-muted-foreground">
-              Your order ID is <span className="font-bold text-foreground">{placed.orderNo}</span>
-            </p>
-            <div className="rounded-xl bg-muted/50 p-3 text-left text-xs text-muted-foreground space-y-1">
-              <p className="font-semibold text-foreground">Next steps</p>
-              <p>1. Press the green button to send your order on WhatsApp.</p>
-              <p>2. We reply with the payment details. You pay only us.</p>
-              <p>3. After we confirm your payment, the delivery time starts.</p>
-            </div>
-            <a
-              href={placed.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center rounded-xl bg-[#25D366] px-4 py-3 text-sm font-bold text-white hover:opacity-90"
-            >
-              Send order on WhatsApp
-            </a>
-            <Link
-              href="/marketplace/orders"
-              className="block text-sm font-semibold text-primary hover:underline"
-            >
-              View my orders
-            </Link>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-xs font-semibold text-muted-foreground hover:text-foreground"
-            >
-              Close
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-xl font-extrabold text-foreground">Place your order</h2>
-              <p className="text-sm text-muted-foreground">
-                {productName} ({listing.title}) from {listing.vendor?.name ?? 'Vendor'}
-              </p>
-              <p className="text-lg font-extrabold text-foreground">
-                {formatPkr(listing.price)}
-                {listing.original_price !== null && (
-                  <span className="ml-2 text-sm font-medium text-muted-foreground line-through">{formatPkr(listing.original_price)}</span>
-                )}
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-foreground">Your name</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-foreground">Your WhatsApp number</label>
-              <Input
-                value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
-                placeholder="+923001234567"
-                maxLength={20}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-foreground">Email (optional)</label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-foreground">Notes (optional)</label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} />
-            </div>
-
-            {formError && <p className="text-xs font-semibold text-red-600 break-words">{formError}</p>}
-
-            <div className="flex gap-2">
-              <Button type="submit" disabled={busy} className="flex-1">
-                {busy ? 'Saving...' : 'Place order'}
-              </Button>
-              <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
-                Cancel
-              </Button>
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              You do not pay now. We contact you on WhatsApp with the payment details.
-            </p>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
+type VendorRow = { id: string; name: string; verified: boolean; about: string | null };
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'price', label: 'Lowest price' },
@@ -229,6 +72,16 @@ function MarketplaceHome() {
   const [scores, setScores] = useState<Record<string, VendorScore>>({});
   const [isAdmin, setIsAdmin] = useState(false);
   const [vendorStatus, setVendorStatus] = useState<string | null>(null);
+  const [vendors, setVendors] = useState<VendorRow[]>([]);
+  const [tab, setTab] = useState<'packages' | 'vendors'>('packages');
+  const [vendorQuery, setVendorQuery] = useState('');
+  const [vendorSort, setVendorSort] = useState<VendorSortKey>('price_asc');
+  const [openVendorId, setOpenVendorId] = useState<string | null>(null);
+  const [focusListing, setFocusListing] = useState<string | null>(null);
+  const [offerMore, setOfferMore] = useState({ key: '', n: PAGE_SIZE });
+  const [vendorMore, setVendorMore] = useState({ key: '', n: PAGE_SIZE });
+  const dq = useDebounced(query);
+  const dvq = useDebounced(vendorQuery);
 
   // Who is looking at this page? Admin and vendors get their own buttons.
   useEffect(() => {
@@ -281,21 +134,51 @@ function MarketplaceHome() {
     async function load() {
       try {
         const supabase = createClient();
-        const [p, l] = await Promise.all([
+        const [p, l, v] = await Promise.all([
           supabase
             .from('mp_products')
             .select('id, name, slug, category, description, image_url')
             .order('name'),
           supabase
             .from('mp_listings')
-            .select('id, title, price, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, description, offer_price, offer_percent, offer_ends_at, mp_vendors(id, name, slug, verified)')
+            .select('id, title, price, status, delivery_hours, vendor_id, product_id, has_warranty, warranty_text, duration_months, description, offer_price, offer_percent, offer_ends_at, mp_vendors(id, name, slug, verified, status)')
+            .eq('status', 'active')
             .order('price'),
+          supabase.from('mp_vendors').select('id, name, verified, about, status').eq('status', 'approved').order('name'),
         ]);
         if (cancelled) return;
         if (p.error) throw new Error(p.error.message);
         if (l.error) throw new Error(l.error.message);
         setProducts((p.data ?? []) as MpProduct[]);
-        setListings(((l.data ?? []) as unknown as RawListingRow[]).map(toListing));
+        // only live packages of approved vendors (admins can read more rows; the shop shows what buyers see)
+        setListings(
+          ((l.data ?? []) as unknown as RawListingRow[])
+            .filter((row) => {
+              const vv = (Array.isArray(row.mp_vendors) ? row.mp_vendors[0] : row.mp_vendors) as { status?: string } | null | undefined;
+              return !vv?.status || vv.status === 'approved';
+            })
+            .map(toListing)
+        );
+        if (!v.error) setVendors((v.data ?? []) as VendorRow[]);
+        // Links from the home page sliders: /marketplace?product=..&listing=..  or  ?vendor=..
+        try {
+          const sp = new URLSearchParams(window.location.search);
+          const prod = sp.get('product');
+          const lst = sp.get('listing');
+          const ven = sp.get('vendor');
+          if (prod && (p.data ?? []).some((x) => (x as MpProduct).id === prod)) {
+            setSelectedId(prod);
+            if (lst) {
+              setFocusListing(lst);
+              setOpenDetails(lst);
+            }
+          } else if (ven && (v.data ?? []).some((x) => (x as VendorRow).id === ven)) {
+            setTab('vendors');
+            setOpenVendorId(ven);
+          }
+        } catch {
+          // not important
+        }
         // Scores are a bonus: if they fail, the page still works
         try {
           const sc = await supabase.rpc('mp_vendor_scores');
@@ -331,14 +214,53 @@ function MarketplaceHome() {
   }, [listings]);
 
   // Customers only see products that have at least one vendor package
+  // Cheapest first (numbers, not text); products without packages are not shown
   const filteredProducts = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const withOffers = products.filter((p) => (listingsByProduct[p.id] ?? []).length > 0);
-    if (!q) return withOffers;
-    return withOffers.filter(
-      (p) => p.name.toLowerCase().includes(q) || (p.category ?? '').toLowerCase().includes(q)
-    );
-  }, [products, query, listingsByProduct]);
+    const lowest = (id: string) => Math.min(...(listingsByProduct[id] ?? []).map((l) => Number(l.price)));
+    return products
+      .filter((p) => (listingsByProduct[p.id] ?? []).length > 0)
+      .sort((a, b) => lowest(a.id) - lowest(b.id) || a.name.localeCompare(b.name));
+  }, [products, listingsByProduct]);
+
+  const productById = useMemo(() => {
+    const map: Record<string, MpProduct> = {};
+    for (const p of products) map[p.id] = p;
+    return map;
+  }, [products]);
+
+  // Tool search: every matching package from every vendor, cheapest first
+  const matchingOffers = useMemo(() => {
+    const q = dq.trim();
+    if (!q) return [];
+    return listings
+      .filter((l) => {
+        const p = productById[l.product_id];
+        return !!p && matchesQuery(p.name + ' ' + (p.category ?? '') + ' ' + l.title, q);
+      })
+      .sort(byPriceAsc);
+  }, [dq, listings, productById]);
+  const offerLimit = offerMore.key === dq ? offerMore.n : PAGE_SIZE;
+
+  // Vendor list: lowest price comes from the vendor's real live packages
+  const vendorSummaries = useMemo<VendorSummary[]>(() => {
+    const byVendor: Record<string, MpListing[]> = {};
+    for (const l of listings) {
+      if (!productById[l.product_id]) continue;
+      (byVendor[l.vendor_id] ??= []).push(l);
+    }
+    return vendors.map((v) => {
+      const ls = (byVendor[v.id] ?? []).sort(byPriceAsc);
+      const valid = ls.filter((l) => Number.isFinite(Number(l.price)) && Number(l.price) > 0);
+      return { id: v.id, name: v.name, verified: v.verified, about: v.about, listings: ls, lowest: valid.length ? Number(valid[0].price) : null };
+    });
+  }, [vendors, listings, productById]);
+  const shownVendors = useMemo(
+    () => sortVendors(vendorSummaries.filter((v) => matchesQuery(v.name, dvq)), vendorSort),
+    [vendorSummaries, dvq, vendorSort]
+  );
+  const vendorKey = dvq + '|' + vendorSort;
+  const vendorLimit = vendorMore.key === vendorKey ? vendorMore.n : PAGE_SIZE;
+  const openVendor = vendorSummaries.find((v) => v.id === openVendorId) ?? null;
 
   const selected = products.find((p) => p.id === selectedId) ?? null;
   const selectedListings = useMemo(
@@ -346,6 +268,31 @@ function MarketplaceHome() {
     [selected, listingsByProduct, sort, scores]
   );
   const badges = useMemo(() => getBadges(selectedListings), [selectedListings]);
+
+
+  useEffect(() => {
+    if (!selectedId || !focusListing) return;
+    const t = setTimeout(() => {
+      document.getElementById('listing-' + focusListing)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+    return () => clearTimeout(t);
+  }, [selectedId, focusListing]);
+
+  const viewListing = (l: MpListing) => {
+    setSelectedId(l.product_id);
+    setFocusListing(l.id);
+    setOpenDetails(l.id);
+  };
+
+  const backToShop = () => {
+    setSelectedId(null);
+    setFocusListing(null);
+    try {
+      if (window.location.search) window.history.replaceState(null, '', '/marketplace');
+    } catch {
+      // not important
+    }
+  };
 
   const openProduct = (id: string) => {
     setSelectedId(id);
@@ -384,7 +331,7 @@ function MarketplaceHome() {
       <div className="max-w-4xl mx-auto space-y-6 pb-12">
         <button
           type="button"
-          onClick={() => setSelectedId(null)}
+          onClick={backToShop}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" /> All packages
@@ -423,7 +370,11 @@ function MarketplaceHome() {
             {selectedListings.map((l) => (
               <div
                 key={l.id}
-                className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center gap-4"
+                id={'listing-' + l.id}
+                className={
+                  'rounded-2xl border bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center gap-4 scroll-mt-24 ' +
+                  (focusListing === l.id ? 'border-primary ring-2 ring-primary/40' : 'border-border/60')
+                }
               >
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -599,17 +550,194 @@ function MarketplaceHome() {
 
       <StatusStrip onOpenProduct={openProduct} />
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search packages..."
-          className="pl-9"
-        />
+      <div role="tablist" aria-label="Browse" className="inline-flex rounded-xl border border-border/60 bg-card p-1">
+        {(['packages', 'vendors'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={
+              'rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ' +
+              (tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')
+            }
+          >
+            {t === 'packages' ? 'Tools & packages' : 'Vendors'}
+          </button>
+        ))}
       </div>
 
-      {filteredProducts.length === 0 ? (
+      {tab === 'vendors' ? (
+        openVendor ? (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setOpenVendorId(null)}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4" /> All vendors
+            </button>
+            <div className="space-y-1">
+              <h2 className="flex flex-wrap items-center gap-2 text-2xl font-extrabold text-foreground">
+                {openVendor.name}
+                {openVendor.verified && (
+                  <Badge variant="nonAi">
+                    <ShieldCheck className="h-3 w-3" /> Verified
+                  </Badge>
+                )}
+              </h2>
+              {openVendor.about && <p className="text-sm text-muted-foreground break-words">{openVendor.about}</p>}
+              <p className="text-xs text-muted-foreground">
+                {openVendor.listings.length} {openVendor.listings.length === 1 ? 'package' : 'packages'}, cheapest first
+              </p>
+            </div>
+            {openVendor.listings.length === 0 ? (
+              <div className="rounded-2xl border border-border/60 bg-card p-8 text-center text-sm text-muted-foreground">
+                This vendor has no packages right now.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {openVendor.listings.map((l) => (
+                  <OfferRow
+                    key={l.id}
+                    listing={l}
+                    productName={productById[l.product_id]?.name ?? l.title}
+                    onView={() => viewListing(l)}
+                    onOrder={() => setOrdering(l)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <SearchBox
+                value={vendorQuery}
+                onChange={setVendorQuery}
+                placeholder="Search vendors by name..."
+                label="Search vendors"
+                className="sm:max-w-md"
+              />
+              <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                Sort by
+                <select
+                  value={vendorSort}
+                  onChange={(e) => setVendorSort(e.target.value as VendorSortKey)}
+                  className="h-11 flex-1 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground sm:flex-none"
+                >
+                  {VENDOR_SORT_OPTIONS.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {shownVendors.length === 0 ? (
+              <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
+                {dvq.trim() ? <>No vendors match &quot;{dvq.trim()}&quot;. Try another name or clear the search.</> : 'No vendors yet.'}
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {shownVendors.slice(0, vendorLimit).map((v) => {
+                    const sc = scores[v.id];
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setOpenVendorId(v.id)}
+                        className="text-left rounded-2xl border border-border/60 bg-card p-5 shadow-sm hover:shadow-md hover:border-primary/40 transition-all space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="inline-flex items-center gap-1.5 text-lg font-bold text-foreground">
+                            <Store className="h-4 w-4 text-muted-foreground" /> {v.name}
+                          </h3>
+                          {v.verified && (
+                            <Badge variant="nonAi">
+                              <ShieldCheck className="h-3 w-3" /> Verified
+                            </Badge>
+                          )}
+                        </div>
+                        {v.about && <p className="text-xs text-muted-foreground line-clamp-2 break-words">{v.about}</p>}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            {v.listings.length} {v.listings.length === 1 ? 'package' : 'packages'}
+                          </span>
+                          {sc && sc.review_count > 0 && sc.avg_rating !== null && (
+                            <span className="inline-flex items-center gap-1 font-semibold text-foreground">
+                              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /> {Number(sc.avg_rating).toFixed(1)}
+                            </span>
+                          )}
+                          {(!sc || sc.is_new) && <span className="font-semibold text-amber-600">New vendor</span>}
+                        </div>
+                        <div className="pt-1 text-sm font-bold text-foreground">
+                          {v.lowest !== null ? (
+                            <>From {formatPkr(v.lowest)}</>
+                          ) : (
+                            <span className="text-xs font-medium text-muted-foreground">No packages right now</span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {shownVendors.length > vendorLimit && (
+                  <div className="text-center">
+                    <Button variant="outline" onClick={() => setVendorMore({ key: vendorKey, n: vendorLimit + PAGE_SIZE })}>
+                      Show more vendors
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )
+      ) : (
+        <>
+          <SearchBox
+            value={query}
+            onChange={setQuery}
+            placeholder="Search tools, e.g. ChatGPT, Canva, CapCut..."
+            label="Search tools"
+            className="max-w-xl"
+          />
+          {dq.trim() ? (
+            matchingOffers.length === 0 ? (
+              <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
+                No tools match &quot;{dq.trim()}&quot;. Check the spelling, try a shorter name, or clear the search.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground">
+                  {matchingOffers.length} {matchingOffers.length === 1 ? 'offer' : 'offers'} from all vendors · cheapest first
+                </p>
+                {matchingOffers.slice(0, offerLimit).map((l, i) => (
+                  <OfferRow
+                    key={l.id}
+                    listing={l}
+                    productName={productById[l.product_id]?.name ?? l.title}
+                    cheapest={
+                      i === 0 &&
+                      matchingOffers.length > 1 &&
+                      Number(l.price) < Number(matchingOffers[matchingOffers.length - 1].price)
+                    }
+                    onView={() => viewListing(l)}
+                    onOrder={() => setOrdering(l)}
+                  />
+                ))}
+                {matchingOffers.length > offerLimit && (
+                  <div className="text-center">
+                    <Button variant="outline" onClick={() => setOfferMore({ key: dq, n: offerLimit + PAGE_SIZE })}>
+                      Show more offers
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )
+          ) : filteredProducts.length === 0 ? (
         <div className="rounded-2xl border border-border/60 bg-card p-10 text-center text-sm text-muted-foreground">
           No packages found.
         </div>
@@ -650,6 +778,80 @@ function MarketplaceHome() {
           })}
         </div>
       )}
+        </>
+      )}
+
+      {ordering && (
+        <OrderDialog
+          listing={ordering}
+          productName={productById[ordering.product_id]?.name ?? ordering.title}
+          onClose={() => setOrdering(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// One package in search results or on a vendor's page
+function OfferRow({
+  listing: l,
+  productName,
+  cheapest = false,
+  onView,
+  onOrder,
+}: {
+  listing: MpListing;
+  productName: string;
+  cheapest?: boolean;
+  onView: () => void;
+  onOrder: () => void;
+}) {
+  const summary = detailsSummary(l.description);
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-base font-bold text-foreground">{productName}</span>
+          {cheapest && <Badge variant="ai">Lowest price</Badge>}
+          {l.has_warranty && (
+            <Badge variant="nonAi">
+              <ShieldCheck className="h-3 w-3" /> {l.warranty_text ? l.warranty_text : 'Warranty included'}
+            </Badge>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1 font-semibold text-foreground">
+            <Store className="h-3.5 w-3.5 text-muted-foreground" /> {l.vendor?.name ?? 'Vendor'}
+            {l.vendor?.verified && <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-label="Verified" />}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Tag className="h-3.5 w-3.5" /> {l.title}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" /> Delivery within {formatHours(l.delivery_hours)}
+          </span>
+        </div>
+        {summary && <p className="text-sm text-muted-foreground line-clamp-2 break-words">{summary}</p>}
+      </div>
+      <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
+        <div className="text-right">
+          {l.offer_percent !== null && l.original_price !== null && (
+            <div className="mb-0.5 flex items-center justify-end gap-2">
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">{l.offer_percent}% OFF</span>
+              <span className="text-xs font-medium text-muted-foreground line-through">{formatPkr(l.original_price)}</span>
+            </div>
+          )}
+          <div className="text-xl font-extrabold text-foreground">{formatPkr(l.price)}</div>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={onView}>
+            View details
+          </Button>
+          <Button size="sm" onClick={onOrder}>
+            Order
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
