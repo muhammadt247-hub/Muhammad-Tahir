@@ -12,12 +12,12 @@ import { detailsSummary } from '@/components/marketplace/PackageDetailsForm';
 import { StatusStrip } from '@/components/marketplace/StatusStrip';
 import { OrderDialog } from '@/components/marketplace/OrderDialog';
 import { SearchBox } from '@/components/marketplace/SearchBox';
+import { useDebounced } from '@/lib/marketplace/use-debounced';
 import { Breadcrumbs } from '@/components/marketplace/Breadcrumbs';
 import {
   matchesQuery,
   byPriceAsc,
   sortVendors,
-  useDebounced,
   VENDOR_SORT_OPTIONS,
   VendorSortKey,
   VendorSummary,

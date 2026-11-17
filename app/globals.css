@@ -279,3 +279,14 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .mp-pop { animation: none; }
 }
+
+/* Orbinexa AI Assistant robot: gentle blink, glowing antenna and a slow float (off for reduced motion) */
+@keyframes robot-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes robot-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes robot-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.robot-anim .robot-eyes { transform-box: fill-box; transform-origin: center; animation: robot-blink 5s infinite; }
+.robot-anim .robot-antenna { animation: robot-glow 2.4s ease-in-out infinite; }
+.robot-launcher > svg { animation: robot-float 4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .robot-anim .robot-eyes, .robot-anim .robot-antenna, .robot-launcher > svg { animation: none; }
+}
