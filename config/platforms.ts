@@ -45,9 +45,13 @@ export interface PlatformConfig {
   categories: PlatformCategory[];
 }
 
-// NOTE: Marketplace bulk CSV templates frequently evolve and should be verified periodically.
-// For example, Shutterstock's official contributor CSV may alternate column naming between
-// 'Description' and 'Title', and Freepik enforces a strict 100-character title limit and semicolon delimiter.
+// Checked against the official contributor help pages in November 2026 (re-check now and then):
+// - Adobe Stock CSV: Filename, Title (max 70 characters, no commas), Keywords (max 50, ordered by importance).
+//   Adobe also says the first 10 keywords matter most. We keep 49 as the keyword cap (the upload form limit).
+// - Shutterstock CSV: Filename, Description, Keywords, Categories (1 required, 2nd optional). The description
+//   is the title (a factual sentence, max 2048 characters). Keywords 7 to 50.
+// - Freepik (Magnific) CSV: File name; Title; Keywords, separated by semicolons, keywords by commas.
+//   Title 35 to 100 characters recommended, keywords 5 to 50 (about 20 relevant ones are enough).
 export const PLATFORM_SPECS: Record<PlatformId, PlatformConfig> = {
   'adobe-stock': {
     id: 'adobe-stock',
@@ -55,9 +59,9 @@ export const PLATFORM_SPECS: Record<PlatformId, PlatformConfig> = {
     delimiter: ',',
     columns: ['Filename', 'Title', 'Keywords'],
     hasDescription: false,
-    defaultTitleLength: 100,
+    defaultTitleLength: 70,
     minTitleLength: 30,
-    maxTitleLength: 200,
+    maxTitleLength: 70, // Adobe Stock CSV title limit is 70 characters
     defaultKeywordsCount: 45,
     minKeywordsCount: 10,
     maxKeywordsCount: 49, // Adobe Stock strict limit is 49
@@ -81,8 +85,9 @@ export const PLATFORM_SPECS: Record<PlatformId, PlatformConfig> = {
     id: 'shutterstock',
     name: 'Shutterstock',
     delimiter: ',',
-    columns: ['Filename', 'Title', 'Description', 'Keywords'],
-    hasDescription: true,
+    // exact names from Shutterstock's CSV help page; the title goes in Description
+    columns: ['Filename', 'Description', 'Keywords', 'Categories'],
+    hasDescription: false,
     defaultTitleLength: 100,
     minTitleLength: 30,
     maxTitleLength: 200,

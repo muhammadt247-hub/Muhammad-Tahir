@@ -818,7 +818,7 @@ export class GeneratorQueue {
               item.excludedReason = undefined;
             }
 
-            const seo = calculateItemSeoScore(item);
+            const seo = calculateItemSeoScore(item, this.settings.platform);
             item.seoScore = seo.score;
             item.seoChecklist = seo.checklist;
 
