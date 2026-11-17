@@ -24,8 +24,12 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: SITE_CONFIG.PAGE_TITLE,
+  // full addresses for canonical links and share images
+  metadataBase: new URL(SITE_CONFIG.SITE_URL),
+  // pages set a short title ("Log in"); the brand is added after it: "Log in | OrbinexaCSV"
+  title: { default: SITE_CONFIG.PAGE_TITLE, template: '%s | ' + SITE_CONFIG.BRAND_NAME },
   description: SITE_CONFIG.PAGE_DESCRIPTION,
+  applicationName: SITE_CONFIG.BRAND_NAME,
   icons: {
     icon: '/icon.svg',
   },

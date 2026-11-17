@@ -1,7 +1,11 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
-export const metadata = { title: 'Terms of Service | OrbinexaCSV' };
+export const metadata = {
+  title: 'Terms of Service',
+  description: 'The rules for using OrbinexaCSV: accounts, credits, the marketplace and your content.',
+  alternates: { canonical: '/terms' },
+};
 
 const sections: { title: string; points: string[] }[] = [
   {
