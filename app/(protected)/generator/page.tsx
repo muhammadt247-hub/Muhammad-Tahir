@@ -874,7 +874,7 @@ export default function GeneratorPage() {
               );
               merged.blockedTermsFound = comp.blockedTerms;
             }
-            const seo = calculateItemSeoScore(merged);
+            const seo = calculateItemSeoScore(merged, settings.platform);
             merged.seoScore = seo.score;
             merged.seoChecklist = seo.checklist;
           }
@@ -1446,7 +1446,7 @@ export default function GeneratorPage() {
           settings.isAiBatch || false
         );
         item.blockedTermsFound = comp.blockedTerms;
-        const seo = calculateItemSeoScore(item);
+        const seo = calculateItemSeoScore(item, settings.platform);
         item.seoScore = seo.score;
         item.seoChecklist = seo.checklist;
 
@@ -1494,7 +1494,7 @@ export default function GeneratorPage() {
             approved,
             settings.isAiBatch || false
           );
-          const seo = calculateItemSeoScore({ ...item, blockedTermsFound: comp.blockedTerms });
+          const seo = calculateItemSeoScore({ ...item, blockedTermsFound: comp.blockedTerms }, settings.platform);
           const updated = {
             ...item,
             approvedIssues: approved,
@@ -1595,7 +1595,7 @@ export default function GeneratorPage() {
           item.approvedIssues || [],
           settings.isAiBatch || false
         );
-        const seo = calculateItemSeoScore({ ...item, title: newTitle, keywords: newKeywords, blockedTermsFound: comp.blockedTerms });
+        const seo = calculateItemSeoScore({ ...item, title: newTitle, keywords: newKeywords, blockedTermsFound: comp.blockedTerms }, settings.platform);
 
         const isNowExcluded = comp.hasErrors || (item.similarTo && item.similarTo.length > 0);
         const excludedReason = comp.hasErrors ? `Blocked terms: ${comp.blockedTerms.map(b => b.term).join(', ')}` : (item.similarTo && item.similarTo.length > 0 ? 'Similar title issue remains' : undefined);

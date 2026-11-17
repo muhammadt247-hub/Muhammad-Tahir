@@ -66,6 +66,30 @@ const GenerateRequestSchema = z.object({
   customBlockedWords: z.array(z.string()).optional().default([]),
 });
 
+// Title limit per stock site (official CSV rules, checked Nov 2026): Adobe 70, Freepik 100, others as chosen
+function platformTitleMax(platform: string, requested: number): number {
+  if (platform === 'adobe-stock') return Math.min(70, requested);
+  if (platform === 'freepik') return Math.min(100, requested);
+  return requested;
+}
+
+// Extra rules for the selected stock site, added to the AI instructions (kept short to keep requests fast)
+function platformRules(platform: string): string {
+  if (platform === 'adobe-stock') {
+    return `
+13. Adobe Stock: the first 10 keywords matter most for search, so put the main subject, action and setting first. The title is a short plain phrase without commas.`;
+  }
+  if (platform === 'shutterstock') {
+    return `
+13. Shutterstock: the title is used as the description, so write it as one factual sentence or phrase that answers who, what and where. Do not just list keywords. No trademarks, product names or camera details.`;
+  }
+  if (platform === 'freepik') {
+    return `
+13. Freepik: one short clear title of about 35 to 100 characters, with no numbers or dates (except festivities) and no file types. Keywords: use only the main colour (or "colorful") instead of listing every colour, never repeat variants of the same word, and do not use prepositions or pronouns.`;
+  }
+  return '';
+}
+
 const MetadataResponseSchema = {
   type: 'object',
   properties: {
@@ -410,8 +434,7 @@ export async function POST(req: NextRequest) {
       const prefixStr = isPrefixEnabled && titlePrefix ? titlePrefix.trim() + ' ' : '';
       const suffixStr = isSuffixEnabled && titleSuffix ? ' ' + titleSuffix.trim() : '';
       const fixedLen = prefixStr.length + suffixStr.length;
-      const isFreepik = platform === 'freepik';
-      const maxTitle = isFreepik ? Math.min(100, titleMaxLength) : titleMaxLength;
+      const maxTitle = platformTitleMax(platform, titleMaxLength);
       const availableForAi = Math.max(15, maxTitle - fixedLen);
       const targetMin = Math.round(availableForAi * 0.85);
       const targetMax = availableForAi;
@@ -436,7 +459,8 @@ CRITICAL RULES:
    - showsAiConcept: true ONLY if the subject is explicitly robots, cyborgs, or artificial intelligence concept.
    - flagReasons: short specific reason for any positive flag (e.g. "Text visible on sign", "Logo on clothing").
 10. All text must be in English. No objectionable or offensive language.
-11. Output exactly one metadata set for each provided image in the exact same order.`;
+11. Output exactly one metadata set for each provided image in the exact same order.
+12. Never write "AI generated", "generative AI", AI tool names (Midjourney, Stable Diffusion, DALL-E) or file types (JPG, PNG, EPS, PSD) in titles or keywords. Never name artists, real people, fictional characters or copyrighted works.${platformRules(platform)}`;
 
       const recentAvoid = avoidTitles.slice(-40);
       let avoidClause = '';
@@ -737,7 +761,8 @@ CRITICAL RULES:
       // Post-process each item to guarantee client-side limits & rules
       const processedSets = validated.metadataSets.map((item, idx) => {
         return postProcessMetadata(item, {
-          titleMaxLength: platform === 'freepik' ? Math.min(100, titleMaxLength) : titleMaxLength,
+          titleMaxLength: platformTitleMax(platform, titleMaxLength),
+          platform,
           keywordsMaxCount,
           hasAlphaChannel: hasAlphaChannel[idx] || false,
           keywordStyle,

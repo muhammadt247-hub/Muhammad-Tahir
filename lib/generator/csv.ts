@@ -1,4 +1,5 @@
 import { PlatformId, PLATFORM_SPECS } from '@/config/platforms';
+import { pickShutterstockCategories } from '@/lib/generator/shutterstock-categories';
 
 export interface GeneratorResultExportItem {
   originalName: string;
@@ -70,9 +71,18 @@ export function generateMarketplaceCsv(
         break;
 
       case 'shutterstock':
+        // Filename,Description,Keywords,Categories (Shutterstock calls the title "Description"; 1-2 categories)
+        rowValues = [
+          escapeCsvField(filename, quoteAll, delimiter),
+          escapeCsvField(title || description, quoteAll, delimiter),
+          escapeCsvField(keywordsStr, true, delimiter),
+          escapeCsvField(pickShutterstockCategories(title || description, item.keywords || []).join(','), true, delimiter),
+        ];
+        break;
+
       case 'general':
       default:
-        // Filename,Title,Description,Keywords
+        // General: Filename,Title,Description,Keywords
         rowValues = [
           escapeCsvField(filename, quoteAll, delimiter),
           escapeCsvField(title, quoteAll, delimiter),

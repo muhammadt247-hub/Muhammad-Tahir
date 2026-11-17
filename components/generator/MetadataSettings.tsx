@@ -39,6 +39,16 @@ interface MetadataSettingsProps {
   disabled?: boolean;
 }
 
+// Short reminders of each site's official rules (checked Nov 2026)
+const PLATFORM_NOTES: Partial<Record<PlatformId, string>> = {
+  'adobe-stock':
+    'Adobe Stock: titles up to 70 characters, the first 10 keywords matter most. AI images: tick "Created using generative AI tools" after uploading.',
+  shutterstock:
+    'Shutterstock: the title is exported as the Description, with 1-2 categories picked for you. Shutterstock does not accept AI-generated images.',
+  freepik:
+    'Freepik: titles of 35-100 characters, about 20 relevant keywords are enough. AI images must get the AI label when you upload.',
+};
+
 export function MetadataSettings({
   settings,
   onUpdate,
@@ -82,6 +92,11 @@ export function MetadataSettings({
                 onPlatformChange={handlePlatformChange}
                 disabled={disabled}
               />
+              {PLATFORM_NOTES[settings.platform] && (
+                <p className="mt-2 rounded-lg bg-accent/50 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                  {PLATFORM_NOTES[settings.platform]}
+                </p>
+              )}
             </div>
 
             {/* 2. Title Length Slider */}
