@@ -9,7 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
-import { RichDescription } from '@/components/marketplace/RichDescription';
+import {
+  EMPTY_DETAILS,
+  PackageDetailsForm,
+  checkDetails,
+  composeDetails,
+  parseDetails,
+  type PackageDetails,
+} from '@/components/marketplace/PackageDetailsForm';
 import { VendorStatusManager } from '@/components/marketplace/VendorStatusManager';
 import { MARKETPLACE_ENABLED, ORDERS_WHATSAPP } from '@/lib/marketplace/shared';
 
@@ -264,25 +271,6 @@ interface MyListing {
 }
 
 // Quick buttons only. The vendor can type any package name or duration they like.
-const DETAILS_TEMPLATE = `# Product name
-
-Short sentence about what the customer gets.
-
-### Subscription Details
-- **Login Access:** 2 devices
-- **Version:** Premium
-- **Activation:** Easy login process
-
-### Features
-- First feature
-- Second feature
-- Third feature
-
-### Why Choose Us?
-- Affordable pricing
-- Easy setup process
-- Quick delivery`;
-
 const DURATIONS: { label: string; months: number }[] = [
   { label: '1 month', months: 1 },
   { label: '3 months', months: 3 },
@@ -321,7 +309,7 @@ function MyPackages() {
   const [hours, setHours] = useState(24);
   const [warranty, setWarranty] = useState(false);
   const [warrantyText, setWarrantyText] = useState('');
-  const [description, setDescription] = useState('');
+  const [details, setDetails] = useState<PackageDetails>(EMPTY_DETAILS);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [offers, setOffers] = useState<Record<string, MyOffer>>({});
@@ -371,7 +359,7 @@ function MyPackages() {
     setHours(24);
     setWarranty(false);
     setWarrantyText('');
-    setDescription('');
+    setDetails(EMPTY_DETAILS);
     setFormOpen(false);
   };
 
@@ -383,7 +371,7 @@ function MyPackages() {
     setHours(r.delivery_hours);
     setWarranty(r.has_warranty);
     setWarrantyText(r.warranty_text ?? '');
-    setDescription(r.description ?? '');
+    setDetails(parseDetails(r.description));
     setFormOpen(true);
     try {
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -471,6 +459,8 @@ function MyPackages() {
       if (title.length < 2) return toast.error('Please write the package duration or name.');
       const num = Number(price);
       if (!num || num <= 0) return toast.error('Please enter your price.');
+      const detailsProblem = checkDetails(details);
+      if (detailsProblem) return toast.error(detailsProblem);
       args = {
         p_listing: editingId,
         p_product: productId,
@@ -482,7 +472,7 @@ function MyPackages() {
         p_duration_months: preset ? preset.months : null,
         p_is_custom: !preset,
         p_status: editingId ? rows.find((x) => x.id === editingId)?.status ?? 'active' : 'active',
-        p_description: description.trim() || null,
+        p_description: composeDetails(details) || null,
       };
     }
     setBusy(true);
@@ -652,35 +642,7 @@ function MyPackages() {
             )}
           </div>
 
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <label className="text-xs font-semibold text-foreground">Package details (customers read this)</label>
-              <button
-                type="button"
-                onClick={() => setDescription(DETAILS_TEMPLATE)}
-                className="px-3 py-1 rounded-full text-xs font-semibold border border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                Fill with example layout
-              </button>
-            </div>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value.slice(0, 3000))}
-              rows={12}
-              className="w-full rounded-xl border border-border/60 bg-background px-3 py-2 text-sm font-mono"
-              placeholder={'Write everything the customer should know.\n# Big title\n### Section title\n- list item\n**bold text**'}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {description.length}/3000 letters. Use # for a title, ### for a section, - for a list and **text** for bold.
-              Do not write phone numbers, WhatsApp, links, real names or &quot;contact us&quot;. Customers order only through OrbinexaCSV.
-            </p>
-            {description.trim().length > 0 && (
-              <div className="rounded-xl border border-border/60 bg-muted/30 p-3 space-y-1">
-                <p className="text-[11px] font-semibold text-foreground">How customers will see it:</p>
-                <RichDescription text={description} />
-              </div>
-            )}
-          </div>
+          <PackageDetailsForm value={details} onChange={setDetails} />
 
           <div className="flex flex-wrap gap-2">
             <Button disabled={busy} onClick={() => save()}>
