@@ -143,12 +143,12 @@ export function CoffeeSupport() {
   return (
     <>
       {popupVisible && user && (
-        <div className="fixed bottom-4 right-4 z-40 w-[230px] sm:w-[300px] animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="coffee-popup fixed bottom-4 left-4 z-40 w-[230px] sm:w-[300px] animate-in fade-in slide-in-from-bottom-4 duration-500">
           <button
             type="button"
             onClick={closePopup}
             aria-label="Close"
-            className="absolute -top-3 -left-3 z-10 h-7 w-7 rounded-full bg-black text-white shadow-lg flex items-center justify-center hover:scale-110 transition-transform"
+            className="absolute -top-3 -right-3 z-10 h-7 w-7 rounded-full bg-black text-white shadow-lg flex items-center justify-center hover:scale-110 transition-transform"
           >
             <X className="h-4 w-4" />
           </button>
@@ -165,7 +165,7 @@ export function CoffeeSupport() {
               speak();
             }}
             onMouseLeave={() => setHovered(false)}
-            className="relative cursor-pointer rounded-3xl bg-white p-3 shadow-2xl border border-black/10 transition-transform duration-300 ease-out hover:scale-110 origin-bottom-right"
+            className="relative cursor-pointer rounded-3xl bg-white p-3 shadow-2xl border border-black/10 transition-transform duration-300 ease-out hover:scale-110 origin-bottom-left"
           >
             <div className="relative w-full" style={{ aspectRatio: '420 / 408' }}>
               {/* Image 1 */}
