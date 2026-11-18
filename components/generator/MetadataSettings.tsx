@@ -72,7 +72,7 @@ export function MetadataSettings({
   };
 
   return (
-    <div className="glass-card rounded-2xl border border-border/50 shadow-sm overflow-hidden">
+    <div className="glass-card rounded-2xl border border-border/50 shadow-sm overflow-hidden" data-robot-spot="platform">
       <Accordion type="single" collapsible defaultValue="metadata-settings">
         <AccordionItem value="metadata-settings" className="border-none">
           <AccordionTrigger className="px-4 py-3 hover:no-underline">

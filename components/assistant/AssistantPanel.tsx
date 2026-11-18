@@ -50,7 +50,16 @@ function loadChat(): Msg[] {
   }
 }
 
-export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AssistantPanel({
+  open,
+  onClose,
+  ask,
+}: {
+  open: boolean;
+  onClose: () => void;
+  // a question sent from outside (e.g. the robot's tip bubble); a new id sends it once
+  ask?: { id: number; text: string } | null;
+}) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(loadChat);
   const [input, setInput] = useState('');
@@ -86,6 +95,18 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
   }, [open, onClose]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // send a question that came from the robot's tip bubble (once per id)
+  const sendRef = useRef<(text: string) => void>(() => {});
+  const askedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!open || !ask || askedRef.current === ask.id) return;
+    const t = setTimeout(() => {
+      askedRef.current = ask.id; // marked when really sent, so a re-run before that still sends it
+      sendRef.current(ask.text);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [open, ask]);
 
   const send = async (text: string) => {
     const q = text.trim().slice(0, 600);
@@ -128,6 +149,11 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
       setBusy(false);
     }
   };
+
+  // keep the latest send for the tip-bubble question above
+  useEffect(() => {
+    sendRef.current = send;
+  });
 
   const go = (href: string) => {
     router.push(safeHref(href));

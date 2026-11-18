@@ -319,6 +319,36 @@ body {
 @keyframes robot-hint-in { from { opacity: 0; transform: translateX(8px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes robot-hint-nudge { 0%, 88%, 100% { transform: translateX(0); } 92% { transform: translateX(-3px); } 96% { transform: translateX(2px); } }
 .robot-hint { animation: robot-hint-in 0.35s ease-out both, robot-hint-nudge 6s ease-in-out 2s infinite; }
+/* Robot trips: hops while running (leaning the way it runs), happy jump + wiggle at the section, fast waving */
+@keyframes robot-hop {
+  0%, 100% { transform: translateY(0) rotate(var(--lean, 8deg)) scale(1, 1); }
+  45% { transform: translateY(-12px) rotate(var(--lean, 8deg)) scale(0.96, 1.05); }
+  80% { transform: translateY(0) rotate(var(--lean, 8deg)) scale(1.06, 0.93); }
+}
+@keyframes robot-cheer {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  12% { transform: translateY(-16px) rotate(-10deg); }
+  24% { transform: translateY(0) rotate(0) scale(1.06, 0.94); }
+  36% { transform: translateY(-10px) rotate(9deg); }
+  48% { transform: translateY(0) rotate(0); }
+  60%, 72% { transform: rotate(-6deg); }
+  66%, 78% { transform: rotate(6deg); }
+  86% { transform: rotate(0); }
+}
+@keyframes robot-wave-fast { 0%, 100% { transform: rotate(110deg); } 50% { transform: rotate(140deg); } }
+@keyframes robot-swing { 0%, 100% { transform: rotate(-25deg); } 50% { transform: rotate(35deg); } }
+@keyframes robot-tip-in { from { opacity: 0; transform: translateY(8px) scale(0.85); } to { opacity: 1; transform: none; } }
+.robot-running { --lean: 9deg; }
+.robot-running.robot-face-left { --lean: -9deg; }
+.robot-running > svg { animation: robot-hop 0.34s ease-in-out infinite; transform-origin: 50% 90%; }
+.robot-running .rb-arm { animation: robot-swing 0.34s ease-in-out infinite !important; }
+.robot-running .rb-head { animation: none !important; }
+.robot-cheer > svg { animation: robot-cheer 2.2s ease-in-out infinite; transform-origin: 50% 90%; }
+.robot-cheer .rb-arm { animation: robot-wave-fast 0.45s ease-in-out infinite !important; }
+.robot-tip { animation: robot-tip-in 0.3s cubic-bezier(.2,1.4,.4,1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .robot-running > svg, .robot-cheer > svg, .robot-running .rb-arm, .robot-cheer .rb-arm, .robot-tip { animation: none !important; }
+}
 /* small phones: the coffee banner (left) and the help bubble would overlap, so hide the bubble while the banner shows */
 @media (max-width: 639px) { body:has(.coffee-popup) .robot-hint { display: none; } }
 @media (prefers-reduced-motion: reduce) {

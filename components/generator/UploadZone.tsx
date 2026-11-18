@@ -197,7 +197,7 @@ export function UploadZone({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-robot-spot="upload">
       {/* Restore Last Batch Banner if available */}
       {hasSavedBatch && onRestoreBatch && files.length === 0 && (
         <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-primary/20 bg-primary/5 text-primary text-xs">
