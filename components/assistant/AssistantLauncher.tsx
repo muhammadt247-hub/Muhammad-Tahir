@@ -1,6 +1,6 @@
 'use client';
 
-// The small robot button at the bottom LEFT of every page (the coffee button and notifications are on the right).
+// The robot button at the bottom RIGHT of every page (the coffee banner is on the left).
 // The chat window is only downloaded when someone opens it, so pages do not get slower.
 // A small "Need help? Ask me" bubble (English + Urdu) sits next to the robot so everyone knows what it is for.
 
@@ -12,7 +12,7 @@ import { RobotMascot } from '@/components/assistant/RobotIcon';
 const AssistantPanel = dynamic(() => import('@/components/assistant/AssistantPanel').then((m) => m.AssistantPanel), {
   ssr: false,
   loading: () => (
-    <div className="fixed bottom-20 left-4 z-50 rounded-2xl border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground shadow-xl">
+    <div className="fixed bottom-24 right-4 z-50 rounded-2xl border border-border/60 bg-card px-4 py-3 text-xs text-muted-foreground shadow-xl">
       Starting the assistant...
     </div>
   ),
@@ -57,12 +57,12 @@ export function AssistantLauncher() {
       {everOpened && <AssistantPanel open={open} onClose={() => setOpen(false)} />}
 
       {!open && !hintHidden && (
-        <div className="robot-hint fixed bottom-10 left-[4.25rem] z-40 flex items-center sm:bottom-12 sm:left-[5.6rem]">
+        <div className="robot-hint fixed bottom-10 right-[4.25rem] z-40 flex items-center sm:bottom-12 sm:right-[5.6rem]">
           <button
             type="button"
             onClick={openChat}
             data-no-pop
-            className="relative rounded-2xl rounded-bl-md border border-primary/40 bg-card/95 py-1.5 pl-3 pr-7 text-left shadow-lg shadow-primary/15 backdrop-blur-md transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="relative rounded-2xl rounded-br-md border border-primary/40 bg-card/95 py-1.5 pl-3 pr-7 text-left shadow-lg shadow-primary/15 backdrop-blur-md transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <span className="block text-[13px] font-semibold leading-tight text-foreground">
               Need help? <span className="text-primary">Ask me</span> 👋
@@ -88,7 +88,7 @@ export function AssistantLauncher() {
         aria-label={open ? 'Close the Orbinexa AI Assistant' : 'Open the Orbinexa AI Assistant. Ask for help'}
         aria-expanded={open}
         title="Need help? Ask the Orbinexa AI Assistant"
-        className="robot-launcher group fixed bottom-1 left-2 z-40 block w-[56px] rounded-2xl transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:bottom-2 sm:left-3 sm:w-[70px] [&>svg]:h-auto [&>svg]:w-full"
+        className="robot-launcher group fixed bottom-1 right-2 z-40 block w-[56px] rounded-2xl transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:bottom-2 sm:right-3 sm:w-[70px] [&>svg]:h-auto [&>svg]:w-full"
       >
         <RobotMascot size={70} animated={!open} />
         {!open && (

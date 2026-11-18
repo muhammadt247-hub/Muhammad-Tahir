@@ -303,9 +303,11 @@ body {
 .robot-anim .rb-head { transform-box: view-box; transform-origin: 50px 80px; animation: robot-tilt 6s ease-in-out infinite; }
 .robot-anim .rb-arm { transform-box: view-box; transform-origin: 19px 88px; animation: robot-wave 6s ease-in-out infinite; }
 /* "Need help? Ask me" bubble next to the robot: slides in, then nudges every few seconds */
-@keyframes robot-hint-in { from { opacity: 0; transform: translateX(-8px) scale(0.96); } to { opacity: 1; transform: none; } }
-@keyframes robot-hint-nudge { 0%, 88%, 100% { transform: translateX(0); } 92% { transform: translateX(3px); } 96% { transform: translateX(-2px); } }
+@keyframes robot-hint-in { from { opacity: 0; transform: translateX(8px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes robot-hint-nudge { 0%, 88%, 100% { transform: translateX(0); } 92% { transform: translateX(-3px); } 96% { transform: translateX(2px); } }
 .robot-hint { animation: robot-hint-in 0.35s ease-out both, robot-hint-nudge 6s ease-in-out 2s infinite; }
+/* small phones: the coffee banner (left) and the help bubble would overlap, so hide the bubble while the banner shows */
+@media (max-width: 639px) { body:has(.coffee-popup) .robot-hint { display: none; } }
 @media (prefers-reduced-motion: reduce) {
   .robot-anim .rb-eyes, .robot-anim .rb-antenna, .robot-anim .rb-float, .robot-anim .rb-shadow,
   .robot-anim .rb-head, .robot-anim .rb-arm, .robot-hint { animation: none; }
