@@ -349,6 +349,49 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .robot-running > svg, .robot-cheer > svg, .robot-running .rb-arm, .robot-cheer .rb-arm, .robot-tip { animation: none !important; }
 }
+/* Robot dances (asked in the chat, or after "May I dance for you?") */
+.robot-dance > svg { transform-origin: 50% 90%; }
+/* bigger on stage while dancing */
+.robot-launcher.robot-dance { scale: 1.7; transition: scale 0.35s cubic-bezier(.2,1.4,.4,1); }
+/* robot dance: stiff, jerky poses */
+@keyframes dance-robot { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(14deg) translateY(-4px); } 50% { transform: rotate(0) translateY(0); } 75% { transform: rotate(-14deg) translateY(-4px); } }
+@keyframes dance-robot-arm { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(90deg); } 50% { transform: rotate(160deg); } 75% { transform: rotate(90deg); } }
+.robot-dance-robot > svg { animation: dance-robot 1.2s steps(4, jump-none) infinite; }
+.robot-dance-robot .rb-arm { animation: dance-robot-arm 1.2s steps(4, jump-none) infinite !important; }
+/* moonwalk: slides back and forth, leaning */
+@keyframes dance-moonwalk { 0%, 100% { transform: translateX(-26px) rotate(-6deg); } 50% { transform: translateX(26px) rotate(-6deg); } }
+.robot-dance-moonwalk > svg { animation: dance-moonwalk 1.6s ease-in-out infinite; }
+.robot-dance-moonwalk .rb-head { animation: robot-tilt 0.8s ease-in-out infinite !important; }
+/* disco: arm points up and down, hips sway */
+@keyframes dance-disco { 0%, 100% { transform: rotate(-8deg) translateY(0); } 50% { transform: rotate(8deg) translateY(-6px); } }
+@keyframes dance-disco-arm { 0%, 100% { transform: rotate(160deg); } 50% { transform: rotate(40deg); } }
+.robot-dance-disco > svg { animation: dance-disco 0.6s ease-in-out infinite; }
+.robot-dance-disco .rb-arm { animation: dance-disco-arm 0.6s ease-in-out infinite !important; }
+/* bhangra: fast shoulder bounce with the arm up */
+@keyframes dance-bhangra { 0%, 100% { transform: translateY(0) scale(1, 1); } 30% { transform: translateY(-14px) scale(0.97, 1.04); } 60% { transform: translateY(0) scale(1.05, 0.95); } }
+@keyframes dance-bhangra-arm { 0%, 100% { transform: rotate(150deg); } 50% { transform: rotate(175deg); } }
+.robot-dance-bhangra > svg { animation: dance-bhangra 0.42s ease-in-out infinite; }
+.robot-dance-bhangra .rb-arm { animation: dance-bhangra-arm 0.21s ease-in-out infinite !important; }
+/* twist: quick left-right twist */
+@keyframes dance-twist { 0%, 100% { transform: skewX(0) rotate(0); } 25% { transform: skewX(-12deg) rotate(-8deg); } 75% { transform: skewX(12deg) rotate(8deg); } }
+.robot-dance-twist > svg { animation: dance-twist 0.5s ease-in-out infinite; }
+.robot-dance-twist .rb-arm { animation: robot-swing 0.5s ease-in-out infinite !important; }
+/* spin: turns around (flat 3D look) with a hop */
+@keyframes dance-spin { 0% { transform: scaleX(1) translateY(0); } 25% { transform: scaleX(0.1) translateY(-10px); } 50% { transform: scaleX(-1) translateY(0); } 75% { transform: scaleX(0.1) translateY(-10px); } 100% { transform: scaleX(1) translateY(0); } }
+.robot-dance-spin > svg { animation: dance-spin 0.9s linear infinite; }
+/* breakdance: full spins, then a head spin upside down */
+@keyframes dance-break { 0% { transform: rotate(0); } 40% { transform: rotate(360deg); } 55% { transform: rotate(540deg) translateY(10px); } 75% { transform: rotate(540deg) translateY(10px) rotate(20deg); } 100% { transform: rotate(720deg); } }
+.robot-dance-breakdance > svg { animation: dance-break 2.4s ease-in-out infinite; transform-origin: 50% 55%; }
+/* happy jump: big jumps with a squash on landing */
+@keyframes dance-jump { 0%, 100% { transform: translateY(0) scale(1.08, 0.9); } 15% { transform: translateY(0) scale(1, 1); } 45% { transform: translateY(-34px) scale(0.95, 1.06) rotate(-6deg); } 75% { transform: translateY(0) scale(1, 1); } }
+.robot-dance-jump > svg { animation: dance-jump 0.75s ease-in-out infinite; }
+.robot-dance-jump .rb-arm { animation: robot-wave-fast 0.375s ease-in-out infinite !important; }
+/* floating music notes */
+@keyframes robot-note { 0% { opacity: 0; transform: translateY(6px) scale(0.6) rotate(-10deg); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-46px) scale(1.15) rotate(15deg); } }
+.robot-note { animation: robot-note 1.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .robot-dance > svg, .robot-dance .rb-arm, .robot-note { animation: none !important; }
+}
 /* small phones: the coffee banner (left) and the help bubble would overlap, so hide the bubble while the banner shows */
 @media (max-width: 639px) { body:has(.coffee-popup) .robot-hint { display: none; } }
 @media (prefers-reduced-motion: reduce) {

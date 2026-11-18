@@ -7,6 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Eraser, Send, Store, X } from 'lucide-react';
 import { RobotIcon } from '@/components/assistant/RobotIcon';
+import { askRobotToDance, danceReply, detectDance, pickDance } from '@/lib/assistant/robot-moves';
 
 type Action = { label: string; href: string };
 type Pkg = {
@@ -33,6 +34,7 @@ const SUGGESTIONS = [
   'How do I generate CSV metadata?',
   'How can I improve my Adobe Stock keywords?',
   'Take me to the CSV generator',
+  'Dance for me! 💃',
 ];
 const STORE_KEY = 'orbinexa-assistant-chat';
 const fmt = (n: number) => 'Rs ' + Math.round(n).toLocaleString('en-US');
@@ -114,6 +116,14 @@ export function AssistantPanel({
     const next: Msg[] = [...messages, { role: 'user', text: q }];
     setMessages(next);
     setInput('');
+    // "dance for me", "do the moonwalk", "nacho": the robot dances, no AI call needed
+    const danceWish = detectDance(q);
+    if (danceWish) {
+      const d = pickDance(danceWish);
+      setMessages([...next, { role: 'assistant', text: danceReply(d) }]);
+      askRobotToDance(d.id);
+      return;
+    }
     setBusy(true);
     abortRef.current?.abort();
     const ctl = new AbortController();

@@ -10,6 +10,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { X } from 'lucide-react';
 import { RobotMascot } from '@/components/assistant/RobotIcon';
+import { DANCES, ROBOT_EVENT, pickDance, type DanceId } from '@/lib/assistant/robot-moves';
 
 const AssistantPanel = dynamic(() => import('@/components/assistant/AssistantPanel').then((m) => m.AssistantPanel), {
   ssr: false,
@@ -26,6 +27,10 @@ const WAIT_MS = 15_000; // time between trips
 const RUN_MS = 1_200; // running there (and back)
 const STAY_MS = 4_500; // showing the tip
 const MAX_TRIPS = 8; // per page, so it never becomes annoying
+const DANCE_MS = 7_000; // how long a dance lasts
+const INVITE_MS = 9_000; // how long "May I dance for you?" waits for an answer
+const INVITE_TRIP = 3; // the 3rd trip of a visit asks "May I dance for you?"
+const INVITE_KEY = 'orbinexa-robot-dance-asked';
 
 interface Tip {
   en: string;
@@ -83,6 +88,7 @@ const TIPS: Record<string, Tip> = {
 };
 
 type Phase = 'home' | 'going' | 'there' | 'back';
+type Kind = 'tip' | 'invite' | 'dance';
 
 interface Trip {
   phase: Phase;
@@ -92,6 +98,8 @@ interface Trip {
   tipSide: 'left' | 'right';
   fromDx: number; // how far it went sideways (to face the right way on the way back)
   tipBelow: boolean; // robot is high on the screen: tip goes under it so it never covers the top bar
+  kind: Kind; // tip about a section, "May I dance for you?", or dancing in the middle of the screen
+  dance: DanceId;
 }
 
 const HOME: Trip = {
@@ -102,6 +110,8 @@ const HOME: Trip = {
   tipSide: 'left',
   fromDx: 0,
   tipBelow: false,
+  kind: 'tip',
+  dance: 'robot',
 };
 
 function prefersReducedMotion(): boolean {
@@ -151,6 +161,7 @@ export function AssistantLauncher() {
   const tripsDone = useRef(0);
   const lastSpot = useRef('');
   const stopped = useRef(false); // chat opened or tours switched off
+  const loopRef = useRef<() => void>(() => {}); // starts the next trip (set inside the trip loop)
 
   useEffect(() => {
     const hidden = readFlag(HINT_KEY);
@@ -183,6 +194,13 @@ export function AssistantLauncher() {
       }
       tripsDone.current += 1;
 
+      // 3rd trip of the visit: run to the middle and ask "May I dance for you?" (once per visit)
+      if (tripsDone.current === INVITE_TRIP && !readFlag(INVITE_KEY)) {
+        writeFlag(INVITE_KEY);
+        goToMiddle('invite', 'robot', INVITE_MS);
+        return;
+      }
+
       // measured from the fixed marker, so a run-back that has not finished drawing cannot spoil the next trip
       const home = robot.getBoundingClientRect();
       const vw = window.innerWidth;
@@ -202,6 +220,8 @@ export function AssistantLauncher() {
           tipSide: 'left',
           fromDx: 0,
           tipBelow: false,
+          kind: 'tip',
+          dance: 'robot',
         };
       } else {
         const r = pick.getBoundingClientRect();
@@ -218,6 +238,8 @@ export function AssistantLauncher() {
           tipSide: x + w / 2 > vw / 2 ? 'left' : 'right',
           fromDx: Math.round(x - home.left),
           tipBelow: y < vh * 0.4,
+          kind: 'tip',
+          dance: 'robot',
         };
       }
       lastSpot.current = next.spot;
@@ -235,8 +257,50 @@ export function AssistantLauncher() {
       );
     }
 
+    loopRef.current = startTrip;
     if (!stopped.current) later(startTrip, WAIT_MS);
     return clearTimers;
+    // runs once; the helpers it calls only use refs and state setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Run to the middle of the screen, then ask "May I dance for you?" or dance; then run back home
+  function goToMiddle(kind: 'invite' | 'dance', dance: DanceId, stayMs: number) {
+    clearTimers();
+    const home = homeRef.current?.getBoundingClientRect();
+    if (!home) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const x = vw / 2 - home.width / 2;
+    const y = Math.max(vh * (kind === 'invite' ? 0.55 : 0.45) - home.height / 2, 80);
+    const dx = Math.round(x - home.left);
+    const dy = Math.round(y - home.top);
+    setTrip({ phase: 'going', dx, dy, spot: 'dance', tipSide: 'left', fromDx: dx, tipBelow: false, kind, dance });
+    later(() => setTrip((t) => ({ ...t, phase: 'there' })), RUN_MS);
+    later(() => goHome(), RUN_MS + stayMs);
+  }
+
+  // Run back to the corner and (unless the trips were stopped) continue the trip loop later
+  function goHome() {
+    clearTimers();
+    setTrip((t) => (t.phase === 'home' ? t : { ...t, phase: 'back', dx: 0, dy: 0 }));
+    later(() => {
+      setTrip(HOME);
+      if (!stopped.current) later(() => loopRef.current(), WAIT_MS);
+    }, RUN_MS);
+  }
+
+  // The chat (or the invite) asks the robot to dance
+  useEffect(() => {
+    const onMove = (e: Event) => {
+      const detail = (e as CustomEvent<{ dance?: DanceId; invite?: boolean }>).detail;
+      if (detail?.dance) goToMiddle('dance', detail.dance, DANCE_MS);
+      else if (detail?.invite) goToMiddle('invite', 'robot', INVITE_MS);
+    };
+    window.addEventListener(ROBOT_EVENT, onMove);
+    return () => window.removeEventListener(ROBOT_EVENT, onMove);
+    // goToMiddle only uses refs and state setters
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stopTours = (forGood: boolean) => {
@@ -269,6 +333,14 @@ export function AssistantLauncher() {
   const moving = trip.phase === 'going' || trip.phase === 'back';
   // faces the way it runs: going left when the section is to the left, coming back the other way
   const goingLeft = trip.phase === 'going' ? trip.fromDx < 0 : trip.fromDx > 0;
+  const dancing = trip.kind === 'dance' && trip.phase === 'there';
+  const inMiddle = trip.kind !== 'tip';
+  const dance = DANCES.find((d) => d.id === trip.dance) ?? DANCES[0];
+
+  const answerInvite = (yes: boolean) => {
+    if (yes) goToMiddle('dance', pickDance('random').id, DANCE_MS);
+    else goHome();
+  };
 
   return (
     <>
@@ -308,14 +380,52 @@ export function AssistantLauncher() {
       />
       <div
         ref={robotRef}
-        className="robot-dock fixed bottom-1 right-2 z-[45] sm:bottom-2 sm:right-3"
+        className={'robot-dock fixed bottom-1 right-2 sm:bottom-2 sm:right-3 ' + (inMiddle ? 'z-[60]' : 'z-[45]')}
         style={{
           transform: `translate(${trip.dx}px, ${trip.dy}px)`,
           transition: moving ? `transform ${RUN_MS}ms cubic-bezier(.45,.05,.35,1)` : undefined,
         }}
       >
+        {/* "May I dance for you?" */}
+        {trip.kind === 'invite' && trip.phase === 'there' && (
+          <div className="robot-tip absolute bottom-[92%] left-1/2 w-[min(250px,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-primary/40 bg-card px-3 py-2.5 text-center shadow-xl shadow-primary/20">
+            <p className="text-[14px] font-bold leading-snug text-foreground">May I dance for you? 💃🕺</p>
+            <p dir="rtl" className="mt-0.5 text-[12px] leading-snug text-muted-foreground">
+              کیا میں آپ کے لیے ڈانس کروں؟
+            </p>
+            <div className="mt-2 flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => answerInvite(true)}
+                className="rounded-full bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground hover:bg-primary/90"
+              >
+                Yes, dance! / ہاں
+              </button>
+              <button
+                type="button"
+                onClick={() => answerInvite(false)}
+                className="rounded-full border border-border px-3.5 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground"
+              >
+                No thanks / نہیں
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* dance name and music notes while dancing */}
+        {dancing && (
+          <>
+            <div className="robot-tip pointer-events-none absolute bottom-[100%] left-1/2 mb-14 -translate-x-1/2 whitespace-nowrap rounded-full bg-primary px-3 py-1 text-xs font-bold text-primary-foreground shadow-lg">
+              {dance.emoji} {dance.name}!
+            </div>
+            <span aria-hidden="true" className="robot-note pointer-events-none absolute -left-12 -top-4 text-2xl text-primary" style={{ animationDelay: '0s' }}>♪</span>
+            <span aria-hidden="true" className="robot-note pointer-events-none absolute -right-12 top-0 text-3xl text-emerald-500" style={{ animationDelay: '0.6s' }}>♫</span>
+            <span aria-hidden="true" className="robot-note pointer-events-none absolute -left-8 top-12 text-xl text-primary" style={{ animationDelay: '1.2s' }}>♪</span>
+          </>
+        )}
+
         {/* tip bubble while the robot is visiting a section */}
-        {trip.phase === 'there' && !open && (
+        {trip.kind === 'tip' && trip.phase === 'there' && !open && (
           <button
             type="button"
             onClick={() => openChat(tip.ask)}
@@ -346,10 +456,12 @@ export function AssistantLauncher() {
             'robot-launcher group relative block w-[56px] rounded-2xl transition-[scale] hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:w-[70px] [&>svg]:h-auto [&>svg]:w-full ' +
             (moving ? 'robot-running ' : '') +
             (moving && goingLeft ? 'robot-face-left ' : '') +
-            (trip.phase === 'there' ? 'robot-cheer' : '')
+            (trip.phase === 'there' && trip.kind === 'tip' ? 'robot-cheer ' : '') +
+            (trip.phase === 'there' && trip.kind === 'invite' ? 'robot-cheer ' : '') +
+            (dancing ? 'robot-dance robot-dance-' + trip.dance : '')
           }
         >
-          <RobotMascot size={70} animated={!open} />
+          <RobotMascot size={70} animated={!open || inMiddle} />
           {!open && !away && (
             <span
               className="pointer-events-none absolute right-1 top-[18%] h-3 w-3 rounded-full bg-emerald-400 ring-2 ring-background"
