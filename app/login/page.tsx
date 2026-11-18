@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
+import { isSlowEmailError, friendlyEmailError, EMAIL_TIPS } from '@/lib/supabase/auth-email';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -149,12 +150,12 @@ function LoginForm() {
         },
       });
 
-      if (error) {
-        setResendError(error.message);
-        toast.error(error.message);
+      if (error && !isSlowEmailError(error)) {
+        setResendError(friendlyEmailError(error));
+        toast.error(friendlyEmailError(error));
       } else {
         setResendSuccess(true);
-        toast.success('Confirmation email resent!');
+        toast.success(error ? 'Sent. The email may take a few minutes.' : 'Confirmation email resent!');
       }
     } catch {
       setResendError('Failed to resend confirmation email.');
@@ -189,9 +190,14 @@ function LoginForm() {
             {isUnconfirmed && (
               <div className="pt-2 border-t border-destructive/20">
                 {resendSuccess ? (
-                  <p className="text-emerald-500 font-medium">
-                    &check; Confirmation email sent! Please check your inbox and spam folder.
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-emerald-500 font-medium">&check; Confirmation email sent!</p>
+                    <ul className="list-disc pl-4 space-y-0.5 text-muted-foreground">
+                      {EMAIL_TIPS.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
                 ) : (
                   <Button
                     type="button"
