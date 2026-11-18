@@ -145,8 +145,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="light">Light Mode</SelectItem>
-                <SelectItem value="dark">Dark Mode</SelectItem>
+                <SelectItem value="light">Light Mode (default)</SelectItem>
+                <SelectItem value="dark">Dark Mode (red Ember)</SelectItem>
                 <SelectItem value="system">System Preference</SelectItem>
               </SelectContent>
             </Select>

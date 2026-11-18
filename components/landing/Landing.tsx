@@ -74,11 +74,11 @@ export default function Landing() {
   }, []);
 
   return (
-    <div className="force-dark dark relative text-foreground">
+    <div className="relative text-foreground">
       {/* ---------- HERO ---------- */}
       <section className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center overflow-hidden px-6 py-24">
         {/* glowing ember shapes (CSS only) */}
-        <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div aria-hidden className="pointer-events-none absolute inset-0 opacity-45 [mask-image:radial-gradient(ellipse_at_center,black_45%,transparent_78%)] dark:opacity-100 dark:[mask-image:none]">
           <div className="ember-float-a absolute -left-[12%] -top-[18%] h-[70vmin] w-[70vmin] rounded-full bg-[radial-gradient(circle_at_40%_40%,hsl(8_95%_48%/.65),hsl(0_85%_30%/.25)_45%,transparent_70%)] blur-2xl" />
           <div className="ember-float-b absolute -bottom-[22%] -right-[10%] h-[65vmin] w-[65vmin] rounded-full bg-[radial-gradient(circle_at_60%_60%,hsl(20_100%_50%/.55),hsl(4_85%_32%/.25)_45%,transparent_70%)] blur-2xl" />
           <div className="absolute left-1/2 top-1/2 h-[40vmin] w-[80vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[hsl(10_80%_35%/.18)] blur-3xl" />
@@ -87,19 +87,19 @@ export default function Landing() {
 
         <div ref={heroRef} className="relative z-10 mx-auto max-w-4xl text-center will-change-transform">
           <div className="reveal">
-            <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-[11px] uppercase tracking-[0.25em] text-white/70 backdrop-blur-sm">
+            <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-foreground/5 px-4 py-1.5 text-[11px] uppercase tracking-[0.25em] text-foreground/70 backdrop-blur-sm">
               <Sparkles className="h-3.5 w-3.5 text-primary" /> AI toolkit for stock contributors
             </p>
           </div>
           <div className="reveal" style={{ transitionDelay: '120ms' }}>
-            <h1 className="text-glow text-5xl font-medium leading-[1.05] tracking-tight text-[#ffe6dc] sm:text-6xl md:text-7xl">
+            <h1 className="text-glow text-5xl font-medium leading-[1.05] tracking-tight text-foreground dark:text-[#ffe6dc] sm:text-6xl md:text-7xl">
               OrbinexaCSV.
               <br />
               <span className="font-normal italic">Your stock studio.</span>
             </h1>
           </div>
           <div className="reveal" style={{ transitionDelay: '240ms' }}>
-            <p className="mx-auto mt-6 max-w-xl text-base font-light leading-relaxed text-[#ffe6dc]/85 md:text-lg">
+            <p className="mx-auto mt-6 max-w-xl text-base font-light leading-relaxed text-foreground/75 dark:text-[#ffe6dc]/85 md:text-lg">
               Titles, keywords and clean cut-outs for Adobe Stock, Shutterstock and Freepik. Made for contributors who would
               rather create than type.
             </p>
@@ -115,13 +115,13 @@ export default function Landing() {
               </Link>
               <Link
                 href="/login"
-                className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-7 py-3 text-sm font-medium uppercase tracking-widest text-white/85 backdrop-blur-sm transition hover:bg-white/10"
+                className="inline-flex items-center rounded-full border border-foreground/20 bg-foreground/5 px-7 py-3 text-sm font-medium uppercase tracking-widest text-foreground/85 backdrop-blur-sm transition hover:bg-foreground/10"
               >
                 Log in
               </Link>
             </div>
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/65">
-              Free credits on sign up <span className="mx-2 text-white/30">|</span> No card needed
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-foreground/65">
+              Free credits on sign up <span className="mx-2 text-foreground/30">|</span> No card needed
             </p>
           </div>
         </div>
@@ -142,14 +142,14 @@ export default function Landing() {
           {PLATFORMS.map((p, i) => (
             <div
               key={p}
-              className="reveal text-sm font-semibold uppercase tracking-[0.2em] text-white/60 transition-colors hover:text-white/85"
+              className="reveal text-sm font-semibold uppercase tracking-[0.2em] text-foreground/60 transition-colors hover:text-foreground/85"
               style={{ transitionDelay: `${i * 90}ms` }}
             >
               {p}
             </div>
           ))}
         </div>
-        <p className="reveal mt-4 text-center text-xs uppercase tracking-[0.2em] text-white/50">Export formats supported</p>
+        <p className="reveal mt-4 text-center text-xs uppercase tracking-[0.2em] text-foreground/50">Export formats supported</p>
       </section>
 
       {/* ---------- FLOATING CARDS ---------- */}
@@ -196,14 +196,14 @@ export default function Landing() {
             <div ref={upRef} className="will-change-transform md:mt-24">
               <Link
                 href="/marketplace"
-                className="reveal group flex aspect-[4/5] flex-col justify-between rounded-3xl border border-white/10 bg-card p-8 shadow-2xl transition-colors duration-500 hover:border-primary/50 md:p-12"
+                className="reveal group flex aspect-[4/5] flex-col justify-between rounded-3xl border border-foreground/10 bg-card p-8 shadow-2xl transition-colors duration-500 hover:border-primary/50 md:p-12"
                 style={{ transitionDelay: '150ms' }}
               >
                 <div className="flex items-start justify-between">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/5 transition-transform duration-500 group-hover:scale-110">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/5 transition-transform duration-500 group-hover:scale-110">
                     <Store className="h-6 w-6 text-foreground" />
                   </div>
-                  <span className="rounded-full border border-white/10 px-3 py-1 text-sm font-medium text-white/50">02</span>
+                  <span className="rounded-full border border-foreground/10 px-3 py-1 text-sm font-medium text-foreground/50">02</span>
                 </div>
                 <div>
                   <h3 className="mb-4 font-serif text-4xl leading-none tracking-tight text-foreground md:text-5xl">
@@ -216,7 +216,7 @@ export default function Landing() {
                     every delivery before it reaches you.
                   </p>
                 </div>
-                <div className="mt-8 h-px w-full bg-white/10" />
+                <div className="mt-8 h-px w-full bg-foreground/10" />
               </Link>
             </div>
           </div>
@@ -235,7 +235,7 @@ export default function Landing() {
             {FEATURES.map((f, i) => (
               <div
                 key={f.title}
-                className="reveal group rounded-3xl border border-white/8 bg-card/70 p-7 backdrop-blur-sm transition-colors duration-500 hover:border-primary/40"
+                className="reveal group rounded-3xl border border-foreground/8 bg-card/70 p-7 backdrop-blur-sm transition-colors duration-500 hover:border-primary/40"
                 style={{ transitionDelay: `${(i % 3) * 100}ms` }}
               >
                 <div className="mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-primary transition-transform duration-500 group-hover:scale-110">
@@ -259,7 +259,7 @@ export default function Landing() {
           </div>
           <div className="grid gap-6 md:grid-cols-3">
             {STEPS.map((s, i) => (
-              <div key={s.n} className="reveal relative rounded-3xl border border-white/8 bg-card/60 p-7" style={{ transitionDelay: `${i * 120}ms` }}>
+              <div key={s.n} className="reveal relative rounded-3xl border border-foreground/8 bg-card/60 p-7" style={{ transitionDelay: `${i * 120}ms` }}>
                 <span className="font-mono text-xs tracking-[0.25em] text-primary">{s.n}</span>
                 <s.icon className="mt-5 h-6 w-6 text-foreground/80" />
                 <h3 className="mt-4 font-serif text-2xl text-foreground">{s.title}</h3>
@@ -272,9 +272,9 @@ export default function Landing() {
 
       {/* ---------- CTA ---------- */}
       <section className="relative overflow-hidden px-6 py-28 md:py-36">
-        <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-[50vmin] w-[90vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[hsl(12_90%_40%/.25)] blur-3xl" />
+        <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-[50vmin] w-[90vmin] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[hsl(12_90%_40%/.25)] blur-3xl opacity-50 dark:opacity-100" />
         <div className="reveal relative mx-auto max-w-3xl text-center">
-          <h2 className="text-glow text-4xl text-[#ffe6dc] md:text-6xl">
+          <h2 className="text-glow text-4xl text-foreground dark:text-[#ffe6dc] md:text-6xl">
             Ready when <span className="italic">you are.</span>
           </h2>
           <p className="mx-auto mt-6 max-w-lg text-muted-foreground">
@@ -282,7 +282,7 @@ export default function Landing() {
           </p>
           <Link
             href="/signup"
-            className="group mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-3.5 text-sm font-semibold text-black transition hover:scale-105"
+            className="group mt-10 inline-flex items-center gap-2 rounded-full bg-foreground px-8 py-3.5 text-sm font-semibold text-background transition hover:scale-105"
           >
             Create free account
             <ArrowUpRight className="h-4 w-4 transition-transform group-hover:rotate-45" />
@@ -291,9 +291,9 @@ export default function Landing() {
       </section>
 
       {/* ---------- FOOTER ---------- */}
-      <footer className="relative overflow-hidden border-t border-white/5 px-6 py-16">
+      <footer className="relative overflow-hidden border-t border-foreground/5 px-6 py-16">
         <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-10 md:flex-row md:items-end">
-          <p aria-hidden className="select-none font-serif text-[13vw] font-bold leading-[0.8] tracking-tighter text-white/[0.06] md:text-[9vw]">
+          <p aria-hidden className="select-none font-serif text-[13vw] font-bold leading-[0.8] tracking-tighter text-foreground/[0.06] md:text-[9vw]">
             OrbinexaCSV.
           </p>
           <div className="flex flex-col gap-6 md:text-right">
@@ -303,7 +303,7 @@ export default function Landing() {
               <Link href="/licenses" className="transition-colors hover:text-foreground">Licenses</Link>
               <Link href="/login" className="transition-colors hover:text-foreground">Log in</Link>
             </nav>
-            <p className="text-sm text-white/55">© {new Date().getFullYear()} OrbinexaCSV. All rights reserved.</p>
+            <p className="text-sm text-foreground/55">© {new Date().getFullYear()} OrbinexaCSV. All rights reserved.</p>
           </div>
         </div>
       </footer>

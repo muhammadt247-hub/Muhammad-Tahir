@@ -58,9 +58,10 @@ export default function RootLayout({
         <CasualProtection />
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
-          // new key (was "theme"): old saved light/dark choices are ignored, so everyone starts in the new Ember theme
-          storageKey="orbinexa-theme"
+          defaultTheme="light"
+          // Light first for everyone; the red "Ember" dark theme is the second choice (moon button / Settings).
+          // New key (was "orbinexa-theme"), so the old automatic dark start is not kept.
+          storageKey="orbinexa-theme-v2"
           disableTransitionOnChange
         >
           <AppShell>{children}</AppShell>
