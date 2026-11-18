@@ -36,6 +36,7 @@ import {
   sortListings,
   getBadges,
 } from '@/lib/marketplace/shared';
+import { can, isStaff, loadStaffAccess } from '@/lib/marketplace/staff';
 
 
 const PAGE_SIZE = 24;
@@ -71,7 +72,8 @@ function MarketplaceHome() {
   const [sort, setSort] = useState<SortKey>('price');
   const [ordering, setOrdering] = useState<MpListing | null>(null);
   const [scores, setScores] = useState<Record<string, VendorScore>>({});
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false); // Super Admin or a moderator
+  const [showCatalogLink, setShowCatalogLink] = useState(false);
   const [vendorStatus, setVendorStatus] = useState<string | null>(null);
   const [vendors, setVendors] = useState<VendorRow[]>([]);
   const [tab, setTab] = useState<'packages' | 'vendors'>('packages');
@@ -90,8 +92,11 @@ function MarketplaceHome() {
     (async () => {
       try {
         const supabase = createClient();
-        const adminCheck = await supabase.rpc('mp_is_admin');
-        if (!cancelled && adminCheck.data === true) setIsAdmin(true);
+        const acc = await loadStaffAccess(supabase);
+        if (!cancelled && isStaff(acc)) {
+          setIsAdmin(true);
+          setShowCatalogLink(can(acc, 'catalog') || can(acc, 'vendors'));
+        }
         const { data: userData } = await supabase.auth.getUser();
         const uid = userData.user?.id;
         if (uid) {
@@ -567,12 +572,14 @@ function MarketplaceHome() {
               >
                 Admin orders
               </Link>
+              {showCatalogLink && (
               <Link
                 href="/marketplace/admin/catalog"
                 className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
               >
                 Catalog
               </Link>
+              )}
             </>
           )}
           </div>

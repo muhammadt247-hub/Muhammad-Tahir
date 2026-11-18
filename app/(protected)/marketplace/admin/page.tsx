@@ -10,6 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { MARKETPLACE_ENABLED, formatPkr } from '@/lib/marketplace/shared';
 import { MoneySummary, PayoutTotals, StatusModeration, VendorScores, type MoneyRow } from '@/components/marketplace/AdminInsights';
+import { ModeratorManager } from '@/components/marketplace/ModeratorManager';
+import { NO_ACCESS, can, isStaff, loadStaffAccess, type StaffAccess } from '@/lib/marketplace/staff';
 
 interface PrivateRow {
   vendor_price: number | string;
@@ -206,7 +208,7 @@ export default function MarketplaceAdminPage() {
 
 function AdminOrders() {
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [access, setAccess] = useState<StaffAccess>(NO_ACCESS);
   const [error, setError] = useState<string | null>(null);
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [filter, setFilter] = useState('attention');
@@ -214,22 +216,29 @@ function AdminOrders() {
   const [tick, setTick] = useState(0);
   const [pendingVendors, setPendingVendors] = useState(0);
   const [vendorWarnings, setVendorWarnings] = useState(0);
-  const [view, setView] = useState<'orders' | 'vendors' | 'statuses'>('orders');
+  const [view, setView] = useState<'orders' | 'vendors' | 'statuses' | 'moderators' | null>(null);
 
   const load = useCallback(async () => {
     try {
       const supabase = createClient();
-      const adminCheck = await supabase.rpc('mp_is_admin');
-      if (adminCheck.error) throw new Error(adminCheck.error.message);
-      if (adminCheck.data !== true) {
-        setIsAdmin(false);
+      // Super Admin sees everything; a moderator only what the Super Admin ticked (the database checks again)
+      const acc = await loadStaffAccess(supabase);
+      setAccess(acc);
+      if (!isStaff(acc)) return;
+      setView((v) =>
+        v ??
+        (can(acc, 'orders_view') ? 'orders' : can(acc, 'vendors') || can(acc, 'insights') ? 'vendors' : can(acc, 'statuses') ? 'statuses' : acc.super ? 'moderators' : null)
+      );
+      if (can(acc, 'vendors')) {
+        const pv = await supabase.from('mp_vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending');
+        setPendingVendors(pv.count ?? 0);
+        const wa = await supabase.from('mp_vendor_alerts').select('id', { count: 'exact', head: true }).eq('seen', false);
+        setVendorWarnings(wa.count ?? 0);
+      }
+      if (!can(acc, 'orders_view')) {
+        setError(null);
         return;
       }
-      setIsAdmin(true);
-      const pv = await supabase.from('mp_vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending');
-      setPendingVendors(pv.count ?? 0);
-      const wa = await supabase.from('mp_vendor_alerts').select('id', { count: 'exact', head: true }).eq('seen', false);
-      setVendorWarnings(wa.count ?? 0);
       await supabase.rpc('mp_auto_complete_due');
       const { data, error: err } = await supabase
         .from('mp_orders')
@@ -348,7 +357,11 @@ function AdminOrders() {
     );
   }
 
-  if (!isAdmin) {
+  const showMoney = can(access, 'insights') || can(access, 'vendor_payments');
+  const canManageOrders = can(access, 'orders_manage');
+  const canPayVendors = can(access, 'vendor_payments');
+
+  if (!isStaff(access)) {
     return (
       <div className="max-w-xl mx-auto py-24 text-center space-y-2">
         <h1 className="text-2xl font-extrabold text-foreground">Admin only</h1>
@@ -360,26 +373,34 @@ function AdminOrders() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Marketplace admin</h1>
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">Marketplace admin</h1>
+          <p className="text-xs font-semibold text-muted-foreground">
+            {access.super ? 'You are the Super Admin (full control).' : 'You are a moderator. You see only the parts the Super Admin allowed.'}
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
+          {(can(access, 'catalog') || can(access, 'vendors')) && (
           <Link
             href="/marketplace/admin/catalog"
             className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             Catalog
           </Link>
+          )}
           <Button size="sm" variant="outline" onClick={() => load()}>
             Refresh
           </Button>
         </div>
       </div>
 
-      <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
+      <div className="flex flex-wrap gap-1 rounded-xl bg-muted p-1 w-fit">
         {([
-          ['orders', 'Orders'],
-          ['vendors', 'Vendor scores'],
-          ['statuses', 'Vendor statuses'],
-        ] as const).map(([key, label]) => (
+          ['orders', 'Orders', can(access, 'orders_view')],
+          ['vendors', 'Vendor scores', can(access, 'vendors') || can(access, 'insights')],
+          ['statuses', 'Vendor statuses', can(access, 'statuses')],
+          ['moderators', 'Moderators', access.super],
+        ] as const).filter(([, , show]) => show).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -396,8 +417,9 @@ function AdminOrders() {
 
       {view === 'vendors' && <VendorScores />}
       {view === 'statuses' && <StatusModeration />}
+      {view === 'moderators' && access.super && <ModeratorManager />}
 
-      {view === 'orders' && <MoneySummary rows={moneyRows} />}
+      {view === 'orders' && showMoney && <MoneySummary rows={moneyRows} />}
 
       {view === 'orders' && (
       <div className="flex flex-wrap gap-2">
@@ -431,7 +453,7 @@ function AdminOrders() {
 
       {error && <p className="text-xs font-semibold text-red-600 break-words">{error}</p>}
 
-      {pendingVendors > 0 && (
+      {view !== 'moderators' && pendingVendors > 0 && (
         <Link
           href="/marketplace/admin/catalog?tab=vendors"
           className="block w-full rounded-xl bg-primary/15 px-4 py-3 text-sm font-bold text-primary"
@@ -440,7 +462,7 @@ function AdminOrders() {
         </Link>
       )}
 
-      {vendorWarnings > 0 && (
+      {view !== 'moderators' && vendorWarnings > 0 && (
         <Link
           href="/marketplace/admin/catalog?tab=vendors"
           className="block w-full rounded-xl bg-red-500/15 px-4 py-3 text-sm font-bold text-red-700 dark:text-red-300"
@@ -449,9 +471,9 @@ function AdminOrders() {
         </Link>
       )}
 
-      {view === 'orders' && filter === 'payout' && <PayoutTotals rows={moneyRows} />}
+      {view === 'orders' && filter === 'payout' && showMoney && <PayoutTotals rows={moneyRows} />}
 
-      {newCount > 0 && (
+      {view === 'orders' && newCount > 0 && (
         <button
           type="button"
           onClick={() => {
@@ -503,7 +525,7 @@ function AdminOrders() {
                     <p className="text-muted-foreground">
                       Customer price: <span className="font-bold text-foreground">{formatPkr(Number(o.price))}</span>
                     </p>
-                    {p && (
+                    {p && showMoney && (
                       <p className="text-muted-foreground">
                         Vendor price {formatPkr(Number(p.vendor_price))} | Your commission{' '}
                         {formatPkr(Number(p.commission))}
@@ -556,7 +578,7 @@ function AdminOrders() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {actions.map((a) => (
+                  {canManageOrders && actions.map((a) => (
                     <Button
                       key={a.to}
                       size="sm"
@@ -572,7 +594,7 @@ function AdminOrders() {
                       <span className="text-xs font-semibold text-green-600">
                         Vendor paid {formatDate(p.vendor_paid_at)}
                       </span>
-                    ) : (
+                    ) : canPayVendors && (
                       <Button size="sm" disabled={busyId === o.id} onClick={() => markVendorPaid(o)}>
                         Vendor paid
                       </Button>
