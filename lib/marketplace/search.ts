@@ -1,5 +1,4 @@
 // Marketplace search and price sorting helpers (used by the shop page and the home page sliders).
-import { useEffect, useState } from 'react';
 import type { MpListing } from '@/lib/marketplace/shared';
 
 // lower case, no accents, letters and numbers only ("ChatGPT-Plus" -> "chatgpt plus")
@@ -95,14 +94,4 @@ export function sortVendors(list: VendorSummary[], key: VendorSortKey): VendorSu
     if (ap !== bp) return key === 'price_asc' ? ap - bp : bp - ap;
     return byName(a, b);
   });
-}
-
-// Waits until the user stops typing for a moment
-export function useDebounced<T>(value: T, ms = 250): T {
-  const [v, setV] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
-  }, [value, ms]);
-  return v;
 }
