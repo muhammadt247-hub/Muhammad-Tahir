@@ -141,7 +141,7 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
     <div
       role="dialog"
       aria-label="Orbinexa AI Assistant"
-      className="fixed bottom-20 left-3 z-50 flex h-[min(600px,calc(100dvh-7rem))] w-[min(390px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-bottom-2 sm:left-4 sm:bottom-24"
+      className="fixed bottom-[5.5rem] left-3 z-50 flex h-[min(600px,calc(100dvh-8rem))] w-[min(390px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-bottom-2 sm:left-4 sm:bottom-[6.5rem]"
     >
       {/* header */}
       <div className="flex items-center gap-3 border-b border-border/60 bg-gradient-to-r from-primary/15 to-transparent px-4 py-3">

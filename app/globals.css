@@ -283,14 +283,30 @@ body {
 /* Orbinexa AI Assistant robot: gentle blink, glowing antenna and a slow float (off for reduced motion) */
 @keyframes robot-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
 @keyframes robot-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-@keyframes robot-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-.robot-anim .robot-eyes { transform-box: fill-box; transform-origin: center; animation: robot-blink 5s infinite; }
-.robot-anim .robot-antenna { animation: robot-glow 2.4s ease-in-out infinite; }
-.robot-launcher > svg { animation: robot-float 4s ease-in-out infinite; }
+@keyframes robot-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes robot-shadow { 0%, 100% { transform: scaleX(1); opacity: 0.18; } 50% { transform: scaleX(0.78); opacity: 0.1; } }
+@keyframes robot-tilt { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-5deg); } 60% { transform: rotate(4deg); } }
+/* arm goes up, waves twice, comes down, then rests */
+@keyframes robot-wave {
+  0%, 52%, 100% { transform: rotate(0); }
+  60% { transform: rotate(125deg); }
+  66% { transform: rotate(100deg); }
+  72% { transform: rotate(130deg); }
+  78% { transform: rotate(100deg); }
+  86% { transform: rotate(120deg); }
+  94% { transform: rotate(0); }
+}
+.robot-anim .rb-eyes { transform-box: fill-box; transform-origin: center; animation: robot-blink 4.5s infinite; }
+.robot-anim .rb-antenna { animation: robot-glow 2.4s ease-in-out infinite; }
+.robot-anim .rb-float { animation: robot-float 3.2s ease-in-out infinite; }
+.robot-anim .rb-shadow { transform-box: fill-box; transform-origin: center; animation: robot-shadow 3.2s ease-in-out infinite; }
+.robot-anim .rb-head { transform-box: view-box; transform-origin: 50px 80px; animation: robot-tilt 6s ease-in-out infinite; }
+.robot-anim .rb-arm { transform-box: view-box; transform-origin: 19px 88px; animation: robot-wave 6s ease-in-out infinite; }
 /* "Need help? Ask me" bubble next to the robot: slides in, then nudges every few seconds */
 @keyframes robot-hint-in { from { opacity: 0; transform: translateX(-8px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes robot-hint-nudge { 0%, 88%, 100% { transform: translateX(0); } 92% { transform: translateX(3px); } 96% { transform: translateX(-2px); } }
 .robot-hint { animation: robot-hint-in 0.35s ease-out both, robot-hint-nudge 6s ease-in-out 2s infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .robot-anim .robot-eyes, .robot-anim .robot-antenna, .robot-launcher > svg, .robot-hint { animation: none; }
+  .robot-anim .rb-eyes, .robot-anim .rb-antenna, .robot-anim .rb-float, .robot-anim .rb-shadow,
+  .robot-anim .rb-head, .robot-anim .rb-arm, .robot-hint { animation: none; }
 }
