@@ -41,7 +41,7 @@ export function ControlsCard({
   const currentModelValue = selectedModel || (provider === 'grok' ? DEFAULT_GROK_MODEL : AI_CONFIG.DEFAULT_MODEL);
 
   return (
-    <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-3.5 shadow-sm overflow-visible">
+    <div className="glass-card rounded-2xl border border-border/50 p-4 space-y-3.5 shadow-sm overflow-visible" data-robot-spot="settings">
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">

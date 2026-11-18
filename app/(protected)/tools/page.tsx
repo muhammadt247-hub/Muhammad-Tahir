@@ -72,7 +72,7 @@ export default function AllToolsPage() {
   }, [searchQuery, selectedTag]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-12">
+    <div className="max-w-6xl mx-auto space-y-8 pb-12" data-robot-spot="tools">
       {/* Heading & short line */}
       <div className="space-y-3">
         <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">

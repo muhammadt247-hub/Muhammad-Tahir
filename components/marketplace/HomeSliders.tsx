@@ -340,7 +340,7 @@ function Carousel({
   };
 
   return (
-    <section aria-label={title} className="min-w-0">
+    <section aria-label={title} className="min-w-0" data-robot-spot={title === 'Cheapest packages' ? 'packages' : 'offers'}>
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           {icon}

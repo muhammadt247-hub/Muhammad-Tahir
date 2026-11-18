@@ -206,7 +206,7 @@ export function ActionBar({
   const similarityTooltip = isAnalyzing ? 'Similarity check in progress' : undefined;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-robot-spot="csv">
       {/* Deep Similarity Cluster Banner */}
       {similarClusterCount > 0 && onReviewClusters && !isAnalyzingSimilarity && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-orange-500/10 border border-primary/25 text-foreground text-xs shadow-xs">

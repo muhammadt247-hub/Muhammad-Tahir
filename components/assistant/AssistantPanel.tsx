@@ -7,6 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Eraser, Send, Store, X } from 'lucide-react';
 import { RobotIcon } from '@/components/assistant/RobotIcon';
+import { askRobotToDance, danceReply, detectDance, pickDance } from '@/lib/assistant/robot-moves';
 
 type Action = { label: string; href: string };
 type Pkg = {
@@ -33,6 +34,7 @@ const SUGGESTIONS = [
   'How do I generate CSV metadata?',
   'How can I improve my Adobe Stock keywords?',
   'Take me to the CSV generator',
+  'Dance for me! 💃',
 ];
 const STORE_KEY = 'orbinexa-assistant-chat';
 const fmt = (n: number) => 'Rs ' + Math.round(n).toLocaleString('en-US');
@@ -50,7 +52,16 @@ function loadChat(): Msg[] {
   }
 }
 
-export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AssistantPanel({
+  open,
+  onClose,
+  ask,
+}: {
+  open: boolean;
+  onClose: () => void;
+  // a question sent from outside (e.g. the robot's tip bubble); a new id sends it once
+  ask?: { id: number; text: string } | null;
+}) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>(loadChat);
   const [input, setInput] = useState('');
@@ -87,12 +98,32 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // send a question that came from the robot's tip bubble (once per id)
+  const sendRef = useRef<(text: string) => void>(() => {});
+  const askedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!open || !ask || askedRef.current === ask.id) return;
+    const t = setTimeout(() => {
+      askedRef.current = ask.id; // marked when really sent, so a re-run before that still sends it
+      sendRef.current(ask.text);
+    }, 150);
+    return () => clearTimeout(t);
+  }, [open, ask]);
+
   const send = async (text: string) => {
     const q = text.trim().slice(0, 600);
     if (!q || busy) return;
     const next: Msg[] = [...messages, { role: 'user', text: q }];
     setMessages(next);
     setInput('');
+    // "dance for me", "do the moonwalk", "nacho": the robot dances, no AI call needed
+    const danceWish = detectDance(q);
+    if (danceWish) {
+      const d = pickDance(danceWish);
+      setMessages([...next, { role: 'assistant', text: danceReply(d) }]);
+      askRobotToDance(d.id);
+      return;
+    }
     setBusy(true);
     abortRef.current?.abort();
     const ctl = new AbortController();
@@ -128,6 +159,11 @@ export function AssistantPanel({ open, onClose }: { open: boolean; onClose: () =
       setBusy(false);
     }
   };
+
+  // keep the latest send for the tip-bubble question above
+  useEffect(() => {
+    sendRef.current = send;
+  });
 
   const go = (href: string) => {
     router.push(safeHref(href));

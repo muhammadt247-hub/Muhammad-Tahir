@@ -145,6 +145,13 @@ function intent(text: string) {
 // Real data for this question only (never the whole database, never private fields)
 function pickData(text: string, pkgs: Pkg[], posts: OfferPost[]) {
   const it = intent(text);
+  // "How do I make a CSV for Adobe Stock?" is a how-to question about the generator, not a shopping one:
+  // do not search packages for it (otherwise "Adobe" finds Adobe CC packages)
+  const t = text.toLowerCase();
+  const generatorHowTo =
+    /\b(csv|metadata|keywords?|titles?|generat\w*|upload\w*|stock|shutterstock|freepik|seo|background|vector|svg|convert\w*)\b|کیسے|kaise|kese/.test(t) &&
+    !/\b(buy|price|cheap\w*|package|subscription|plan|offer|vendor|rs|pkr|khareed\w*|sasta|sasti)\b|خرید|سستا|قیمت|پیکج/.test(t);
+  if (generatorHowTo) it.terms = [];
   // products matching the most search words win ("canva pro" -> Canva, not every "Pro" product)
   const score = new Map<string, number>();
   for (const p of pkgs) {
