@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { X } from 'lucide-react';
-import { RobotIcon } from '@/components/assistant/RobotIcon';
+import { RobotMascot } from '@/components/assistant/RobotIcon';
 
 const AssistantPanel = dynamic(() => import('@/components/assistant/AssistantPanel').then((m) => m.AssistantPanel), {
   ssr: false,
@@ -57,7 +57,7 @@ export function AssistantLauncher() {
       {everOpened && <AssistantPanel open={open} onClose={() => setOpen(false)} />}
 
       {!open && !hintHidden && (
-        <div className="robot-hint fixed bottom-5 left-[4.25rem] z-40 flex items-center sm:bottom-6 sm:left-[4.75rem]">
+        <div className="robot-hint fixed bottom-10 left-[4.25rem] z-40 flex items-center sm:bottom-12 sm:left-[5.6rem]">
           <button
             type="button"
             onClick={openChat}
@@ -88,11 +88,11 @@ export function AssistantLauncher() {
         aria-label={open ? 'Close the Orbinexa AI Assistant' : 'Open the Orbinexa AI Assistant. Ask for help'}
         aria-expanded={open}
         title="Need help? Ask the Orbinexa AI Assistant"
-        className="robot-launcher group fixed bottom-4 left-4 z-40 grid h-12 w-12 place-items-center rounded-2xl border border-primary/40 bg-card/90 shadow-lg shadow-primary/20 backdrop-blur-md transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:h-14 sm:w-14"
+        className="robot-launcher group fixed bottom-1 left-2 z-40 block w-[56px] rounded-2xl transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:bottom-2 sm:left-3 sm:w-[70px] [&>svg]:h-auto [&>svg]:w-full"
       >
-        <RobotIcon size={32} animated={!open} />
+        <RobotMascot size={70} animated={!open} />
         {!open && (
-          <span className="pointer-events-none absolute -right-1 -top-1 h-3 w-3 rounded-full bg-emerald-400 ring-2 ring-background" aria-hidden="true" />
+          <span className="pointer-events-none absolute right-1 top-[18%] h-3 w-3 rounded-full bg-emerald-400 ring-2 ring-background" aria-hidden="true" />
         )}
       </button>
     </>
