@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
+import { isSlowEmailError, friendlyEmailError, EMAIL_TIPS } from '@/lib/supabase/auth-email';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,6 +40,7 @@ export default function SignupPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [slowEmail, setSlowEmail] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [isResending, setIsResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -132,18 +134,27 @@ export default function SignupPage() {
         },
       });
 
-      if (error) {
+      if (error && !isSlowEmailError(error)) {
         // Do not leak sensitive details; show clear message
-        setErrorMessage(error.message);
+        setErrorMessage(friendlyEmailError(error));
         setIsSubmitting(false);
         return;
       }
 
+      // A slow mail server can time out after the account was already made: show the email screen anyway
+      setSlowEmail(!!error);
       setIsSubmitted(true);
       setResendCooldown(60);
-      toast.success('Account created! Please check your email.');
+      if (error) toast.message('Account created. The email may take a few minutes.');
+      else toast.success('Account created! Please check your email.');
     } catch (err: unknown) {
       console.error('Sign up error:', err);
+      if (isSlowEmailError(err as { message?: string; name?: string })) {
+        setSlowEmail(true);
+        setIsSubmitted(true);
+        setResendCooldown(60);
+        return;
+      }
       setErrorMessage('An unexpected error occurred during sign up. Please try again.');
     } finally {
       setIsSubmitting(false);
@@ -166,10 +177,10 @@ export default function SignupPage() {
         },
       });
 
-      if (error) {
-        toast.error(error.message);
+      if (error && !isSlowEmailError(error)) {
+        toast.error(friendlyEmailError(error));
       } else {
-        toast.success('Confirmation email resent!');
+        toast.success(error ? 'Sent. The email may take a few minutes.' : 'Confirmation email resent!');
         setResendCooldown(60);
       }
     } catch {
@@ -201,6 +212,18 @@ export default function SignupPage() {
             <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
               Click the link inside to confirm your account and open OrbinexaCSV.
             </p>
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-left">
+            <p className="text-xs font-semibold text-foreground mb-1.5">
+              {slowEmail ? 'Your account is created. The email is on its way but may be slow.' : 'Did not get the email?'}
+            </p>
+            <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground leading-relaxed">
+              {EMAIL_TIPS.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+              <li>Still nothing? Check the email address above, then press Resend.</li>
+            </ul>
           </div>
 
           <div className="pt-2 border-t border-border/40 space-y-3">
