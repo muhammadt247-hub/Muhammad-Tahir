@@ -45,18 +45,19 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Light theme (the default): warm cream and white with the orange accent */
 :root, .light {
-  --background: 210 20% 96%;   --foreground: 220 20% 10%;
-  --card: 0 0% 100%;           --card-foreground: 220 20% 10%;
-  --popover: 0 0% 100%;        --popover-foreground: 220 20% 10%;
+  --background: 32 45% 97%;    --foreground: 15 25% 12%;
+  --card: 0 0% 100%;           --card-foreground: 15 25% 12%;
+  --popover: 0 0% 100%;        --popover-foreground: 15 25% 12%;
   --primary: 21 90% 44%;       --primary-foreground: 0 0% 100%;
-  --secondary: 210 14% 92%;    --secondary-foreground: 220 20% 10%;
-  --muted: 210 14% 92%;        --muted-foreground: 220 10% 46%;
-  --accent: 210 16% 93%;       --accent-foreground: 220 20% 10%;
-  --destructive: 0 72% 56%;    --destructive-foreground: 0 0% 100%;
-  --success: 152 60% 42%;      --success-foreground: 0 0% 100%;
-  --border: 210 14% 89%;       --input: 210 14% 89%;   --ring: 21 90% 44%;
-  --surface: 210 18% 97%;      --surface-foreground: 220 20% 10%;
+  --secondary: 28 35% 93%;     --secondary-foreground: 15 25% 12%;
+  --muted: 28 30% 93%;         --muted-foreground: 18 12% 38%;
+  --accent: 24 60% 93%;        --accent-foreground: 15 25% 12%;
+  --destructive: 0 72% 50%;    --destructive-foreground: 0 0% 100%;
+  --success: 152 60% 36%;      --success-foreground: 0 0% 100%;
+  --border: 25 28% 87%;        --input: 25 28% 85%;    --ring: 21 90% 44%;
+  --surface: 32 45% 98%;       --surface-foreground: 15 25% 12%;
   --glass: 0 0% 100% / .65;    --glass-border: 0 0% 100% / .5;
   --radius: 1rem;
   --pop-scale: 1.1;
@@ -77,6 +78,18 @@
   --success: 152 50% 38%;      --success-foreground: 0 0% 100%;
   --warning: 38 85% 50%;
   --glass: 8 24% 8% / .62;     --glass-border: 16 45% 35% / .22;
+}
+
+/* Soft peach glow behind every page (light theme) */
+html:not(.dark) body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 50% at 20% -10%, hsl(22 95% 80% / 0.45), transparent 65%),
+    radial-gradient(ellipse 55% 40% at 95% 5%, hsl(10 90% 85% / 0.35), transparent 60%);
 }
 
 /* Atmosphere behind every page (dark theme): deep red glow, fine dot grid and film grain */
@@ -138,7 +151,7 @@ h1, h2 {
 }
 .ember-float-a { animation: ember-float-a 14s ease-in-out infinite; }
 .ember-float-b { animation: ember-float-b 17s ease-in-out infinite; }
-.text-glow { text-shadow: 0 0 14px rgba(255, 220, 210, 0.55); }
+.dark .text-glow { text-shadow: 0 0 14px rgba(255, 220, 210, 0.55); }
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
   .ember-float-a, .ember-float-b { animation: none; }
