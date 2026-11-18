@@ -287,6 +287,10 @@ body {
 .robot-anim .robot-eyes { transform-box: fill-box; transform-origin: center; animation: robot-blink 5s infinite; }
 .robot-anim .robot-antenna { animation: robot-glow 2.4s ease-in-out infinite; }
 .robot-launcher > svg { animation: robot-float 4s ease-in-out infinite; }
+/* "Need help? Ask me" bubble next to the robot: slides in, then nudges every few seconds */
+@keyframes robot-hint-in { from { opacity: 0; transform: translateX(-8px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes robot-hint-nudge { 0%, 88%, 100% { transform: translateX(0); } 92% { transform: translateX(3px); } 96% { transform: translateX(-2px); } }
+.robot-hint { animation: robot-hint-in 0.35s ease-out both, robot-hint-nudge 6s ease-in-out 2s infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .robot-anim .robot-eyes, .robot-anim .robot-antenna, .robot-launcher > svg { animation: none; }
+  .robot-anim .robot-eyes, .robot-anim .robot-antenna, .robot-launcher > svg, .robot-hint { animation: none; }
 }

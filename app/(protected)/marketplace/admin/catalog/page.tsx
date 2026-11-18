@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
 import { MARKETPLACE_ENABLED, formatPkr } from '@/lib/marketplace/shared';
+import { NO_ACCESS, can, loadStaffAccess, type StaffAccess } from '@/lib/marketplace/staff';
 
 interface Product {
   id: string;
@@ -175,9 +176,13 @@ export default function CatalogPage() {
 
 function Catalog() {
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [access, setAccess] = useState<StaffAccess>(NO_ACCESS);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('listings');
+  // Super Admin: everything. Moderators: "catalog" = packages and products, "vendors" = vendors tab.
+  const canCatalog = can(access, 'catalog');
+  const canVendors = can(access, 'vendors');
+  const isAdmin = canCatalog || canVendors;
   const [products, setProducts] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -208,13 +213,10 @@ function Catalog() {
   const load = useCallback(async () => {
     try {
       const supabase = createClient();
-      const adminCheck = await supabase.rpc('mp_is_admin');
-      if (adminCheck.error) throw new Error(adminCheck.error.message);
-      if (adminCheck.data !== true) {
-        setIsAdmin(false);
-        return;
-      }
-      setIsAdmin(true);
+      const acc = await loadStaffAccess(supabase);
+      setAccess(acc);
+      if (!can(acc, 'catalog') && !can(acc, 'vendors')) return;
+      if (!can(acc, 'catalog')) setTab('vendors');
       const [p, v, l] = await Promise.all([
         supabase.from('mp_products').select('id, name, slug, category, description, status').order('name'),
         supabase
@@ -232,7 +234,7 @@ function Catalog() {
       setProducts((p.data ?? []) as Product[]);
       setVendors((v.data ?? []) as unknown as Vendor[]);
       setListings((l.data ?? []) as unknown as Listing[]);
-      const al = await supabase
+      const al = !can(acc, 'vendors') ? { data: [] } : await supabase
         .from('mp_vendor_alerts')
         .select('id, vendor_id, field, content, reason, seen, created_at')
         .order('created_at', { ascending: false })
@@ -476,6 +478,9 @@ function Catalog() {
     );
   }
 
+  // a tab this person may not use (e.g. from a ?tab= link) falls back to one they may use
+  const shownTab: Tab = (tab === 'vendors' ? canVendors : canCatalog) ? tab : canCatalog ? 'listings' : 'vendors';
+
   const previewCost = Number(lCost);
   const previewPrice = Number.isFinite(previewCost) && previewCost > 0 ? Math.ceil(previewCost * 1.05) : null;
 
@@ -496,18 +501,18 @@ function Catalog() {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ['listings', 'Packages and prices'],
-            ['products', 'Products'],
-            ['vendors', 'Vendors'],
-          ] as [Tab, string][]
-        ).map(([key, label]) => (
+            ['listings', 'Packages and prices', canCatalog],
+            ['products', 'Products', canCatalog],
+            ['vendors', 'Vendors', canVendors],
+          ] as [Tab, string, boolean][]
+        ).filter(([, , show]) => show).map(([key, label]) => (
           <button
             key={key}
             type="button"
             onClick={() => setTab(key)}
             className={
               'px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ' +
-              (tab === key
+              (shownTab === key
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent')
             }
@@ -518,7 +523,7 @@ function Catalog() {
       </div>
 
       {/* ---------------- PACKAGES AND PRICES ---------------- */}
-      {tab === 'listings' && (
+      {shownTab === 'listings' && canCatalog && (
         <div className="space-y-6">
           <form
             onSubmit={addListing}
@@ -645,7 +650,7 @@ function Catalog() {
       )}
 
       {/* ---------------- PRODUCTS ---------------- */}
-      {tab === 'products' && (
+      {shownTab === 'products' && canCatalog && (
         <div className="space-y-6">
           <form
             onSubmit={addProduct}
@@ -706,7 +711,7 @@ function Catalog() {
       )}
 
       {/* ---------------- VENDORS ---------------- */}
-      {tab === 'vendors' && (
+      {shownTab === 'vendors' && canVendors && (
         <div className="space-y-6">
           {alerts.length > 0 && (
             <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-4 sm:p-5 space-y-3">
@@ -837,7 +842,7 @@ function Catalog() {
                         Reject
                       </Button>
                     )}
-                    {confirmRemoveId === v.id ? (
+                    {!access.super ? null : confirmRemoveId === v.id ? (
                       <>
                         <Button size="sm" variant="destructive" disabled={busy} onClick={() => removeVendor(v)}>
                           Yes, remove {v.status === 'pending' ? 'request' : 'vendor'}
