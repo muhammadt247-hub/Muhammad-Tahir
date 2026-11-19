@@ -70,6 +70,9 @@ CSV GENERATOR (page: generator, login needed)
 - Pricing: 1 credit per image, 1 credit to retitle. New accounts get free credits on sign up (amounts can
   change; the account page shows the balance). Users may add their own free Gemini or Groq API key under
   "API Keys" for faster batches; it is optional.
+- Sign up: after creating an account, a confirmation email is sent. It can take up to 5 minutes; check Spam,
+  Junk and Promotions, then press Resend. If it still does not arrive, press the green WhatsApp button on the
+  sign-up or log-in screen and OrbinexaCSV will activate the account by hand.
 - Reliability: images are processed in parallel; failed images can be retried one by one with Retry; Stop keeps
   finished results.
 - Tips for better keywords: describe only what is visible, put the main subject, action and setting first,

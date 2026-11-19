@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
-import { isSlowEmailError, friendlyEmailError, EMAIL_TIPS } from '@/lib/supabase/auth-email';
+import { isSlowEmailError, friendlyEmailError, EMAIL_TIPS, whatsappHelpLink } from '@/lib/supabase/auth-email';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -211,6 +211,14 @@ function LoginForm() {
                     <span>Resend confirmation email</span>
                   </Button>
                 )}
+                <a
+                  href={whatsappHelpLink(email)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 flex w-full items-center justify-center rounded-lg bg-[#25D366] px-3 py-2 text-xs font-bold text-white hover:opacity-90"
+                >
+                  No email? Message us on WhatsApp to activate your account
+                </a>
               </div>
             )}
           </div>

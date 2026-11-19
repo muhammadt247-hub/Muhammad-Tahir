@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client';
 import { MARKETPLACE_ENABLED, formatPkr } from '@/lib/marketplace/shared';
 import { MoneySummary, PayoutTotals, StatusModeration, VendorScores, type MoneyRow } from '@/components/marketplace/AdminInsights';
 import { ModeratorManager } from '@/components/marketplace/ModeratorManager';
+import { WaitingSignups } from '@/components/marketplace/WaitingSignups';
 import { NO_ACCESS, can, isStaff, loadStaffAccess, type StaffAccess } from '@/lib/marketplace/staff';
 
 interface PrivateRow {
@@ -216,7 +217,7 @@ function AdminOrders() {
   const [tick, setTick] = useState(0);
   const [pendingVendors, setPendingVendors] = useState(0);
   const [vendorWarnings, setVendorWarnings] = useState(0);
-  const [view, setView] = useState<'orders' | 'vendors' | 'statuses' | 'moderators' | null>(null);
+  const [view, setView] = useState<'orders' | 'vendors' | 'statuses' | 'moderators' | 'signups' | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -227,7 +228,7 @@ function AdminOrders() {
       if (!isStaff(acc)) return;
       setView((v) =>
         v ??
-        (can(acc, 'orders_view') ? 'orders' : can(acc, 'vendors') || can(acc, 'insights') ? 'vendors' : can(acc, 'statuses') ? 'statuses' : acc.super ? 'moderators' : null)
+        (can(acc, 'orders_view') ? 'orders' : can(acc, 'vendors') || can(acc, 'insights') ? 'vendors' : can(acc, 'statuses') ? 'statuses' : can(acc, 'signups') ? 'signups' : acc.super ? 'moderators' : null)
       );
       if (can(acc, 'vendors')) {
         const pv = await supabase.from('mp_vendors').select('id', { count: 'exact', head: true }).eq('status', 'pending');
@@ -399,6 +400,7 @@ function AdminOrders() {
           ['orders', 'Orders', can(access, 'orders_view')],
           ['vendors', 'Vendor scores', can(access, 'vendors') || can(access, 'insights')],
           ['statuses', 'Vendor statuses', can(access, 'statuses')],
+          ['signups', 'Waiting sign-ups', can(access, 'signups')],
           ['moderators', 'Moderators', access.super],
         ] as const).filter(([, , show]) => show).map(([key, label]) => (
           <button
@@ -418,6 +420,7 @@ function AdminOrders() {
       {view === 'vendors' && <VendorScores />}
       {view === 'statuses' && <StatusModeration />}
       {view === 'moderators' && access.super && <ModeratorManager />}
+      {view === 'signups' && can(access, 'signups') && <WaitingSignups />}
 
       {view === 'orders' && showMoney && <MoneySummary rows={moneyRows} />}
 
@@ -453,7 +456,7 @@ function AdminOrders() {
 
       {error && <p className="text-xs font-semibold text-red-600 break-words">{error}</p>}
 
-      {view !== 'moderators' && pendingVendors > 0 && (
+      {view !== 'moderators' && view !== 'signups' && pendingVendors > 0 && (
         <Link
           href="/marketplace/admin/catalog?tab=vendors"
           className="block w-full rounded-xl bg-primary/15 px-4 py-3 text-sm font-bold text-primary"
@@ -462,7 +465,7 @@ function AdminOrders() {
         </Link>
       )}
 
-      {view !== 'moderators' && vendorWarnings > 0 && (
+      {view !== 'moderators' && view !== 'signups' && vendorWarnings > 0 && (
         <Link
           href="/marketplace/admin/catalog?tab=vendors"
           className="block w-full rounded-xl bg-red-500/15 px-4 py-3 text-sm font-bold text-red-700 dark:text-red-300"
