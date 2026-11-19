@@ -23,6 +23,8 @@ interface ModeratorRow {
   status: 'active' | 'inactive';
   created_at: string;
   last_active_at: string | null;
+  whatsapp: string | null;
+  last_sign_in_at?: string | null; // when they last logged in to the site
 }
 
 interface FormState {
@@ -31,9 +33,24 @@ interface FormState {
   name: string;
   permissions: StaffPerm[];
   status: 'active' | 'inactive';
+  whatsapp: string;
 }
 
-const EMPTY_FORM: FormState = { id: null, email: '', name: '', permissions: ['orders_view'], status: 'active' };
+const EMPTY_FORM: FormState = { id: null, email: '', name: '', permissions: ['orders_view'], status: 'active', whatsapp: '' };
+const ONLINE_MS = 3 * 60 * 1000; // seen in the admin area in the last 3 minutes = online now
+
+// "5 minutes ago", "3 hours ago", "2 days ago"
+function ago(v: string | null | undefined, now: number): string {
+  if (!v) return 'never';
+  const s = Math.max(0, (now - new Date(v).getTime()) / 1000);
+  if (s < 90) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + ' minutes ago';
+  const h = Math.round(m / 60);
+  if (h < 36) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  const d = Math.round(h / 24);
+  return d + (d === 1 ? ' day ago' : ' days ago');
+}
 
 function formatDate(v: string | null): string {
   if (!v) return 'never';
@@ -54,9 +71,15 @@ function inviteText(email: string): string {
 async function fetchModerators(): Promise<{ rows: ModeratorRow[]; error: string | null }> {
   const { data, error } = await createClient()
     .from('mp_moderators')
-    .select('id, email, display_name, user_id, permissions, status, created_at, last_active_at')
+    .select('id, email, display_name, user_id, permissions, status, created_at, last_active_at, whatsapp')
     .order('created_at', { ascending: true });
-  return { rows: (data ?? []) as ModeratorRow[], error: error ? error.message : null };
+  // when each one last logged in to the site (from the accounts table, Super Admin only)
+  const logins = await createClient().rpc('mp_admin_moderator_logins');
+  const last = new Map<string, string | null>(
+    ((logins.data ?? []) as { moderator_id: string; last_sign_in_at: string | null }[]).map((l) => [l.moderator_id, l.last_sign_in_at]),
+  );
+  const rows = ((data ?? []) as ModeratorRow[]).map((r) => ({ ...r, last_sign_in_at: last.get(r.id) ?? null }));
+  return { rows, error: error ? error.message : null };
 }
 
 export function ModeratorManager() {
@@ -66,8 +89,10 @@ export function ModeratorManager() {
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [now, setNow] = useState(0); // time of the last refresh (for "online now" / "5 minutes ago")
 
   const apply = useCallback((res: { rows: ModeratorRow[]; error: string | null }) => {
+    setNow(Date.now());
     if (res.error) setError(res.error);
     else {
       setRows(res.rows);
@@ -80,11 +105,15 @@ export function ModeratorManager() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchModerators().then((res) => {
-      if (!cancelled) apply(res);
-    });
+    const refresh = () =>
+      fetchModerators().then((res) => {
+        if (!cancelled) apply(res);
+      });
+    refresh();
+    const t = window.setInterval(refresh, 60_000);
     return () => {
       cancelled = true;
+      window.clearInterval(t);
     };
   }, [apply]);
 
@@ -105,6 +134,7 @@ export function ModeratorManager() {
       p_name: f.name.trim(),
       p_permissions: f.permissions,
       p_status: f.status,
+      p_whatsapp: f.whatsapp.trim() || null,
     });
     setSaving(false);
     if (err) {
@@ -124,6 +154,7 @@ export function ModeratorManager() {
       p_name: m.display_name ?? '',
       p_permissions: m.permissions,
       p_status: m.status === 'active' ? 'inactive' : 'active',
+      p_whatsapp: m.whatsapp,
     });
     setBusyId(null);
     if (err) toast.error(err.message);
@@ -187,20 +218,41 @@ export function ModeratorManager() {
       ) : (
         <div className="space-y-3">
           {rows.map((m) => {
-            const state = m.status === 'inactive' ? 'Deactivated' : m.user_id ? 'Active' : 'Invited (not logged in yet)';
+            const online =
+              m.status === 'active' && !!m.last_active_at && now - new Date(m.last_active_at).getTime() < ONLINE_MS;
+            const state =
+              m.status === 'inactive'
+                ? 'Deactivated'
+                : online
+                  ? '● Online now'
+                  : m.user_id
+                    ? 'Active'
+                    : 'Invited (not logged in yet)';
             const stateClass =
               m.status === 'inactive'
                 ? 'bg-muted text-muted-foreground'
-                : m.user_id
-                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+                : online
+                  ? 'bg-emerald-500 text-white'
+                  : m.user_id
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+            const waLink = m.whatsapp
+              ? 'https://wa.me/' + m.whatsapp + '?text=' + encodeURIComponent(inviteText(m.email))
+              : 'https://wa.me/?text=' + encodeURIComponent(inviteText(m.email));
             return (
               <div key={m.id} className="rounded-2xl border border-border/60 bg-card p-4 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-bold text-foreground break-all">{m.display_name || m.email}</p>
                     {m.display_name && <p className="text-xs text-muted-foreground break-all">{m.email}</p>}
-                    <p className="text-[11px] text-muted-foreground">Last active: {formatDate(m.last_active_at)}</p>
+                    {m.whatsapp && <p className="text-xs text-muted-foreground">WhatsApp: +{m.whatsapp}</p>}
+                    <p className="text-[11px] text-muted-foreground">
+                      Used the admin area: <span className="font-semibold text-foreground">{ago(m.last_active_at, now)}</span>
+                      {m.last_active_at && <> ({formatDate(m.last_active_at)})</>}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Last logged in to the site: <span className="font-semibold text-foreground">{ago(m.last_sign_in_at, now)}</span>
+                    </p>
                   </div>
                   <span className={'rounded-full px-2.5 py-1 text-[11px] font-bold ' + stateClass}>{state}</span>
                 </div>
@@ -217,7 +269,14 @@ export function ModeratorManager() {
                     variant="outline"
                     className="gap-1.5"
                     onClick={() =>
-                      setForm({ id: m.id, email: m.email, name: m.display_name ?? '', permissions: m.permissions, status: m.status })
+                      setForm({
+                        id: m.id,
+                        email: m.email,
+                        name: m.display_name ?? '',
+                        permissions: m.permissions,
+                        status: m.status,
+                        whatsapp: m.whatsapp ?? '',
+                      })
                     }
                   >
                     <Pencil className="h-3.5 w-3.5" /> Edit
@@ -225,18 +284,18 @@ export function ModeratorManager() {
                   <Button size="sm" variant="outline" className="gap-1.5" disabled={busyId === m.id} onClick={() => toggleActive(m)}>
                     <Power className="h-3.5 w-3.5" /> {m.status === 'active' ? 'Deactivate' : 'Activate'}
                   </Button>
-                  {!m.user_id && m.status === 'active' && (
+                  {m.status === 'active' && (
                     <>
                       <Button size="sm" variant="outline" className="gap-1.5" onClick={() => copyInvite(m.email)}>
                         <Copy className="h-3.5 w-3.5" /> Copy invite
                       </Button>
                       <a
-                        href={'https://wa.me/?text=' + encodeURIComponent(inviteText(m.email))}
+                        href={waLink}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#25D366] px-3 text-xs font-bold text-white hover:opacity-90"
                       >
-                        <MessageCircle className="h-3.5 w-3.5" /> Send invite on WhatsApp
+                        <MessageCircle className="h-3.5 w-3.5" /> {m.whatsapp ? 'Send invite to their WhatsApp' : 'Send invite on WhatsApp'}
                       </a>
                     </>
                   )}
@@ -317,6 +376,20 @@ function ModeratorForm({
             placeholder="e.g. Ali (orders helper)"
             maxLength={60}
           />
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="mod-wa">Their WhatsApp number (optional, for the invite)</Label>
+          <Input
+            id="mod-wa"
+            inputMode="tel"
+            value={form.whatsapp}
+            onChange={(e) => onChange({ ...form, whatsapp: e.target.value })}
+            placeholder="e.g. 03001234567 or 923001234567"
+            maxLength={20}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            With a number, &quot;Send invite&quot; opens a WhatsApp chat with them and the message ready. You still press Send in WhatsApp.
+          </p>
         </div>
       </div>
       <fieldset className="space-y-2">

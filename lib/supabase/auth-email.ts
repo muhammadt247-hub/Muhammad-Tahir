@@ -1,3 +1,5 @@
+import { ORDERS_WHATSAPP } from '@/lib/marketplace/shared';
+
 // Clear messages for sign-up / confirmation email problems.
 // A slow mail server can make Supabase time out (504) even though the account was created,
 // so a time-out is treated as "account made, email may be late" instead of a failure.
@@ -27,6 +29,15 @@ export function friendlyEmailError(error: AuthErr): string {
   if (isSlowEmailError(error)) return 'Our email server is slow right now. Your email may arrive in a few minutes. If not, press Resend.';
   if (/invalid.*email|email.*invalid/.test(m)) return 'This email address does not look right. Please check it.';
   return error.message || 'Something went wrong. Please try again.';
+}
+
+// WhatsApp link to OrbinexaCSV with a ready message, for people whose confirmation email never arrives
+export function whatsappHelpLink(email: string): string {
+  const msg =
+    'Hello OrbinexaCSV, I signed up with this email: ' +
+    (email.trim() || '(my email)') +
+    ' but I did not get the confirmation email. Please activate my account.';
+  return 'https://wa.me/' + ORDERS_WHATSAPP + '?text=' + encodeURIComponent(msg);
 }
 
 export const EMAIL_TIPS = [

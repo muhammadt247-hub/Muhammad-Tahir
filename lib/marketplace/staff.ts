@@ -9,7 +9,8 @@ export type StaffPerm =
   | 'catalog'
   | 'vendors'
   | 'statuses'
-  | 'insights';
+  | 'insights'
+  | 'signups';
 
 export const STAFF_PERMS: { key: StaffPerm; label: string; help: string }[] = [
   { key: 'orders_view', label: 'See orders', help: 'See all orders and customer details (name, WhatsApp, email).' },
@@ -19,6 +20,7 @@ export const STAFF_PERMS: { key: StaffPerm; label: string; help: string }[] = [
   { key: 'vendors', label: 'Manage vendors', help: 'Add, approve, verify and edit vendors, and see vendor warnings and private details.' },
   { key: 'statuses', label: 'Moderate vendor status posts', help: 'See and remove vendor status posts.' },
   { key: 'insights', label: 'Business insights', help: 'See profit, commission and vendor payout totals.' },
+  { key: 'signups', label: 'Help sign-ups', help: 'See people whose confirmation email did not arrive, and activate their account after they contact you.' },
 ];
 
 export interface StaffAccess {
