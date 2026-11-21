@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { isSlowEmailError, friendlyEmailError, EMAIL_TIPS, whatsappHelpLink } from '@/lib/supabase/auth-email';
+import { ConfirmCodeBox } from '@/components/auth/ConfirmCodeBox';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -211,6 +212,9 @@ function LoginForm() {
                     <span>Resend confirmation email</span>
                   </Button>
                 )}
+                <div className="mt-3 rounded-lg bg-background/60 p-2.5 text-foreground">
+                  <ConfirmCodeBox email={email} />
+                </div>
                 <a
                   href={whatsappHelpLink(email)}
                   target="_blank"

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { isSupabaseConfigured, getSiteUrl } from '@/lib/supabase/config';
 import { isSlowEmailError, friendlyEmailError, EMAIL_TIPS, whatsappHelpLink } from '@/lib/supabase/auth-email';
+import { ConfirmCodeBox } from '@/components/auth/ConfirmCodeBox';
 import { AccountsNotConfigured } from '@/components/auth/AccountsNotConfigured';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -210,9 +211,11 @@ export default function SignupPage() {
               {email}
             </p>
             <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-              Click the link inside to confirm your account and open OrbinexaCSV.
+              Click the button in the email, or type the code from the email below.
             </p>
           </div>
+
+          <ConfirmCodeBox email={email} />
 
           <div className="rounded-xl border border-border/50 bg-background/40 p-3 text-left">
             <p className="text-xs font-semibold text-foreground mb-1.5">

@@ -14,6 +14,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/auth/callback') ||
+    pathname.startsWith('/auth/confirm') ||
     pathname.startsWith('/auth/signout') ||
     pathname === '/icon.svg' ||
     pathname.includes('.')
