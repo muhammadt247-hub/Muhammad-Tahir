@@ -3,6 +3,7 @@ import { ProcessedAssetFile } from './compress';
 import { AiProvider, GeneratorSavedSettings, saveBatchItem } from './db';
 import { keyRotator } from './key-rotation';
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
+import { ensureFreshLogin } from '@/lib/supabase/fresh-login';
 import { scanItemCompliance } from '@/lib/compliance/scan';
 import { calculateItemSeoScore } from './seo-score';
 import { computeDHash } from '@/lib/compliance/phash';
@@ -550,6 +551,7 @@ export class GeneratorQueue {
       try {
         let res: Response;
         try {
+          await ensureFreshLogin(); // renew the login early so a long batch never gets logged out
           res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
