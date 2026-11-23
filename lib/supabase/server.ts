@@ -48,10 +48,13 @@ export async function requireUser(): Promise<User | NextResponse> {
   }
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
+    let { data: { user }, error } = await supabase.auth.getUser();
+    if (!user) {
+      // One short second try: many images are sent at once, and a login that is being
+      // renewed in that moment can fail for a blink. A real logged-out user fails again.
+      await new Promise((r) => setTimeout(r, 400));
+      ({ data: { user }, error } = await supabase.auth.getUser());
+    }
     if (error || !user) {
       return NextResponse.json(
         { error: { code: 'unauthorized', message: 'Please log in.' } },
