@@ -475,6 +475,8 @@ export class GeneratorQueue {
     const maxServerAttempts = 3;
     let rateLimitWaits = 0;
     let authRetries = 0; // how many times we refreshed the login for this image
+    let slowRetries = 0; // how many times the AI was too slow for this image (busy AI is temporary)
+    const maxSlowRetries = 6;
 
     // Last 40 generated titles to avoid repetitive phrasing
     const recentTitles = this.items
@@ -741,6 +743,19 @@ export class GeneratorQueue {
           item.errorMessage = `HTTP 400: ${resData?.error?.message || 'Invalid image or prompt payload'}`;
           this.callbacks.onItemUpdate({ ...item });
           return false;
+        }
+
+        // AI too slow / busy right now: temporary, so wait longer and try again (up to 6 times)
+        const slowMsg = String(resData?.error?.message || '').toLowerCase();
+        const isSlow =
+          resData?.error?.code === 'TIMEOUT' || slowMsg.includes('too long') || slowMsg.includes('is slow');
+        if (!res.ok && isSlow && slowRetries < maxSlowRetries) {
+          slowRetries++;
+          const waitMs = Math.min(5000 * slowRetries, 30000) + Math.random() * 1500;
+          item.currentStage = `The AI is busy right now. Trying again in ${Math.round(waitMs / 1000)}s (${slowRetries}/${maxSlowRetries})...`;
+          this.callbacks.onItemUpdate({ ...item });
+          await this.sleep(waitMs);
+          continue;
         }
 
         // Handle 500 / 503 Server Error

@@ -231,6 +231,9 @@ function buildGeminiErrorResponse(lastError: unknown): NextResponse {
     lowerMessage.includes('permission_denied') ||
     (lowerMessage.includes('api key') && !isRateLimit);
 
+  // Slow AI (our time limit ran out) is temporary: tell the browser so it waits and tries again
+  const isSlow = lowerMessage.includes('too long') || lowerMessage.includes('is slow');
+
   // Extract retry wait duration in seconds if Gemini provided one
   const retryMatch = errMessage.match(/(?:retry in|retry after|wait)\s*([0-9.]+)\s*s/i);
   const retryAfterSeconds = retryMatch ? parseFloat(retryMatch[1]) : isRateLimit ? 30 : undefined;
@@ -249,6 +252,8 @@ function buildGeminiErrorResponse(lastError: unknown): NextResponse {
           ? 'RATE_LIMITED'
           : isAuthError
           ? 'INVALID_API_KEY'
+          : isSlow
+          ? 'TIMEOUT'
           : 'GENERATION_FAILED',
         message: errMessage,
         retryAfterSeconds,
@@ -256,7 +261,7 @@ function buildGeminiErrorResponse(lastError: unknown): NextResponse {
       },
     },
     {
-      status: isRateLimit ? 429 : isAuthError ? 401 : 500,
+      status: isRateLimit ? 429 : isAuthError ? 401 : isSlow ? 503 : 500,
       headers,
     }
   );
