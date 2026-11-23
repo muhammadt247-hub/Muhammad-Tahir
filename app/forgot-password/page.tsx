@@ -86,7 +86,7 @@ export default function ForgotPasswordPage() {
     }
   };
 
-  // Backup way: type the 6-digit code from the email (works even if an email scanner used up the link)
+  // Backup way: type the code from the email (works even if an email scanner used up the link)
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
