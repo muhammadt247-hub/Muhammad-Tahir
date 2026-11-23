@@ -9,6 +9,7 @@ import {
   LibraryFingerprintEntry,
 } from '@/types/similarity';
 import { keyRotator } from '@/lib/generator/key-rotation';
+import { ensureFreshLogin } from '@/lib/supabase/fresh-login';
 
 export interface SimilarityProgress {
   step: number; // 1 to 4
@@ -415,6 +416,7 @@ export async function runSimilarityPipeline(
           return { updatedItems: items, clusters: [], libraryExcludedCount: 0, totalExcludedCount: 0 };
         }
 
+        await ensureFreshLogin(); // renew the login early so a long batch never gets logged out
         const res = await fetch('/api/similarity', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

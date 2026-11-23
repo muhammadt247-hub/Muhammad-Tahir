@@ -65,6 +65,7 @@ import { useCredits } from '@/components/CreditsProvider';
 import { toast } from 'sonner';
 import { useAuth } from '@/components/AuthProvider';
 import { HomeSliders } from '@/components/marketplace/HomeSliders';
+import { ensureFreshLogin } from '@/lib/supabase/fresh-login';
 
 function createAssetId(): string {
   return `asset_${crypto.randomUUID()}`;
@@ -1148,6 +1149,7 @@ export default function GeneratorPage() {
       toast.info(`Rewriting title to remove "${blockedTerm || 'blocked term'}"...`);
       try {
         const keyInfo = await keyRotator.getNextKey();
+        await ensureFreshLogin(); // renew the login early so a long batch never gets logged out
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1241,6 +1243,7 @@ export default function GeneratorPage() {
         try {
           const avoidList = getAvoidListForBatchItem(currentItem, currentItemsState);
           const keyInfo = await keyRotator.getNextKey();
+          await ensureFreshLogin(); // renew the login early so a long batch never gets logged out
           const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1389,6 +1392,7 @@ export default function GeneratorPage() {
           const provider = settings.aiProvider || 'gemini';
           const keyInfo = await keyRotator.getNextKey(provider);
           const chosenModel = provider === 'grok' ? (settings.selectedGrokModel || DEFAULT_GROK_MODEL) : settings.selectedModel;
+          await ensureFreshLogin(); // renew the login early so a long batch never gets logged out
           const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
