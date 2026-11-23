@@ -224,9 +224,7 @@ function buildGeminiErrorResponse(lastError: unknown): NextResponse {
       lowerMessage.includes('per day'));
 
   const isAuthError =
-    errMessage.includes('400') ||
-    errMessage.includes('401') ||
-    errMessage.includes('403') ||
+    /\b(400|401|403)\b/.test(errMessage) ||
     lowerMessage.includes('api_key_invalid') ||
     lowerMessage.includes('api key not valid') ||
     lowerMessage.includes('unauthenticated') ||

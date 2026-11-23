@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import { ProcessedAssetFile } from './compress';
 import { AiProvider, GeneratorSavedSettings, saveBatchItem } from './db';
 import { keyRotator } from './key-rotation';
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 import { scanItemCompliance } from '@/lib/compliance/scan';
 import { calculateItemSeoScore } from './seo-score';
 import { computeDHash } from '@/lib/compliance/phash';
@@ -472,6 +473,7 @@ export class GeneratorQueue {
     let attempts = 0;
     const maxServerAttempts = 3;
     let rateLimitWaits = 0;
+    let authRetries = 0; // how many times we refreshed the login for this image
 
     // Last 40 generated titles to avoid repetitive phrasing
     const recentTitles = this.items
@@ -606,23 +608,35 @@ export class GeneratorQueue {
           stopSignal?.removeEventListener('abort', onStop);
         }
 
-        // Handle 401 Unauthorized
-        if (res.status === 401) {
-          toast.error('Session expired or unauthorized. Please log in.');
-          item.status = 'failed';
-          item.httpStatus = 401;
-          item.errorMessage = 'Unauthorized: Please log in to your account.';
-          this.callbacks.onItemUpdate({ ...item });
-          this.stop();
-          if (typeof window !== 'undefined') {
-            window.location.assign('/login');
-          }
-          return false;
-        }
-
         const resData = await res.json().catch(() => ({}));
         if (typeof resData?.creditsRemaining === 'number') {
           this.callbacks.onCreditsRemaining?.(resData.creditsRemaining);
+        }
+
+        // 401 can mean two very different things:
+        //  (a) the user's login is not accepted (session problem) -> refresh the login and try again
+        //  (b) the AI key was refused (code INVALID_API_KEY) -> this is handled below by switching keys
+        // Only (a) may talk about logging in. A bad AI key must never stop the whole batch.
+        if (res.status === 401 && resData?.error?.code !== 'INVALID_API_KEY') {
+          if (authRetries < 2) {
+            authRetries++;
+            item.currentStage = 'Checking your login and trying again...';
+            this.callbacks.onItemUpdate({ ...item });
+            try {
+              await createBrowserSupabase().auth.refreshSession();
+            } catch {
+              // ignore: the retry below will tell us if the login really is gone
+            }
+            await this.sleep(1200 * authRetries);
+            continue;
+          }
+          item.status = 'failed';
+          item.httpStatus = 401;
+          item.errorMessage = 'Your login ended. Open orbinexacsv.com in a new tab, log in, then come back and press Resume.';
+          this.callbacks.onItemUpdate({ ...item });
+          toast.error('Your login ended. Log in again (in a new tab), then press Resume. Your work is kept.');
+          this.stop();
+          return false;
         }
 
         // Handle 402 Out of credits
