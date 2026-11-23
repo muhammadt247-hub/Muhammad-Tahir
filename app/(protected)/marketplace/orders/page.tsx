@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
-import { MARKETPLACE_ENABLED, ORDERS_WHATSAPP, formatPkr } from '@/lib/marketplace/shared';
+import { MARKETPLACE_ENABLED, copyAndOpenOrdersGroup, formatPkr } from '@/lib/marketplace/shared';
 
 interface MyOrder {
   id: string;
@@ -254,7 +254,11 @@ function MyOrders() {
       <div className="space-y-4">
         {orders.map((o) => {
           const info = STATUS_TEXT[o.status] ?? { label: o.status, help: '' };
-          const waText = 'Hello, I have a question about my order ' + o.order_no + '.';
+          const waText = [
+            'Hello, I have a question about my order ' + o.order_no,
+            'Package: ' + o.product_name + ' (' + o.package_title + ')',
+            'Vendor: ' + o.vendor_name,
+          ].join('\n');
           return (
             <div
               key={o.id}
@@ -388,14 +392,17 @@ function MyOrders() {
                     Cancel order
                   </Button>
                 )}
-                <a
-                  href={'https://wa.me/' + ORDERS_WHATSAPP + '?text=' + encodeURIComponent(waText)}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await copyAndOpenOrdersGroup(waText);
+                    if (ok) toast.success('Message copied. Paste it in the WhatsApp group and send.');
+                    else toast.error('Could not copy. Please type your order ID ' + o.order_no + ' in the group.');
+                  }}
                   className="inline-flex items-center rounded-md bg-[#25D366] px-3 py-1.5 text-xs font-bold text-white hover:opacity-90"
                 >
-                  Message us on WhatsApp
-                </a>
+                  Ask in our WhatsApp group
+                </button>
               </div>
             </div>
           );
