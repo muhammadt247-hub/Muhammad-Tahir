@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { createClient } from '@/lib/supabase/client';
-import { MpListing, formatPkr, buildOrderMessage, buildWhatsAppLink } from '@/lib/marketplace/shared';
+import { MpListing, formatPkr, buildOrderMessage, copyAndOpenOrdersGroup } from '@/lib/marketplace/shared';
 
 // ---------- Order form (opens on top of the page) ----------
 interface PlacedOrder {
   orderNo: string;
-  link: string;
+  message: string;
 }
 
 export function OrderDialog({
@@ -29,6 +29,22 @@ export function OrderDialog({
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [placed, setPlaced] = useState<PlacedOrder | null>(null);
+  const [copied, setCopied] = useState<boolean | null>(null);
+
+  const sendToGroup = async () => {
+    if (!placed) return;
+    setCopied(await copyAndOpenOrdersGroup(placed.message));
+  };
+
+  const copyOnly = async () => {
+    if (!placed) return;
+    try {
+      await navigator.clipboard.writeText(placed.message);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,7 +83,7 @@ export function OrderDialog({
         price: listing.price,
         notes: notes.trim(),
       });
-      setPlaced({ orderNo, link: buildWhatsAppLink(message) });
+      setPlaced({ orderNo, message });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
@@ -94,18 +110,35 @@ export function OrderDialog({
             </p>
             <div className="rounded-xl bg-muted/50 p-3 text-left text-xs text-muted-foreground space-y-1">
               <p className="font-semibold text-foreground">Next steps</p>
-              <p>1. Press the green button to send your order on WhatsApp.</p>
-              <p>2. We reply with the payment details. You pay only us.</p>
-              <p>3. After we confirm your payment, the delivery time starts.</p>
+              <p>1. Press the green button. We copy your order and open our WhatsApp group.</p>
+              <p>2. Join the group, then paste your order (long-press the message box, then Paste) and send it.</p>
+              <p>3. Our team replies with the payment details. You pay only us.</p>
+              <p>4. After we confirm your payment, the delivery time starts.</p>
+              <p dir="rtl" className="pt-1 text-right">
+                سبز بٹن دبائیں، آرڈر کاپی ہو جائے گا اور واٹس ایپ گروپ کھل جائے گا۔ گروپ جوائن کریں اور آرڈر پیسٹ کر کے بھیج دیں۔
+              </p>
             </div>
-            <a
-              href={placed.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center rounded-xl bg-[#25D366] px-4 py-3 text-sm font-bold text-white hover:opacity-90"
+            <button
+              type="button"
+              onClick={sendToGroup}
+              className="flex w-full items-center justify-center rounded-xl bg-[#25D366] px-4 py-3 text-sm font-bold text-white hover:opacity-90"
             >
-              Send order on WhatsApp
-            </a>
+              Copy order and open WhatsApp group
+            </button>
+            {copied === true && (
+              <p className="text-xs font-semibold text-emerald-600">Order copied. Now paste it in the group and press send.</p>
+            )}
+            {copied === false && (
+              <p className="text-xs font-semibold text-red-600">Could not copy. Please select the order below, copy it, and paste it in the group.</p>
+            )}
+            <div className="space-y-1 text-left">
+              <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-border/60 bg-muted/40 p-3 text-[11px] text-foreground select-all">
+                {placed.message}
+              </pre>
+              <button type="button" onClick={copyOnly} className="text-xs font-semibold text-primary hover:underline">
+                Copy order again
+              </button>
+            </div>
             <Link
               href="/marketplace/orders"
               className="block text-sm font-semibold text-primary hover:underline"

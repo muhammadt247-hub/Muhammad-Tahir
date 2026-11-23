@@ -209,3 +209,21 @@ export function buildOrderMessage(o: OrderMessageInput): string {
 export function buildWhatsAppLink(message: string): string {
   return 'https://wa.me/' + ORDERS_WHATSAPP + '?text=' + encodeURIComponent(message);
 }
+
+// Orders WhatsApp group (the moderators are in it and reply there).
+// Do not add vendors to this group: order messages contain the customer's phone and email.
+export const ORDERS_GROUP_LINK = 'https://chat.whatsapp.com/J8FFXJSCyIoIx2VvRTcx4K';
+
+// A group link cannot fill in the message, so we copy it first and the buyer pastes it in the group.
+// Returns true when the message was copied.
+export async function copyAndOpenOrdersGroup(message: string): Promise<boolean> {
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(message);
+    copied = true;
+  } catch {
+    copied = false;
+  }
+  window.open(ORDERS_GROUP_LINK, '_blank', 'noopener,noreferrer');
+  return copied;
+}
