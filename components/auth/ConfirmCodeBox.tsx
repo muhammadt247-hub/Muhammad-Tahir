@@ -1,6 +1,6 @@
 'use client';
 
-// "Type the 6-digit code from the email" box on the Check-your-email screen (and on log in for unconfirmed accounts).
+// "Type the code from the email" box on the Check-your-email screen (and on log in for unconfirmed accounts).
 // Works even when the link in the email does not open, or the email was opened on another device.
 
 import React, { useState } from 'react';
@@ -20,7 +20,7 @@ export function ConfirmCodeBox({ email, next = '/generator' }: { email: string; 
     e.preventDefault();
     const c = code.replace(/\D/g, '');
     if (c.length < 6) {
-      setError('Please type the code from the email (6 numbers).');
+      setError('Please type the full code from the email (all the numbers).');
       return;
     }
     if (!email.trim()) {
@@ -63,7 +63,7 @@ export function ConfirmCodeBox({ email, next = '/generator' }: { email: string; 
           maxLength={10}
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
-          placeholder="123456"
+          placeholder="12345678"
           className="text-center font-mono text-lg tracking-[0.3em]"
         />
         <Button type="submit" disabled={busy} className="gap-1.5 shrink-0">

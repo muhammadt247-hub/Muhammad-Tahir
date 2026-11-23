@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { claimReferralIfAny } from '@/lib/referral';
 import { checkRateLimit } from '@/lib/rate-limit';
 
-// The 6-digit code from the confirmation email, typed on the "Check your email" screen.
+// The code (6 to 10 numbers) from the confirmation email, typed on the "Check your email" screen.
 // Useful when the link does not open or the email arrives on another device.
 const Body = z.object({
   email: z.string().trim().email().max(200),
