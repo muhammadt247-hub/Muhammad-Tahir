@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import { ProcessedAssetFile } from './compress';
-import { AiProvider, GeneratorSavedSettings, saveBatchItem } from './db';
+import { AiProvider, GeneratorSavedSettings, SITE_AI_ENABLED, saveBatchItem } from './db';
 import { keyRotator } from './key-rotation';
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 import { ensureFreshLogin } from '@/lib/supabase/fresh-login';
@@ -307,8 +307,8 @@ export class GeneratorQueue {
     // How many images at once. With the user's own keys, never more than the number of ready keys
     // (each key handles one image at a time); OrbinexaCSV AI and the server key use the full number.
     let parallel = this.settings.parallelImages ?? 4;
-    keyRotator.setSiteAi(Boolean(this.settings.useSiteAi));
-    if (!this.settings.useSiteAi) {
+    keyRotator.setSiteAi(SITE_AI_ENABLED && Boolean(this.settings.useSiteAi));
+    if (!(SITE_AI_ENABLED && this.settings.useSiteAi)) {
       try {
         const prov = this.settings.aiProvider || 'gemini';
         const keys = await keyRotator.loadKeys();
@@ -391,7 +391,7 @@ export class GeneratorQueue {
             await saveBatchItem(item);
             this.callbacks.onItemCompleted?.(item);
 
-            const delaySec = this.settings.useSiteAi ? 0 : this.settings.interImageDelaySeconds ?? 2;
+            const delaySec = (SITE_AI_ENABLED && this.settings.useSiteAi) ? 0 : this.settings.interImageDelaySeconds ?? 2;
             if (delaySec > 0 && this.isRunning && !this.abortController?.signal.aborted) {
               await this.sleep(delaySec * 1000);
             }
@@ -478,7 +478,7 @@ export class GeneratorQueue {
   }
 
   private async processSingleItem(item: GeneratorItemState): Promise<boolean> {
-    let currentProvider: AiProvider = this.settings.useSiteAi ? 'gemini' : this.settings.aiProvider || 'gemini';
+    let currentProvider: AiProvider = (SITE_AI_ENABLED && this.settings.useSiteAi) ? 'gemini' : this.settings.aiProvider || 'gemini';
 
     item.status = 'working';
     item.currentStage = `Connecting to ${currentProvider === 'grok' ? 'Groq' : 'Gemini AI'}...`;
