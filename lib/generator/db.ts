@@ -30,7 +30,7 @@ export type BackgroundMode = 'auto' | 'white' | 'transparent';
 export interface GeneratorSavedSettings {
   mode: 'metadata' | 'prompt';
   batchMode: boolean; // false = single (1 image/req), true = batch (5 images/req)
-  interImageDelaySeconds: number; // Configurable wait time between sequential images (default: 10)
+  interImageDelaySeconds: number; // Wait time after each image (default: 2 s; it was 10 s, which made batches very slow)
   platform: 'general' | 'adobe-stock' | 'shutterstock' | 'freepik';
   titleLength: number;
   keywordsCount: number;
@@ -62,6 +62,10 @@ export interface GeneratorSavedSettings {
   cameraParams: boolean;
   // Model & Provider
   aiProvider?: AiProvider;
+  // OrbinexaCSV AI: use the website's own AI key (paid with credits) instead of the user's keys
+  useSiteAi?: boolean;
+  // Set once old slow defaults (10 s wait, 2 at a time) were moved to the new faster ones
+  speedDefaultsV2?: boolean;
   selectedModel: string;
   selectedGrokModel?: string;
   modelFallback: boolean;
@@ -85,7 +89,7 @@ export interface GeneratorSavedSettings {
 export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   mode: 'metadata',
   batchMode: false,
-  interImageDelaySeconds: 10,
+  interImageDelaySeconds: 2,
   platform: 'adobe-stock',
   titleLength: 100,
   keywordsCount: 45,
@@ -104,7 +108,7 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   autoCsvDownload: false,
   autoEmbed: false,
   autoGenerateAfterUpload: false,
-  parallelImages: 2,
+  parallelImages: 4,
   promptLength: 500,
   isPromptPrefixEnabled: false,
   promptPrefix: '',
@@ -115,6 +119,8 @@ export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   whiteBackground: false,
   cameraParams: false,
   aiProvider: 'gemini',
+  useSiteAi: false,
+  speedDefaultsV2: true,
   selectedModel: AI_CONFIG.DEFAULT_MODEL,
   selectedGrokModel: DEFAULT_GROK_MODEL,
   modelFallback: true,
@@ -230,6 +236,12 @@ export async function getSavedGeneratorSettings(): Promise<GeneratorSavedSetting
           const merged = { ...DEFAULT_GENERATOR_SETTINGS, ...req.result.value };
           if (!merged.aiProvider) {
             merged.aiProvider = 'gemini';
+          }
+          // Move people still on the old slow defaults (10 s wait, 2 images at a time) to the faster ones, once
+          if (!merged.speedDefaultsV2) {
+            if (merged.interImageDelaySeconds === 10) merged.interImageDelaySeconds = 2;
+            if (merged.parallelImages === 2) merged.parallelImages = 4;
+            merged.speedDefaultsV2 = true;
           }
           if (!merged.selectedGrokModel) {
             merged.selectedGrokModel = DEFAULT_GROK_MODEL;

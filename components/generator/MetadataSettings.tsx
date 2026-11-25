@@ -328,7 +328,7 @@ export function MetadataSettings({
                 <div className="pt-2 border-t border-border/20 space-y-1.5">
                   <Label className="text-xs font-medium">Parallel images (Concurrent requests)</Label>
                   <Select
-                    value={String(settings.parallelImages ?? 2)}
+                    value={String(settings.parallelImages ?? 4)}
                     onValueChange={(val) => onUpdate({ parallelImages: parseInt(val, 10) })}
                     disabled={disabled}
                   >
@@ -339,7 +339,7 @@ export function MetadataSettings({
                       <SelectItem value="1">1 (Sequential)</SelectItem>
                       <SelectItem value="2">2 (Balanced)</SelectItem>
                       <SelectItem value="3">3 (Fast)</SelectItem>
-                      <SelectItem value="4">4 (Max speed)</SelectItem>
+                      <SelectItem value="4">4 (Max speed, default)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
