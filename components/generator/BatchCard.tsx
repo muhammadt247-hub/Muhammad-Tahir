@@ -11,10 +11,10 @@ interface BatchCardProps {
   disabled?: boolean;
 }
 
-const PRESET_DELAYS = [5, 6, 10, 15];
+const PRESET_DELAYS = [0, 2, 5, 10];
 
 export function BatchCard({
-  delaySeconds = 10,
+  delaySeconds = 2,
   onDelayChange,
   disabled = false,
 }: BatchCardProps) {
@@ -76,7 +76,7 @@ export function BatchCard({
                   : 'bg-card/70 border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent'
               )}
             >
-              {sec}s {sec === 10 && <span className="text-[9px] opacity-80">(Def)</span>}
+              {sec}s {sec === 2 && <span className="text-[9px] opacity-80">(Def)</span>}
             </button>
           ))}
         </div>

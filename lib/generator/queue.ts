@@ -304,7 +304,23 @@ export class GeneratorQueue {
     this.isRunning = true;
     this.isPaused = false;
     this.abortController = new AbortController();
-    this.maxParallel = this.settings.parallelImages ?? 2;
+    // How many images at once. With the user's own keys, never more than the number of ready keys
+    // (each key handles one image at a time); OrbinexaCSV AI and the server key use the full number.
+    let parallel = this.settings.parallelImages ?? 4;
+    keyRotator.setSiteAi(Boolean(this.settings.useSiteAi));
+    if (!this.settings.useSiteAi) {
+      try {
+        const prov = this.settings.aiProvider || 'gemini';
+        const keys = await keyRotator.loadKeys();
+        const ready = keys.filter(
+          (k) => (k.provider === prov || (!k.provider && prov === 'gemini')) && k.isActive && !k.isInvalid
+        ).length;
+        if (ready > 0) parallel = Math.min(parallel, ready);
+      } catch {
+        // keep the setting
+      }
+    }
+    this.maxParallel = Math.max(1, parallel);
     this.callbacks.onStateChange?.(true, false);
 
     // Strictly process pending items (queued or failed), never sending excluded images
@@ -375,7 +391,7 @@ export class GeneratorQueue {
             await saveBatchItem(item);
             this.callbacks.onItemCompleted?.(item);
 
-            const delaySec = this.settings.interImageDelaySeconds ?? 10;
+            const delaySec = this.settings.useSiteAi ? 0 : this.settings.interImageDelaySeconds ?? 2;
             if (delaySec > 0 && this.isRunning && !this.abortController?.signal.aborted) {
               await this.sleep(delaySec * 1000);
             }
@@ -462,7 +478,7 @@ export class GeneratorQueue {
   }
 
   private async processSingleItem(item: GeneratorItemState): Promise<boolean> {
-    let currentProvider: AiProvider = this.settings.aiProvider || 'gemini';
+    let currentProvider: AiProvider = this.settings.useSiteAi ? 'gemini' : this.settings.aiProvider || 'gemini';
 
     item.status = 'working';
     item.currentStage = `Connecting to ${currentProvider === 'grok' ? 'Groq' : 'Gemini AI'}...`;
@@ -660,9 +676,12 @@ export class GeneratorQueue {
 
         // Handle 429 Rate Limit / Quota Exhaustion / Temporary Provider Errors
         if (res.status === 429 || resData?.error?.code === 'RATE_LIMITED' || resData?.error?.code === 'DAILY_QUOTA_EXHAUSTED' || resData?.error?.code === 'RESOURCE_EXHAUSTED') {
+          // Slow down a little (one fewer image at a time), not all the way to 1 for the whole batch
           if (this.maxParallel > 1) {
-            this.maxParallel = 1;
-            toast.warning('Rate limit encountered (429). Dropping to 1 parallel worker for the rest of the batch.');
+            this.maxParallel = this.maxParallel - 1;
+            if (this.maxParallel === 1) {
+              toast.warning('The AI is busy. Working on 1 image at a time for now.');
+            }
           }
 
           const retryAfterSec =
@@ -778,7 +797,7 @@ export class GeneratorQueue {
         }
 
         // Request Succeeded!
-        await keyRotator.recordKeySuccess(keyInfo?.keyId);
+        await keyRotator.recordKeySuccess(keyInfo?.keyId, currentProvider);
         item.modelUsed = resData.modelUsed;
 
         if (this.settings.mode === 'metadata') {

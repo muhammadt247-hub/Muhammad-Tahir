@@ -53,7 +53,7 @@ interface ApiKeysDialogProps {
   onKeysChanged?: () => void;
 }
 
-const PRESET_DELAYS = [5, 6, 10, 15];
+const PRESET_DELAYS = [0, 2, 5, 10];
 
 export function ApiKeysDialog({
   open,
@@ -188,7 +188,7 @@ export function ApiKeysDialog({
     }
   };
 
-  const currentDelay = settings.interImageDelaySeconds ?? 10;
+  const currentDelay = settings.interImageDelaySeconds ?? 2;
 
   // Filter keys for active provider
   const currentProviderKeys = keys.filter((k) =>
@@ -216,6 +216,36 @@ export function ApiKeysDialog({
         </DialogHeader>
 
         <div className="space-y-5 pt-1">
+          {/* 0. OrbinexaCSV AI: the website's own AI, no keys needed */}
+          <div
+            className={cn(
+              'p-4 rounded-xl border space-y-2',
+              settings.useSiteAi ? 'border-primary/50 bg-primary/10' : 'border-border/50 bg-accent/40'
+            )}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <Label htmlFor="site-ai" className="text-xs font-bold text-foreground">
+                    Use OrbinexaCSV AI (no keys needed)
+                  </Label>
+                  <p className="text-[11px] text-muted-foreground">
+                    Fastest and nonstop. Uses your credits. Your own keys are not used while this is on.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="site-ai"
+                checked={Boolean(settings.useSiteAi)}
+                onCheckedChange={(on) => onUpdateSettings({ useSiteAi: on, ...(on ? { aiProvider: 'gemini' as AiProvider } : {}) })}
+              />
+            </div>
+            <p dir="rtl" className="text-[11px] text-muted-foreground text-right">
+              اپنی کیز کے بغیر تیز اور بغیر رکے CSV بنائیں۔ اس میں آپ کے کریڈٹس استعمال ہوں گے۔
+            </p>
+          </div>
+
           {/* 1. Provider Switch: Gemini | Grok */}
           <div className="p-1 rounded-xl bg-accent/70 flex select-none">
             <button
@@ -325,6 +355,22 @@ export function ApiKeysDialog({
               </Button>
             </div>
           </form>
+
+          {/* Many keys from ONE account share ONE limit: say it plainly */}
+          <div className="p-3 rounded-xl border border-amber-500/40 bg-amber-500/10 text-[11px] text-foreground space-y-1">
+            <p className="font-bold flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+              Important: more keys from the same account do NOT make it faster
+            </p>
+            <p className="text-muted-foreground">
+              {activeProvider === 'grok' ? 'Groq' : 'Google'} gives one speed limit per account. 20 keys made in the same{' '}
+              {activeProvider === 'grok' ? 'Groq' : 'Google'} account work like 1 key and all rest together. Make each key in a
+              different {activeProvider === 'grok' ? 'Groq' : 'Google'} account, or turn on OrbinexaCSV AI above.
+            </p>
+            <p dir="rtl" className="text-muted-foreground text-right">
+              ایک ہی اکاؤنٹ کی 20 کیز ایک کی کی طرح کام کرتی ہیں۔ ہر کی الگ اکاؤنٹ سے بنائیں، یا اوپر OrbinexaCSV AI آن کریں۔
+            </p>
+          </div>
 
           {/* Stored Keys List for Active Provider */}
           <div className="space-y-2">
@@ -457,7 +503,7 @@ export function ApiKeysDialog({
                       : 'bg-card border-border/60 text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  {sec}s {sec === 10 && <span className="text-[9px] opacity-75">(Def)</span>}
+                  {sec}s {sec === 2 && <span className="text-[9px] opacity-75">(Def)</span>}
                 </button>
               ))}
 

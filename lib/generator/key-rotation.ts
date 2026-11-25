@@ -32,6 +32,16 @@ export class KeyRotationManager {
   private loaded = false;
   private currentIndexByProvider: Record<AiProvider, number> = { gemini: 0, grok: 0 };
   private consecutiveShared429sByProvider: Record<AiProvider, number> = { gemini: 0, grok: 0 };
+  // OrbinexaCSV AI mode: every request uses the website's own key (no user keys, no key cooldowns)
+  private siteAi = false;
+
+  setSiteAi(on: boolean): void {
+    this.siteAi = on;
+  }
+
+  isSiteAi(): boolean {
+    return this.siteAi;
+  }
 
   async loadKeys(): Promise<StoredApiKey[]> {
     this.keys = await getStoredApiKeys();
@@ -56,6 +66,16 @@ export class KeyRotationManager {
 
   // Pick an active, non-invalid, non-resting key sequentially via controlled round-robin
   async getNextKey(provider: AiProvider = 'gemini'): Promise<NextKeyResult> {
+    if (this.siteAi) {
+      return {
+        apiKey: undefined,
+        keyId: undefined,
+        isDefaultEnv: true,
+        maskedKey: 'OrbinexaCSV AI',
+        totalActive: 0,
+        provider: 'gemini',
+      };
+    }
     if (!this.loaded) {
       await this.loadKeys();
     }

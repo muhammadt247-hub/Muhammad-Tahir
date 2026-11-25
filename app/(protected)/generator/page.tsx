@@ -179,6 +179,11 @@ export default function GeneratorPage() {
     };
   }, [authLoading, authUser?.id]);
 
+  // OrbinexaCSV AI on/off: every AI request (batch, regenerate, fixes) follows it
+  useEffect(() => {
+    keyRotator.setSiteAi(Boolean(settings.useSiteAi));
+  }, [settings.useSiteAi]);
+
   // Persist settings changes
   const updateSettings = useCallback((partial: Partial<GeneratorSavedSettings>) => {
     setSettings((prev) => {
@@ -2220,7 +2225,7 @@ export default function GeneratorPage() {
           />
 
           <BatchCard
-            delaySeconds={settings.interImageDelaySeconds ?? 10}
+            delaySeconds={settings.interImageDelaySeconds ?? 2}
             onDelayChange={(sec) => updateSettings({ interImageDelaySeconds: sec })}
             disabled={isGenerating || isAnalyzingSimilarity}
           />
