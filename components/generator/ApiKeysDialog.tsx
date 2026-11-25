@@ -37,6 +37,7 @@ import {
   AiProvider,
   GeneratorSavedSettings,
   getStoredApiKeys,
+  SITE_AI_ENABLED,
   saveStoredApiKey,
   deleteStoredApiKey,
 } from '@/lib/generator/db';
@@ -216,7 +217,8 @@ export function ApiKeysDialog({
         </DialogHeader>
 
         <div className="space-y-5 pt-1">
-          {/* 0. OrbinexaCSV AI: the website's own AI, no keys needed */}
+          {/* 0. OrbinexaCSV AI: the website's own AI, no keys needed (hidden until a paid key is on the server) */}
+          {SITE_AI_ENABLED && (
           <div
             className={cn(
               'p-4 rounded-xl border space-y-2',
@@ -245,6 +247,7 @@ export function ApiKeysDialog({
               اپنی کیز کے بغیر تیز اور بغیر رکے CSV بنائیں۔ اس میں آپ کے کریڈٹس استعمال ہوں گے۔
             </p>
           </div>
+          )}
 
           {/* 1. Provider Switch: Gemini | Grok */}
           <div className="p-1 rounded-xl bg-accent/70 flex select-none">
@@ -365,10 +368,10 @@ export function ApiKeysDialog({
             <p className="text-muted-foreground">
               {activeProvider === 'grok' ? 'Groq' : 'Google'} gives one speed limit per account. 20 keys made in the same{' '}
               {activeProvider === 'grok' ? 'Groq' : 'Google'} account work like 1 key and all rest together. Make each key in a
-              different {activeProvider === 'grok' ? 'Groq' : 'Google'} account, or turn on OrbinexaCSV AI above.
+              different {activeProvider === 'grok' ? 'Groq' : 'Google'} account, and add both Gemini and Groq keys.
             </p>
             <p dir="rtl" className="text-muted-foreground text-right">
-              ایک ہی اکاؤنٹ کی 20 کیز ایک کی کی طرح کام کرتی ہیں۔ ہر کی الگ اکاؤنٹ سے بنائیں، یا اوپر OrbinexaCSV AI آن کریں۔
+              ایک ہی اکاؤنٹ کی 20 کیز ایک کی کی طرح کام کرتی ہیں۔ ہر کی الگ اکاؤنٹ سے بنائیں، اور Gemini اور Groq دونوں کی کیز ڈالیں۔
             </p>
           </div>
 

@@ -34,6 +34,7 @@ import {
   saveAllBatchItems,
   deleteSavedBatchItem,
   clearSavedBatchItems,
+  SITE_AI_ENABLED,
 } from '@/lib/generator/db';
 import { GeneratorItemState, GeneratorQueue, QueueProgressState, isItemExcluded } from '@/lib/generator/queue';
 import { processFileForGenerator } from '@/lib/generator/compress';
@@ -181,7 +182,7 @@ export default function GeneratorPage() {
 
   // OrbinexaCSV AI on/off: every AI request (batch, regenerate, fixes) follows it
   useEffect(() => {
-    keyRotator.setSiteAi(Boolean(settings.useSiteAi));
+    keyRotator.setSiteAi(SITE_AI_ENABLED && Boolean(settings.useSiteAi));
   }, [settings.useSiteAi]);
 
   // Persist settings changes

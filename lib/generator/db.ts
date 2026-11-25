@@ -86,6 +86,10 @@ export interface GeneratorSavedSettings {
   detectDuplicates?: boolean;
 }
 
+// OrbinexaCSV AI (the site's own key for everyone) is switched off: it needs a paid Gemini key on the server.
+// Set to true only after a paid GEMINI_API_KEY is on Hostinger.
+export const SITE_AI_ENABLED = false;
+
 export const DEFAULT_GENERATOR_SETTINGS: GeneratorSavedSettings = {
   mode: 'metadata',
   batchMode: false,
@@ -243,6 +247,8 @@ export async function getSavedGeneratorSettings(): Promise<GeneratorSavedSetting
             if (merged.parallelImages === 2) merged.parallelImages = 4;
             merged.speedDefaultsV2 = true;
           }
+          // OrbinexaCSV AI is off: anyone who turned it on goes back to their own keys
+          if (!SITE_AI_ENABLED) merged.useSiteAi = false;
           if (!merged.selectedGrokModel) {
             merged.selectedGrokModel = DEFAULT_GROK_MODEL;
           }
