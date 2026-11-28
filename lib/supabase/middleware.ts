@@ -22,12 +22,11 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // Every API needs a login, except the few that must work for visitors (deny by default,
+  // so a new API can never be left open by mistake). /api/auth/* is already let through above.
+  const PUBLIC_APIS = ['/api/assistant'];
   const isProtectedApi =
-    pathname.startsWith('/api/generate') ||
-    pathname.startsWith('/api/similarity') ||
-    pathname.startsWith('/api/prompt') ||
-    pathname.startsWith('/api/stock/search') ||
-    pathname.startsWith('/api/image-proxy');
+    pathname.startsWith('/api/') && !PUBLIC_APIS.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   // If Supabase is not configured, handle gracefully without crashing
   if (!isSupabaseConfigured()) {
