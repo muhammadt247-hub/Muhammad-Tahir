@@ -2,6 +2,8 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // do not tell visitors which framework runs the site
+  poweredByHeader: false,
   eslint: {
     ignoreDuringBuilds: true,
   },

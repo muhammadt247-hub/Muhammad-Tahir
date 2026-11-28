@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import { z } from 'zod';
 import { AI_CONFIG, isFallbackEligibleError } from '@/config/ai';
+import { limitByIp } from '@/lib/rate-limit';
 
 const SimilarityRequestSchema = z.object({
   contactSheet: z.string().min(10), // Base64 data URI of contact sheet
@@ -71,6 +72,9 @@ function parseDataUri(dataUri: string): { mimeType: string; data: string } {
 }
 
 export async function POST(req: NextRequest) {
+  // Can use the server AI key: limit how often one visitor can call it
+  const limited = limitByIp(req, "similarity", 30);
+  if (limited) return limited;
   try {
     const rawBody = await req.json();
     const parsed = SimilarityRequestSchema.safeParse(rawBody);

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Type } from '@google/genai';
 import { getGeminiClient } from '@/lib/gemini';
 import { AI_CONFIG, isFallbackEligibleError } from '@/config/ai';
+import { limitByIp } from '@/lib/rate-limit';
 
 const RequestSchema = z.object({
   imageUrl: z.string().min(1),
@@ -74,6 +75,9 @@ async function getImagePart(imageUrl: string) {
 }
 
 export async function POST(req: NextRequest) {
+  // Uses the server AI key: limit how often one visitor can call it
+  const limited = limitByIp(req, "prompt", 30);
+  if (limited) return limited;
   try {
     const body = await req.json();
     const parsed = RequestSchema.safeParse(body);
