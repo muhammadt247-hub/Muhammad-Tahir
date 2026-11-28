@@ -1,7 +1,8 @@
 import { type NextRequest } from 'next/server';
 import { updateSession } from '@/lib/supabase/middleware';
 
-export async function middleware(request: NextRequest) {
+// Next 16 calls this file 'proxy' (it was 'middleware'). It runs on Node.js and does the same login checks.
+export async function proxy(request: NextRequest) {
   return await updateSession(request);
 }
 
