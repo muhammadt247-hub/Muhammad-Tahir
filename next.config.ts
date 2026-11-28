@@ -4,9 +4,6 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // do not tell visitors which framework runs the site
   poweredByHeader: false,
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   typescript: {
     // Type errors now STOP a deploy, so a broken build never goes live. (All old errors were fixed.)
     ignoreBuildErrors: false,
@@ -69,6 +66,7 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Next 16 uses Turbopack by default; package.json runs dev and build with --webpack so this block still applies.
   webpack: (config, {isServer, dev}) => {
     if (!isServer) {
       config.resolve.fallback = {
